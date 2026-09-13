@@ -16,3 +16,5 @@ htmlcov/
 .build/
 # os
 .DS_Store
+# derived review artifact (make plan-html)
+docs/PLAN.html

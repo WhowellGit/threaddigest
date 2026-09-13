@@ -70,3 +70,6 @@ test:
 
 run:
 	$(UV) run insightminer run
+
+plan-html: ## render docs/PLAN.md to docs/PLAN.html for browser review
+	$(UV) run python tools/render_plan.py
