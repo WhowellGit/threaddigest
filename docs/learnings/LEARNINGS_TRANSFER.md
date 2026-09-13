@@ -68,7 +68,7 @@ The earlier project describes a four-mechanism context model (`SYSTEM_ARCHITECTU
 - Agent reports are not committed except as curated review records under `docs/reference/reviews/`, because the corpus they described had grown to about 4,300 documents of which roughly 81% was agent exhaust.
 - The `last-verified` stamp and the update-policy header that every one of their documents carries are adopted on this document and on `STATUS.md`.
 
-**What was not adopted, and why.**
+**What was not adopted, and why (PROVISIONAL, 2026-09-13).** These calls were made from partial direct reading at the scale of this project, before the deep assessment of the harness that Wes asked for the same evening (see §7). Treat each as a hypothesis with its reason, not a settled negative; the assessment record in `docs/reference/reviews/` supersedes this list where they differ.
 
 - The per-module living design story (README, JOURNEY, manifest per module): too heavy for a package of about thirty modules with one maintainer; docstrings, `DECISIONS.md`, and git history carry the same weight here. Revisit if a module gains a second maintainer.
 - The semantic-search recall arm: the corpus is a few dozen documents, and their own "honest limits" paragraph says grep plus the router already found most of what agents needed.
@@ -77,7 +77,7 @@ The earlier project describes a four-mechanism context model (`SYSTEM_ARCHITECTU
 - Forty-eight slash commands: the operator surface here is the web UI and a handful of `make` targets.
 - The memory snapshot script: it is the mechanism that ate the memory; the repo's `docs/` is the one durable home.
 
-**The take.** Their structure worked, by their own account, because `CLAUDE.md` is read automatically, a roles table prevents duplication, maintenance rules make updates mechanical rather than optional, and a programmatic check validates consistency. All four are present here in smaller form. Their own retrospectives also record the failure mode of the structure: the apparatus outran the product (about 74 ADRs and hundreds of documents before code moved), READMEs drifted, and the honest precedence rule became "when the prose and the code disagree, the code wins". The lesson taken is that the structure earns its keep only while the count is held: four living documents, one router, one currency test, and a rule that nothing is added without a recurring class to justify it.
+**The take (provisional, same caveat).** Their structure worked, by their own account, because `CLAUDE.md` is read automatically, a roles table prevents duplication, maintenance rules make updates mechanical rather than optional, and a programmatic check validates consistency. All four are present here in smaller form. Their own retrospectives also record the failure mode of the structure: the apparatus outran the product (about 74 ADRs and hundreds of documents before code moved), READMEs drifted, and the honest precedence rule became "when the prose and the code disagree, the code wins". The lesson taken is that the structure earns its keep only while the count is held: four living documents, one router, one currency test, and a rule that nothing is added without a recurring class to justify it.
 
 ### 2.5 Agent-management practice
 
