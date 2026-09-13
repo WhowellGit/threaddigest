@@ -16,7 +16,7 @@
 - `hard_after=` on relaxed ratchet lines in `tools/ratchet.py`, with a positive control (approved).
 
 ## Not built yet (next)
-- M1a: `adapters/reddit_praw.py` (probe-first), `services/` (run lifecycle, sweep, trees, revisit, reconcile, scrub, tagging), CLI commands (`run`, `doctor`, `probe`, `db`; `make run` currently prints that the command is not built), post-run invariants through the real run path, cassettes, `make fixture`.
+- M1a tranche A (collector without Reddit): design frozen 2026-09-13 at round five (`docs/recent/M1A_TRANCHE_A.md` § Design freeze); implementation workflow in progress. Tranche B (`adapters/reddit_praw.py` probe-first, cassettes, `probe`, `make fixture`) waits on credentials. M1b onward: trees, revisit, reconcile, scrub, tagging.
 - M2: schema revision 2 (`workspaces.archived_at`, `post_themes.origin`, `posts.watch_until`), the web UI incl. workspace lifecycle and curation controls (specs WS-01..06, CU-01..10).
 - Gate bookkeeping: `GUARDS.md` positive-control cells, `@pytest.mark.gate` markers on the remaining gates, TEST_STRATEGY `planned` → `shipped` flips.
 - Small follow-ups: Settings should read `.env` (the launchd wrapper exports it today); suppression baseline is 11 noqa / 7 type-ignores / 5 pragmas (bootstrap level, to be driven down).
