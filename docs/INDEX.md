@@ -47,6 +47,7 @@
 ### `learnings/`
 
 - `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` — ranked adoption of the earlier project's database lessons with confidence/importance/value/cost, the guard design rules, what was declined, decisions raised, lessons that did not transfer, the living follow-up list. Read when: touching `db/`, migrations, test isolation, or invariants.
+- `learnings/LEARNINGS_TRANSFER.md` — what Insight Miner took from the earlier project beyond the database (guard philosophy, testing and operational methodology, documentation and memory structure, agent practice), the interpretive layer on the database adoptions, what was declined and why, and dated predictions to score at the retrospective. Read when: starting a retrospective, judging whether a transferred lesson held, or starting the next project's transfer.
 
 ### `decisions/`
 

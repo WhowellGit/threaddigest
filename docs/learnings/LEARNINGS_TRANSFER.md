@@ -1,0 +1,173 @@
+# Learnings transfer: what Insight Miner took from the earlier project, and how to judge it later
+
+> **Update policy:** append dated sections; never rewrite an earlier judgement. The only prune-stale part is the *Outcome* column of the retrospective table in §5, filled in at each milestone. `last-verified: 2026-09-13`.
+>
+> **Who wrote this and why:** Claude (the main session, the main planning session) on 2026-09-13 at Wes's request, so the transfer of lessons from his earlier data project into this one can be examined at a retrospective: what was adopted, how it was interpreted, what transferred, what did not, and what we predicted. Wes intends to evolve this document across future projects (§6).
+
+## 1. Provenance: how the source material was assessed
+
+| Step | When | What | Where the record is |
+|---|---|---|---|
+| Eight retrospective documents (~700 KB) received | 2026-09-12 | `CRITICAL_FAILURES_RETROSPECTIVE`, `DEAD_ENDS_AND_RULED_OUT`, `INDEX`, `KEY_LEARNINGS`, `PROJECT_JOURNEY`, `SYSTEM_ARCHITECTURE_AND_REBUILD`, `VALUE_STAGE_KEY_LEARNINGS`, `WHY_THE_GUARDS_EXIST` | Originals in `~/repos/insightminer-desktop-archive/`; disposition inside the repo per §7 |
+| Direct read | 2026-09-12 | `WHY_THE_GUARDS_EXIST` and `INDEX` read in full by the planning session; later, targeted sections of `SYSTEM_ARCHITECTURE_AND_REBUILD` (context-loading model, legibility, test ratchets), `KEY_LEARNINGS` (collaboration patterns), `CRITICAL_FAILURES` (newly surfaced failures) | This document |
+| Two independent reviewer digests | 2026-09-12 | Two agents read the six remaining documents and produced ranked recommendations | `docs/reference/reviews/2026-09-12-db-learnings-review-A.md`, `-B.md` |
+| Ranked adoption with confidence, importance, value, cost | 2026-09-12 | 26 items ranked; declined and scoped items with reasons; lessons that did not transfer | `docs/learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` |
+| Adversarial review of the applied set | 2026-09-13 | Cut or downgraded roughly a third of the gates that the transfer had produced | `docs/reference/reviews/2026-09-13-adversarial-review.md`; `PLAN.md` § Robustness → "Adversarial review: what changed" |
+| Second-pass residual scan | 2026-09-13 | Eight readers (Sonnet for the six small files, Opus for the two large ones), an Opus judge, an Opus completeness critic, measuring what transferable insight the distilled corpus still lacked | §7 of this document |
+
+**Bias, stated.** The transfer was made with a deliberate bias toward adopting, because the sources were audited failures with numbers attached rather than opinions. The adversarial review then showed the cost of that bias: about a third of the resulting gates were unfalsifiable, redundant, or premature. The transfer step itself needs adversarial review; that is the first candidate lesson this project adds to the canon (§6).
+
+## 2. What transferred beyond the database
+
+The earlier project was a bug-intelligence pipeline over an issue tracker, pull requests, crash events, and release notes feeding a very large SQLite store, with embeddings, evaluation gold sets, and a multi-machine fleet. Its domain lessons do not apply here. Its process lessons do, and they shaped more of this plan than the database rules did. Each row names the earlier lesson, where it landed, and how it was interpreted.
+
+### 2.1 Guard design and enforcement philosophy
+
+| Earlier lesson (source) | Where it landed here | Interpretation |
+|---|---|---|
+| 14 of 29 guards had never fired; 9 of about 20 gates could not fail; 2,250 grandfathered suppressions had become a permanent exemption (`WHY_THE_GUARDS_EXIST`) | The guard design rules table in `PLAN.md` § Robustness; `tests/gates/` with a positive control per gate class; the zero-suppression baseline; `GUARDS.md` | The earlier project learned these rules by auditing guards after the fact. A greenfield project gets them for free at day zero, which is the only cheap moment to install them. The rules were then applied to themselves: the adversarial review used "hold the count" to cut the gate menu |
+| Scan a structural shape, never police a hand-maintained list; key on the invariant, not a proxy | Ratchets count what ruff, pytest collection, and an AST walk find; post-run invariants query the real tables through the app's own connection path | Their registries drifted from reality because a human curated both the registry and the code. Anything the same person maintains twice will diverge |
+| A gate that cannot fail is not a gate | Every ratchet has a unit test of its compare function; every run-path invariant is proven with a planted violation through `insightminer run --gateway fake`; external controls carry a dated "last seen red" line instead of a test | Split into three honest classes after the adversarial review, because "a positive control for every gate" was itself unfalsifiable for branch protection and launchd |
+| Ratchets ran only in the full suite, not in the commit path (`KEY_LEARNINGS` 2026-09-03: "lack of enforcement") | pre-commit plus required CI; `make check` compares floors three ways so a stale floor is red; fail-closed hooks | The distance between a rule and the path every change takes is where drift lives |
+| Grandfathered baselines that only shrink per file (their 22 lint ratchets) | Four ratchet files at the measured baseline of a greenfield tree, with a loosening ledger; bootstrap suppressions (11 noqa, 7 type-ignores, 5 pragmas) to be driven down | Their per-file grandfathering suited a 13,005-test codebase with a backlog. Ours has no backlog to grandfather, so the baseline is the floor and every move against direction is a recorded loosening. The most likely recurrence here is "grandfathered forever"; the ledger is the counter |
+| Derive state, never narrate it; a manual number is a lie waiting to happen (their test count was silently off by 57) | The `make check` summary block is pasted, never described; counts in the UI and digest come from one function with a denominator; the plan avoids restating counts in prose | Adopted whole. It also shaped how this project reports to Wes: outputs, not claims |
+
+### 2.2 Testing methodology
+
+| Earlier lesson (source) | Where it landed here | Interpretation |
+|---|---|---|
+| A 2026-07 gap audit found no test spanned three or more pipeline stages; the first workflow-test wave caught a mis-ordered step, a swallowed crash, and two "canonical" tests passing against an empty directory (`SYSTEM_ARCHITECTURE` § test architecture) | The Workflow layer in `TEST_STRATEGY.md`: whole-pipeline scenarios through one fake corpus, plus operator workflows (setup → first sweep, theme edit → retag, backup → restore, pending migration → apply, export → import) | Component tests prove each step; only cross-stage tests prove the order. Written into the strategy before any service exists, so the layer is not "newer" here |
+| Hermeticity guards (`_netguard`, `_stateguard`, `_childguard`) | `--block-network`; `DATA_DIR` refusal under pytest; the `ProcessRunner` port so web tests never spawn the real collector; the CLI refuses to start under pytest without `--gateway fake` | Their guards were bolted on after tests touched live artifacts twice. Ours are structural: settings refuse, the port isolates the subprocess seam |
+| Vacuous tests that pass against nothing | Fail, never skip, inside the required gate; the skip ratchet at zero; the compliance canary plants a phrase and asserts absence everywhere | A test that can pass on an empty input is the same failure as a gate that cannot fail |
+| User-as-QA is irreplaceable: the most impactful bugs were caught by the operator reading real output (`KEY_LEARNINGS` § Human–AI collaboration) | M1d requires seven consecutive scheduled runs and Wes reading the seven digests against Reddit before the milestone closes; recurring human duties are held to three | The retrospectives are explicit that no test would have caught those bugs. So the plan schedules the human reading rather than hoping for it |
+| Multi-agent assessment surfaces blind spots: 3 to 5 zero-context agents after any major refactor; the agentic panel (diverse, adversarial, independent-verify) as a standing method (`VALUE_STAGE_KEY_LEARNINGS` KL-19 vicinity) | The review harness in `PLAN.md`: panels at new modules and migrations; a fresh-context review per PR; an adversarial pass on every decision; reviews aimed at the previous round's conclusion, with teeth to retract | Adopted, with one addition from Wes: same-model agreement is not confirmation, so providers are made pluggable at M1 and sub-agents are tiered by model |
+| Small-input tests hid a 90-minute production merge | Four `EXPLAIN QUERY PLAN` assertions on hot queries; indexes declared up front; the 50k-post stress corpus was cut by the adversarial review | Scaled down deliberately: this database grows 1–2 GB a year, theirs passed 700 GB |
+
+### 2.3 Operational methodology
+
+| Earlier lesson (source) | Where it landed here | Interpretation |
+|---|---|---|
+| launchd is silently denied access to TCC-protected folders; `python3` resolved to 3.9 and corrupted output; a closed lid stranded runs | Repo and data at `~/repos/insightminer`; `doctor` checks the path; the wrapper uses the venv interpreter by absolute path under `caffeinate`; TCC refusal in `run.sh` with tests | Adopted verbatim; these are facts about macOS, not opinions |
+| Freshness of the source *list* is its own failure axis: a 3-week-stale issue list hid 12,560 crash events while every run stayed green (`CRITICAL_FAILURES` § newly surfaced, A) | Per-source freshness tracked separately from run status; zero-new detection across all sources; the digest names a stale source | The live freshness anchor (one request per subreddit against the stored watermark) was adopted on 2026-09-12 and cut on 2026-09-13 by the adversarial review as spending requests on a rare failure. Recorded as a judgement call to revisit if uniform staleness ever occurs (§5, P5) |
+| Doc-fixed but code-still-wrong: a metric was relabelled in a document while the scripts kept emitting the old label (`CRITICAL_FAILURES` F) | The digest, Runs page, and `make check` summary are computed from the database and tool output; field names are contracts with a two-gate discipline for semantic change | A correction in prose is not a correction in what ships |
+| Fixed-template notifications lied; an alert path could itself be broken | Notifications are best-effort; the UI status pill computed from `runs` is canonical; a Healthchecks.io ping replaces the launchd dead-man at M1d because a launchd job cannot watch a launchd failure in its own domain | The adversarial review downgraded the weekly notifier proof; the durable lesson kept is "the alert surface must be derived from state" |
+| The cross-OS cluster: Mac-first assumptions surfaced together when the fleet went multi-OS, and the silent members were the hazard (`CRITICAL_FAILURES` B) | Linux is the primary CI matrix from day one; `encoding="utf-8"` on every text open enforced by ruff `PLW1514`; `os.replace`; `fcntl` confined to the lock module; no platform-hostile characters in generated names | Adopted before there is a second OS, because the silent members are the ones a first run does not show |
+| The memory system ate the memory: an export path mirrored deletions and silently lost durable discipline memories (`CRITICAL_FAILURES` C) | The repo's `docs/` is the durable store and is git-tracked; the auto-memory outside the repo holds only judgement not derivable from the repo, and is never synced by a script | Any mirror of durable memory must be add-or-update only. Here the mirror was removed rather than fixed: there is one durable home |
+
+### 2.4 Documentation and memory structure (Wes's question)
+
+The earlier project describes a four-mechanism context model (`SYSTEM_ARCHITECTURE` § context-loading model): a parent router across projects, a per-project `CLAUDE.md` with read order and rules, the per-machine auto-memory (`MEMORY.md` index plus `feedback_*` and `project_*` files holding operator judgement that exists nowhere else), and in-repo durable documents. On top of that sit two doc-maintenance rules (every document class is APPEND-ONLY for logs, registers, and journeys, or PRUNE-STALE for routers, status, and specs; a fact changed in one place propagates to every mirror in the same pass), decision registers routed by the shape of the capture (an architectural decision, a calibrated number, a data bug, a harness fix, an agent investigation, deferred work, and a session changelog each have one home), a router lint that fails when a live document is named in no router, a per-module living design story, and a two-arm retrieval layer (a curated router for precision, local semantic search for recall).
+
+**What was adopted here, and why.**
+
+- The separation of long-term learnings from active-work state is the single most valuable structural idea in the corpus, and it was adopted whole: `docs/learnings/` and `docs/insights/` are append-only with dated entries; `docs/recent/STATUS.md` is the one document that is rewritten. It solves the two failure modes of agent memory at once: stale guidance masquerading as current (fixed by prune-stale for status), and hard-won lessons being quietly rewritten by a later session (fixed by append-only for learnings).
+- The ranking discipline in `CRITICAL_FAILURES_RETROSPECTIVE` ("the ranked 15 is curated; promote a new failure in only if it outranks something") is the piece most projects miss. It is "hold the count" applied to documentation, and it is why `DB_LEARNINGS_APPLIED` is ranked with confidence, importance, value, and cost rather than being a list.
+- The router pattern became `docs/INDEX.md` with a bidirectional currency test (`tests/gates/test_doc_currency.py`), which is their `doc_router_lint` at small scale. The "critical-operations pre-read table" became the routing table in `CLAUDE.md`, and path-scoped rules load only when matching files are edited.
+- The registers were adopted as a deliberately small subset: `KNOWN_ISSUES.md` (every fixed bug points at its regression test), `DECISIONS.md` (settled choices and settled negatives), `GUARDS.md` (birth incident, positive control, catches since), `RUNBOOK.md`. Their `DEAD_ENDS_AND_RULED_OUT` idea, "never re-derive a settled negative", lives in `DECISIONS.md` § settled negatives and in the `CLAUDE.md` routing row for evaluating a new approach.
+- The auto-memory layer is used as they used it: `MEMORY.md` as a one-line index; `feedback-*`, `project-*`, and `user-*` files for judgement that is not in the repo (how Wes wants plans delivered, that handoffs must be verified independently, the model-tier rule). This session has been running that pattern.
+- Agent reports are not committed except as curated review records under `docs/reference/reviews/`, because the corpus they described had grown to about 4,300 documents of which roughly 81% was agent exhaust.
+- The `last-verified` stamp and the update-policy header that every one of their documents carries are adopted on this document and on `STATUS.md`.
+
+**What was not adopted, and why.**
+
+- The per-module living design story (README, JOURNEY, manifest per module): too heavy for a package of about thirty modules with one maintainer; docstrings, `DECISIONS.md`, and git history carry the same weight here. Revisit if a module gains a second maintainer.
+- The semantic-search recall arm: the corpus is a few dozen documents, and their own "honest limits" paragraph says grep plus the router already found most of what agents needed.
+- The numbered ID brokers and the seven registers: at this scale they would be apparatus without incidents to fill them. Two registers were kept and the rest folded into `DECISIONS.md`.
+- The session changelog: `git log` plus `STATUS.md` cover it.
+- Forty-eight slash commands: the operator surface here is the web UI and a handful of `make` targets.
+- The memory snapshot script: it is the mechanism that ate the memory; the repo's `docs/` is the one durable home.
+
+**The take.** Their structure worked, by their own account, because `CLAUDE.md` is read automatically, a roles table prevents duplication, maintenance rules make updates mechanical rather than optional, and a programmatic check validates consistency. All four are present here in smaller form. Their own retrospectives also record the failure mode of the structure: the apparatus outran the product (about 74 ADRs and hundreds of documents before code moved), READMEs drifted, and the honest precedence rule became "when the prose and the code disagree, the code wins". The lesson taken is that the structure earns its keep only while the count is held: four living documents, one router, one currency test, and a rule that nothing is added without a recurring class to justify it.
+
+### 2.5 Agent-management practice
+
+| Earlier lesson (source) | Where it landed here |
+|---|---|
+| Short commands, high throughput: trust built through prior sessions, preserved across compactions by `CLAUDE.md` and the doc structure | The working agreement and routing table; `STATUS.md` as the first read of every session; the memory files |
+| Sub-agents are read-and-investigate shaped; writes through them were silently denied (`CRITICAL_FAILURES` D) | Workflows here use read-only reader and verifier stages and one deterministic apply step run by a script, never parallel writers to the same files |
+| Fresh eyes catch what familiarity normalizes; the AI's "ship it" was overruled by a third review round that found a security hole | The per-PR fresh-context review; the adversarial pass; Wes's rule to scrutinize agent feedback and form independent judgements, which produced the ranked learnings document and the adversarial review of the transfer itself |
+| (New, 2026-09-13) Every sub-agent inheriting the most capable model was overkill and exhausted the session limit | The model-tier policy: the main session plans and decides; Opus for judgement-bearing stages; Sonnet for well-specified mechanical stages; every call names its model |
+
+### 2.6 Product judgement
+
+The one-sentence lesson of `CRITICAL_FAILURES_RETROSPECTIVE` is that almost every expensive failure was a number, label, or field that was real but measured wrong, scoped wrong, or asked the wrong question. It landed here as: show the denominator on every count; rank "top issue" by distinct authors, then comments, then score, never by raw post count; show each theme rule's hit rate as a share of all captured posts so a keyword that tags most of everything is visibly non-diagnostic; flag and exclude bot-authored items by default (bot accounts nearly doubled a "human" corpus in the earlier project); and treat `num_comments` as Reddit's count including deleted items, never as an invariant.
+
+## 3. Database: what was adopted, how it was interpreted, what transferred, what did not
+
+The ranked list with confidence, importance, value, and cost is `docs/learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1, and it is not repeated here. This section is the interpretive layer Wes asked for: how each class of lesson was read, and where the mechanism here differs from theirs.
+
+### 3.1 Adopted verbatim (direct incident, high confidence)
+
+| Lesson | Incident behind it | Mechanism here |
+|---|---|---|
+| Upsert with `INSERT … ON CONFLICT DO UPDATE`, never `INSERT OR REPLACE` | 16,813 rowids burned; FTS rows detached; a false cross-machine divergence alarm | Repository upserts; PK-stability invariant (`pk`, `first_seen_at`, `max(pk) == count(*)` unchanged across reruns); `AUTOINCREMENT` on the FTS content tables |
+| Test isolation of the data directory is structural | Tests overwrote live artifacts twice; the read path honoured the test dir, the write path did not | Autouse temp `DATA_DIR`; settings refuse the default dir under pytest without an explicit opt-in; the same rule across the subprocess seam |
+| Fail-closed state machine; unknown values stored raw and counted | Silent acceptance of unknown enum values caused weeks of drift | `core/deletion.py` never defaults to `live`; `unknown_enum_values` counted; `next_check_at NOT NULL` |
+| Population floors and coverage counters per column | A column was NULL on all 52,816 rows while every gate passed | Structural floors at M1a; trailing-median alarms deferred to M3 after 60 days of baseline |
+| One canonical record shape before normalize; shape parity between producers | Two producers of one record drifted four times; 12,231 rows landed with a NULL schema version because a second code path never stamped it | One canonical dict; a parity test fed the same real post captured both ways; a per-path field-ownership table; a single `normalizer_version` |
+| Connection chokepoint and one scrub function | An opt-in write guard was bypassed by the main helper; a freshness guard was written but never wired | Only `db.engine` creates engines (import-linter, ruff `TID251`); a behavioural pragma test; scrub mutates DB, FTS, and tags in one call |
+| Destructive operations require a recorded verified backup | A half-built database was promoted to live; destructive scripts were one mistake from data loss | The `backups` table ships in revision 1; restore, downgrade, reprocess, delete-captured-data, container init, and retention sweeps check it; a `Confirmation` value object |
+| Every mutating command takes the lock and writes a run row | PID-file races; runs that looked alive or dead for the wrong reasons | `flock` means alive; heartbeat carries the stage; stale threshold shared by collector and UI |
+
+### 3.2 Adopted with a changed mechanism (interpreted, then verified)
+
+- **FTS and two copies of one truth.** Their lesson was general: two copies of the same logic or data diverge silently unless a lock or a parity test makes divergence impossible. Here the two copies are the content tables and the FTS index. The mechanism became live-only views (`posts_live`, `comments_live`) with gated triggers on the base tables, FTS membership counted from `_docsize` because `count(*)` on an external-content table can never go red, and an `integrity-check` with `rank=1`. None of that is in the retrospectives; the database panel verified it empirically on SQLite 3.53 on 2026-09-13, and two of the three findings corrected the plan's first draft.
+- **Migrations.** Their lesson: schema version literals copied into six producers, and drift across the seam as the number-one hot zone. Here: one `alembic_version`, `render_as_batch` with the FTS views and triggers dropped and recreated inside the same migration, `transaction_per_migration`, a fixture database per prior revision, a `schema.sql` golden with generated column comments, and a fingerprint derived by one normalizer from both the live schema and the packaged golden (never a stored constant, which is how their literal drifted).
+- **Freshness.** Their axis was the source list. Here it became per-source freshness checked separately from run status plus zero-new detection; the live anchor was cut (see §2.3). If P5 in §5 fails, the anchor comes back.
+- **Guard reachability.** Their unit-tested-but-never-called gate became the rule that run-path invariants are proven only through `insightminer run` with the fake planting the violation and `runs.status` flipping. Scoped to three classes of positive control after the adversarial review.
+- **Ratchets.** Their per-file shrink-only baselines became four `key=value` files written only by `tools/ratchet.py`, compared three ways, with loosenings recorded in `GUARDS.md`. The greenfield baseline is the design difference; the ledger is the safeguard against it quietly becoming their grandfathered backlog.
+
+### 3.3 Considered and scaled down, with reasons
+
+| Their mechanism | Here | Why the scale differs |
+|---|---|---|
+| About 22 lint ratchets orchestrated by a runner | Four ratchet files plus the ruff rule set (`E722`, `BLE001`, `S110`, `S112`, `B904`, `TRY*`, `TID251`, `PLW1514`, `C901`, `PLR0915`) | 13,005 tests and a backlog to drain versus a few hundred tests and no backlog |
+| Stress tests at production scale | Four `EXPLAIN QUERY PLAN` assertions | 700 GB versus 1–2 GB a year |
+| Mutation testing as a ratchet | Optional tool, never a gate | Not validated by their retrospectives either |
+| Multi-machine divergence detection, fleet sync, snapshot manifests for embeddings | Single writer on one machine; `normalizer_version` plus `raw_json` reprocess golden as the small analogue of "re-derivable to a known spec" | No fleet, no embeddings |
+| Full rebuild versus fast-incremental update paths for the live DB | One idempotent sweep of the full `/new` window every run | The window is 1,000 posts per subreddit and costs about 30 requests a day, so there is no second path to keep in parity |
+| Three or more hard-block hooks | Two, fail-closed, self-protecting | Hooks are outside the repo's test reach; each one is a maintenance surface |
+
+### 3.4 Did not transfer
+
+Embedding and retrieval lessons (the refuted fusion experiments, dense versus sparse complementarity), evaluation-gold discipline and leak guards, ownership routing, per-server object identity after a GitHub migration, Sentry and Jira cadence rules, and fleet operations. The problem class is different: this system stores what Reddit says and tags it with rules Wes writes; nothing is learned, ranked by a model, or measured against a gold set. The only echo is "gated promotion beats fusion": here that is the rule that a theme rule change is previewed against the corpus with denominators before it is saved.
+
+### 3.5 Where the reviewer agents' framing was discounted
+
+Recorded in `DB_LEARNINGS_APPLIED` §4 and not repeated: mainly places where a reviewer generalized a fleet-scale lesson to a single-machine system, or proposed a gate without saying how it could fail.
+
+## 4. What the transfer cost, and what it should have cost
+
+The transfer produced a plan with roughly 28 gates and 15 invariants before any feature code. The adversarial review on 2026-09-13 cut or downgraded about a third: the test-count floor, the live freshness anchor, the runtime fingerprint as a hard refusal, mutation testing as a ratchet, the stress corpus, most doc-currency extras, hard-block hooks beyond two, "no bypass flags" as a gate, trailing-median alarms before a baseline exists, the `mode=ro` web engine, the weekly notifier proof, and the launchd dead-man. One contradiction remains recorded: the test-count floor was cut by the adversarial review and kept by the enforcement panel with a loosening protocol; the tool implements the floors. That is the state to judge at the retrospective, not to relitigate now.
+
+## 5. Predictions to score at the retrospective
+
+Score each at the named milestone. A failed prediction is a lesson for the canon, not a fault.
+
+| # | Prediction | Mechanism under test | Check at | Outcome |
+|---|---|---|---|---|
+| P1 | At least one positive control will catch a gate that would otherwise have passed vacuously | Positive controls in `tests/gates/` | M2 | |
+| P2 | The suppression ratchet reaches 5 or fewer `noqa` and zero `type: ignore`, or a `GUARDS.md` loosening row explains why not | Ratchet ledger | M2 | |
+| P3 | Wes reading the seven M1d digests against Reddit finds at least one mismatch no test caught | User-as-QA | M1d | |
+| P4 | The PK-stability invariant never fires in production; if it fires, the upsert rule was insufficient | Upsert discipline | 3 months of runs | |
+| P5 | Per-source freshness flags a quietly failing source before the operator notices, and uniform staleness (the case the cut anchor covered) does not occur | Freshness design after the adversarial cut | 3 months of runs | |
+| P6 | The two-shape parity test fails at least once during M1a or M1b probing | Shape parity | M1b | |
+| P7 | The corpus stays under about 40 curated documents with no agent exhaust committed, and the INDEX currency test is never disabled | Hold the count for documentation | M2, then quarterly | |
+| P8 | Sonnet stages need an Opus verifier's catch rarely; no class of stage is promoted twice | Model tiers | M2 | |
+| P9 | The workflow-test layer catches at least one cross-stage ordering bug the unit layer missed | Cross-stage tests | M1d | |
+| P10 | The shipped gate count at M2 is at or below the M0 menu, and every gate has a birth incident or is cut at the first quarterly review | Hold the count for guards | M2, first quarterly review | |
+| P11 | The compliance canary is never found in a backup or export inside the retention bounds | Scrub plus retention sweep | M1c, then monthly | |
+
+## 6. How to evolve this document across projects
+
+1. At the start of a project, write §1 (provenance, including how much of the source material was read directly and how much was digested by agents), §2 and §3 (transfer with interpretation, and the declined items with reasons), and §5 (predictions with a check date).
+2. Run an adversarial review of the transfer itself before the gates are built, and record what it cut in §4.
+3. At each milestone, fill the Outcome column in §5 and append a dated note under §7 for anything learned that is not a prediction.
+4. At the end of the project, append "What this project adds to the canon": the lessons (with numbers) that the next project's §2 and §3 should draw on. That section, plus the failed predictions, becomes the next project's source material; the raw retrospectives of the earlier project stay in an archive outside the repo when they carry another organization's material.
+5. Candidate canon entries from this project so far: the transfer step itself needs adversarial review (it over-provisioned the gates by about a third); a greenfield project should install the guard rules at day zero rather than retrofit them; sub-agents must be tiered by model rather than inheriting the planner's model.
+
+## 7. Dated notes
+
+### 2026-09-13: disposition of the source documents and the second-pass residual scan
+
+*Appended when the residual-scan workflow completes.*
