@@ -1,0 +1,21 @@
+# Static settings. Subreddits, themes, and searches live in the database (editable from the UI).
+user_agent_app_id: com.wesmax.insightminer
+display_timezone: local
+budget:
+  per_run_requests: 1500
+  hard_cap: 5000
+  reserve: 100
+comments:
+  replace_more_limit: 16
+  per_post_expansion_cap: 40
+revisit_ladder_days: [1, 3, 7, 30, 365]
+reconcile:
+  full_sweep_every_hours: 48
+  tier_max_age_hours: {under_30d: 60, under_1y: 192, older: 840}
+retention:
+  backups_days: 14
+  exports_days: 7
+  raw_rejects_days: 30
+run:
+  stale_after_minutes: 3
+  wall_clock_ceiling_hours: 3

@@ -1,0 +1,18 @@
+# secrets and local state
+.env
+data/*
+!data/.gitkeep
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.build/
+# os
+.DS_Store

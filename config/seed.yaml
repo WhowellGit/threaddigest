@@ -1,0 +1,21 @@
+subreddits:
+  - premiere
+  - VideoEditing
+  - editors
+themes:
+  - name: Crashes
+    match: [crash, crashes, crashed, crashing, freeze, freezes, frozen, hang, hangs]
+  - name: Export failures
+    match: [export fail, export error, "won't export", "media encoder", render fail, "export stuck"]
+  - name: Playback and performance
+    match: [lag, laggy, stutter, choppy, playback, "dropped frames", slow, sluggish]
+  - name: Audio issues
+    match: [audio drift, out of sync, "no audio", audio sync, "audio cuts"]
+  - name: GPU and drivers
+    match: [gpu, cuda, driver, "hardware acceleration", nvidia, amd, metal]
+  - name: Media offline and import
+    match: ["media offline", "won't import", "import error", "unsupported", codec, "media pending"]
+  - name: Update regressions
+    match: [after update, after updating, "new version", "latest version", "since the update", regression]
+  - name: Feature requests
+    match: ["feature request", "wish", "would be nice", "why can't", "should add"]
