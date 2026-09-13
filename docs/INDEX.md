@@ -69,16 +69,12 @@
 
 - `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit miner: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
 
-`reference/earlier-project-retrospectives/` — the earlier database project's eight retrospective documents (immutable copies; source material for the learnings):
+`reference/earlier-project-retrospectives/` — three of the earlier database project's eight retrospective documents, kept redacted as narrative source material (the other five live only in the archive at `~/repos/insightminer-desktop-archive/Reddit/Database_Key_Learnings/`, readable by agents on this machine; disposition decided 2026-09-13, see `REDACTION_NOTE.md` there and `learnings/LEARNINGS_TRANSFER.md` §7):
 
 - `reference/earlier-project-retrospectives/INDEX.md` — what each retrospective covers and the shared meta-lesson. Read when: choosing which retrospective to open.
+- `reference/earlier-project-retrospectives/REDACTION_NOTE.md` — what was redacted in the three kept files, which five files moved to the archive and why, and the history rewrite. Read when: sharing the repo, or looking for one of the moved files.
 - `reference/earlier-project-retrospectives/CRITICAL_FAILURES_RETROSPECTIVE.md` — the ranked ~15 failures; a number that was real but measured wrong, scoped wrong, or asked the wrong question. Read when: designing a metric or invariant.
-- `reference/earlier-project-retrospectives/DEAD_ENDS_AND_RULED_OUT.md` — levers proven not to work; do not rebuild. Read when: evaluating an approach.
-- `reference/earlier-project-retrospectives/KEY_LEARNINGS.md` — the engineering-reliability log: silent-failure swallowing, rate limits, schema drift, credentials, orchestration. Read when: touching error handling or sync logic.
 - `reference/earlier-project-retrospectives/WHY_THE_GUARDS_EXIST.md` — what incident birthed each guard, what it caught since, and the design rule separating guards that work from ones that only look like they work. Read when: adding or reviewing a guard.
-- `reference/earlier-project-retrospectives/PROJECT_JOURNEY.md` — the narrative arc: no upfront spec, aggressive iteration, self-correction. Read when: judging a process decision.
-- `reference/earlier-project-retrospectives/SYSTEM_ARCHITECTURE_AND_REBUILD.md` — how the earlier system was built, where its debt concentrated, how to rebuild from zero. Read when: making an architecture trade-off.
-- `reference/earlier-project-retrospectives/VALUE_STAGE_KEY_LEARNINGS.md` — the retrieval/value-stage lessons; capture the lesson, not just the number. Read when: M5 analysis work begins.
 
 `reference/reviews/` — independent reviewer and panel reports (raw, unedited):
 

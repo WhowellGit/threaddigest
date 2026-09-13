@@ -212,5 +212,5 @@ Score each at the named milestone. A failed prediction is a lesson for the canon
 3. **Keep as is until a coworker handoff is concrete.** No work now; the repo stays private; the history rewrite gets more disruptive the longer it waits.
 4. **Keep the narrative, drop the bulk** (recommended by the planning session): redact and keep the three low-density, high-narrative files (`WHY_THE_GUARDS_EXIST`, about fifteen lines; `CRITICAL_FAILURES_RETROSPECTIVE`, concentrated in citation lines and one table; the retrospectives `INDEX`), move the other five to the archive with a prose pointer, and rewrite history before the first push. Keeps what five readers said was most valuable at a fraction of the redaction cost.
 
-Nothing has been removed or redacted; the harness assessment running the same evening reads the files in place.
+**Decided and executed 2026-09-13 (Wes chose option 4).** `WHY_THE_GUARDS_EXIST.md`, `CRITICAL_FAILURES_RETROSPECTIVE.md`, and the retrospectives `INDEX.md` stay in the repo, redacted (eight substitutions, two verification passes clean); the other five live only in the archive; local history was rewritten with `git filter-repo` after a verified bundle was stored in the archive, and cited commit hashes were remapped. Details in `docs/reference/earlier-project-retrospectives/REDACTION_NOTE.md`.
 

@@ -18,5 +18,5 @@ A suspicion investigated and found not to be a bug is recorded here with how it 
 
 | Date | Question | How verified | Answer |
 |---|---|---|---|
-| 2026-09-13 | Does any code reference the per-run JSONL sidecar that was cut? | `grep -rn -i jsonl src/ tests/ tools/` | No; only documents did, and they were swept in commit `354a91d` |
+| 2026-09-13 | Does any code reference the per-run JSONL sidecar that was cut? | `grep -rn -i jsonl src/ tests/ tools/` | No; only documents did, and they were swept in commit `589ba5f` |
 

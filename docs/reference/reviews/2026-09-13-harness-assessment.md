@@ -20,6 +20,8 @@
 
 ## 1. How this was assessed
 
+> **Note added 2026-09-13 after the disposition decision:** five of the eight source files (`DEAD_ENDS_AND_RULED_OUT`, `KEY_LEARNINGS`, `PROJECT_JOURNEY`, `SYSTEM_ARCHITECTURE_AND_REBUILD`, `VALUE_STAGE_KEY_LEARNINGS`) now live only in the archive at `~/repos/insightminer-desktop-archive/Reddit/Database_Key_Learnings/`, byte-identical to the copies this assessment read, so every `file:line` citation below still resolves there. The three kept in the repo were redacted with line counts unchanged.
+
 ### What was read, and how
 
 Five lens reports were commissioned over the earlier project's retrospective bundle — one each on the
