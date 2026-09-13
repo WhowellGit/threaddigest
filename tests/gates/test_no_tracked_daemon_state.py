@@ -28,6 +28,6 @@ def test_dmypy_invocations_use_a_build_dir_status_file() -> None:
     for path in (ROOT / "Makefile", ROOT / ".pre-commit-config.yaml"):
         text = path.read_text(encoding="utf-8")
         for line in text.splitlines():
-            if "dmypy" in line and "run" in line and "kill" not in line:
+            if "dmypy" in line and " run -- " in line:  # a real daemon invocation
                 assert "--status-file" in line and "dmypy.json" in line, f"{path.name}: {line}"
                 assert ".build/" in line or "$(BUILD_DIR)" in line, f"{path.name}: {line}"
