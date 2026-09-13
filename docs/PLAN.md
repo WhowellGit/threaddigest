@@ -337,6 +337,9 @@ Wireframe (post page):
 | Same post normalizes differently via two paths | Shape-parity test fails | probe fixture captured via listing and via tree |
 | Subreddit recovers after an error | `status=ok`, failure counters, `last_error`, and gap flag cleared after a complete sweep | fake fails for 2 runs, then succeeds |
 | Dry-run or no-network mode still touches the network or the DB | Test fails: zero HTTP calls, zero DB writes | fake with no routes; DB opened read-only |
+| Deleting a workspace removes data another workspace still reaches | Delete removes only rows with no remaining source; shared posts kept; purge recorded | two workspaces share a subreddit in the fake; delete one |
+| Re-tagging removes a manual tag or re-adds a manually removed one | Manual origins survive every retag | change the rule so the post no longer matches; retag |
+| A watched thread falls off the revisit ladder | `watch_until` keeps it due until it expires | post older than 30 d with a future watch; advance the clock |
 
 Gates: `make check` = ruff + mypy + pytest with coverage ≥ 90% on `core/`, `services/`, `adapters/reddit_fake.py`; pre-commit runs ruff. Optional but recommended: a personal restricted test subreddit (readable by anyone, only you post) seeded by hand with a normal post, a self-deleted post, a mod-removed post, a deleted comment with children, a leaf deleted comment, a deep chain, and a crosspost, so cassettes contain no third-party content. If you later share separate testing reference documents, this section will be adapted.
 
