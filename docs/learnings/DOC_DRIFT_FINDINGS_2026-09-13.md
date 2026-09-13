@@ -1,0 +1,38 @@
+# Documentation drift found in our own corpus on 2026-09-13, written as a scan list
+
+> **Purpose.** Wes asked for the stale references and drift found during the 2026-09-13 sweeps to be written up as a document he can take to his earlier system and scan it for the same problems. Each finding below says what we found, why it happened, how to look for it somewhere else, and what we did or plan to do about it here. Append-only; add dated findings at the end. `last-verified: 2026-09-13`.
+
+## The pattern behind most of it
+
+Almost every item is the same failure: a fact was changed in one place and not in every place that repeated it. The earlier project named this its number-one historical drift bug and had a rule for it (a fact changed in one place propagates to every mirror in the same pass). We had read that rule, quoted it in the plan, and still reproduced the bug inside the documents built from those retrospectives. The lesson is not that the rule was wrong. It is that a rule stated in prose does not execute; only a check does.
+
+## Findings
+
+| # | What we found | Why it happened | How to scan for it elsewhere | What we did here |
+|---|---|---|---|---|
+| 1 | The plan's gates table listed eight gates as live, each with concrete fail behaviour, while a section sixty lines below said the adversarial review had cut or downgraded them, and the decisions log agreed with the section | The review's outcome was written as new prose ("Adopted: …") and the table it retired was left untouched | For every sentence of the form "X was cut / downgraded / retired / replaced", search the whole corpus for X and check that every occurrence carries the retirement or points at the decision | Every retired row now names its decision in place. A mechanical "superseded claims" check is proposed |
+| 2 | One document disagreed with itself about the same fact: "at most one hard-block hook, in user-level settings" in one paragraph and "two hooks, in project settings" in another | Two review rounds landed on different days and each wrote its own sentence | Search for numbers or counts attached to the same noun across one document and compare them | Reconciled to the later decision |
+| 3 | A schedule table still scheduled things that had been cut: the freshness anchor, the stress scenario, the weekly notifier proof | Schedules are summaries, and summaries are the last place anyone edits | Compare every schedule or cadence table against the decision log's list of cuts | The row now lists only what survives and names the cuts |
+| 4 | An appendix table summarising "what changed in this plan" still described the trailing-median alarm and the freshness anchor as adopted after both had been deferred or cut | Same as 1: the appendix is a mirror nobody thinks of as a mirror | Treat every summary table and appendix as a mirror; include them in the search in finding 1 | Annotated with the deferral and the cut |
+| 5 | The status document said redaction of the retrospectives had been "applied" before any redaction had happened | The agent wrote the status line for the plan it intended to execute; the execution then failed on a usage limit | In status documents, look for past-tense claims ("applied", "fixed", "done") that do not cite a commit, a test, or an output. The earlier project's rule: derive state, never narrate it | Rewritten to the truth. The claim-provenance practice was added to the working agreement |
+| 6 | A regression test's docstring cited an issue register entry (KI-001) that did not exist in the register; the register table was empty | The fix and the test were written under time pressure during handoff verification; the register row was forgotten | Extract every register identifier that appears in code, tests, and commit messages and check each resolves to a row in its register, then do the reverse | Row added. A check for the forward direction is a candidate for the doc-currency test |
+| 7 | The register's format example used a realistic identifier (KI-001) that then collided with the first real entry | Examples that look real get copied or confused | Search comments and examples for identifiers in the real format | Example renamed to an obviously fake identifier |
+| 8 | The document router sent readers to raw source material at eight different "read this when" triggers, after that material had been flagged for redaction or removal and while a decision about it was pending | Routing entries were written when the material arrived and never revisited when its status changed | For every router entry, check that the target's current status (kept, moved, sensitive, superseded) matches what the entry implies | Being resolved with the disposition decision |
+| 9 | One cut feature (the per-run raw log) was referenced about fifty times across six documents, including a data model row, a module map row, an architecture diagram, command tables, test specifications, a runbook step, and a decisions row | The feature had been designed in detail before it was cut, so it had many mirrors | Search for the feature's nouns (its file names, table names, module names, flag names) and confirm one retirement note exists and every other mention is gone or annotated | Swept in one change with a dated decision; a "swept and clean" row records the code grep |
+| 10 | A list of things "not adopted" from the earlier project was written as settled after partial direct reading | The agent generalised from what it had read | Look for negatives without a "revisit when" trigger or an evidence pointer | Marked provisional pending the deep assessment |
+| 11 | A policy paragraph said the doc-currency test checks that every register row's test reference resolves to a real test; the test only checks the router against the documents folder | The policy described the intended test, not the built one | For every sentence of the form "the test checks X", open the test and confirm it checks X | Policy left as intent; the gap is recorded and the extension is a candidate |
+| 12 | A milestone note said the foundation tranche had "shipped" while the test-strategy rows for that tranche still read "planned" | Status columns in a large table are not updated by the same person who writes the milestone note | Compare status columns in specification tables against what the code and tests actually contain | Flips are queued as bookkeeping for the next tranche |
+| 13 | A commit landed with a red test because the commit step in a shell one-liner did not depend on the exit status of the check; later, a shell variable name mismatch made a green check read as no result at all | Chaining "check" and "commit" by hand instead of through one gated command | Look for any script or habit where the commit step can run regardless of the check's result; and confirm the gate fails closed (an empty or unknown result must not commit) | The commit is now conditional on the check's exit code in every command; the failed-closed behaviour was confirmed when the variable mismatch blocked a commit |
+
+## What to scan in the other system, in order of likely yield
+
+1. Every "cut", "retired", "superseded", "downgraded", or "replaced" statement, followed by a corpus-wide search for the thing it retires (findings 1, 3, 4, 9).
+2. Status and journey documents for past-tense claims with no commit, test, or output cited (finding 5).
+3. Register identifiers in code and tests that do not resolve, and register rows whose cited test does not exist (findings 6, 11).
+4. Router and index entries whose target has changed status (finding 8).
+5. Counts attached to the same noun in different places (finding 2).
+6. Examples and templates that use real identifier formats (finding 7).
+
+## Dated additions
+
+*(none yet)*
