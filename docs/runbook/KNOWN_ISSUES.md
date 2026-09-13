@@ -11,3 +11,12 @@
 <!-- First row goes here when the first bug is fixed. Format example (do not count as a row):
 | KI-001 | 2026-10-01 | Post page 500 on a scrubbed post with no permalink | template built the deep link from `permalink` instead of `reddit_id` | tests/web/test_post_page.py::test_tombstone_deep_link_uses_id | fixed |
 -->
+
+## Swept: investigated, no issue found
+
+A suspicion investigated and found not to be a bug is recorded here with how it was checked, so no later session re-investigates it (practice carried from the earlier project, 2026-09-13).
+
+| Date | Question | How verified | Answer |
+|---|---|---|---|
+| 2026-09-13 | Does any code reference the per-run JSONL sidecar that was cut? | `grep -rn -i jsonl src/ tests/ tools/` | No; only documents did, and they were swept in commit `354a91d` |
+

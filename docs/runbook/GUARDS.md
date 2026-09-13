@@ -28,7 +28,7 @@
 | Control | Where | Last seen red | Notes |
 |---|---|---|---|
 | Branch protection / required checks on `main` | GitHub settings | never (not yet created) | Depends on the GitHub plan and the agent's token scope (`DECISIONS.md` § 7). Until settled, CI is a gate with a git trail, not an enforcement authority |
-| Hard-block hooks (two): no `--no-verify` or direct push to `main`; no hand edits to `.ratchets/` or the hook settings | `.claude/settings.json` → `tools/hooks/` | never | Self-protecting, fail closed on internal error; govern only Claude Code tool calls in this project |
+| Hard-block hooks (two): no `--no-verify` or direct push to `main`; no hand edits to `.ratchets/` or the hook settings | `.claude/settings.json` → `tools/hooks/` | never | Self-protecting, fail closed on internal error; govern only Claude Code tool calls in this project. Note (2026-09-13): project hook settings load only from the session's starting directory, so "never seen red" is not evidence the hook is live; sessions start in `~/repos/insightminer` |
 | Portability job | CI weekly and on quickstart-file changes | never | Fresh Ubuntu container: `git clone && make setup && make check` |
 | Healthchecks.io ping (M1d) | end of `run` | never | Replaces the launchd dead-man |
 

@@ -19,7 +19,9 @@
 
 ## Decisions waiting on Wes
 - Compliance bounds and the commercial-use stance: Wes is handling these himself.
-- `docs/reference/earlier-project-retrospectives/` (~700 KB of the earlier employer's internal material): Wes asked whether the eight files still earn their place before any redaction. A tiered assessment (Sonnet readers, Opus judge) is measuring the residual, not-yet-distilled insight; outcome and action are recorded in `DECISIONS.md` (late 2026-09-13 section). Whatever the outcome, unredacted copies remain in local git history; decide whether to rewrite history before the first push.
+- `docs/reference/earlier-project-retrospectives/` (~700 KB of the earlier employer's internal material): the tiered value assessment found 15 residual insights (4 high) plus 8 process gaps; residual value judged low; judge and critic recommend distill and remove; the dissent is recorded. Residuals are distilled in `docs/learnings/LEARNINGS_TRANSFER.md` §7 with a disposition each; two live spec errors were corrected and the plan's gates-table drift was swept. **Disposition of the raw files is Wes's call** (four options in §7; the planning session recommends keeping the three narrative files redacted and moving the rest to the archive, with a history rewrite before the first push). Nothing removed or redacted yet; a deep Opus assessment of the earlier project's harness is running and will land as `docs/reference/reviews/2026-09-13-harness-assessment.md`.
+- Proposed mechanisms awaiting Wes ("hold the count"): `hard_after=` on relaxed gates; a `duties` table; amber dispositions; a superseded-claims doc check; the apparatus-to-product ratio at quarterly review; the guard-portfolio ratio. Listed in `DECISIONS.md` § Pending.
+- Product question for Wes before M1d: does the #1 priority mean new complaints or known-but-under-weighted complaints (the earlier project's "mistracked, not untracked" un-learning)?
 - Wes returns later today to answer: Reddit login and script-app credentials, the GitHub repo, and the agent token scope.
 
 ## Known contradictions to settle in the D0 follow-up

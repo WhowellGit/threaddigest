@@ -16,6 +16,8 @@ Target: under 10 minutes from clone to first run; the weekly portability CI job 
 8. Scheduler **(M1d+)**: `deploy/launchd/*.plist` with `ProgramArguments[0]` the absolute `.venv` interpreter (never `python3`, which is 3.9 on stock macOS), `StartCalendarInterval` 06:30, wrapped in `caffeinate -i`; `plutil -lint` the plist; load with `launchctl`. A two-minute test job verifies TCC behavior on this Mac before relying on it.
 9. Non-developer hand-over **(M4)**: `docker compose up` then the `/setup` wizard; no terminal after that. The coworker registers their own Reddit app; secrets are never shared or exported.
 
+Start every agent session in `~/repos/insightminer` (the repo root): the project's hard-block hooks are in `.claude/settings.json`, and project settings load only from the session's starting directory, never from a parent directory or a worktree (2026-09-13).
+
 ## 2. Daily operation from the UI
 
 Recurring human duties are held to three: read the digest, acknowledge alerts in the UI, label theme tags while browsing.

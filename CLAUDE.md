@@ -64,6 +64,24 @@ first-run setup. The CLI exists for schedulers, containers, tests, and break-gla
 The CLI mirrors the UI, never the reverse: both call the same `services/` functions, and
 `web` never imports `cli` (import-linter enforces it).
 
+## Practices carried from the earlier project (2026-09-13)
+
+- **Claim provenance.** Any claim of the form "X works / is fixed / improved" in a PR body, commit
+  message, or `DECISIONS.md` entry names the exact test, command, or query that verifies it; the
+  review pass checks that the cited test asserts the claim, not that a similarly named test exists.
+  A count, percentage, or date range an agent reports gets one spot-check against the data before it
+  is written into a document. The operator is never the first to question a load-bearing claim.
+- **Every mirror in the same change.** A decision that changes a settled fact is not complete until
+  every document stating the old fact is annotated in the same PR, and the PR body names the
+  documents swept.
+- **Swept and clean.** A suspicion investigated and found not to be a bug is recorded in
+  `docs/runbook/KNOWN_ISSUES.md` § Swept with how it was checked, so no later session re-investigates it.
+- **Partial findings early.** On work spanning more than one stage or touching a core surface
+  (deletion, scrub, migrations, `db/repo`, the ranking, the digest), the first partial finding or
+  open question goes to Wes as a three-line note when it exists, not at the end.
+- **Sessions start in the repo root.** Project hook settings load only from the session's starting
+  directory, so a session that starts elsewhere runs without the hard-block hooks.
+
 ## Agent model tiers
 
 Every sub-agent call (the `Agent` tool or a workflow `agent()`) names its model; nothing inherits.
