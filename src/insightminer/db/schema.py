@@ -112,6 +112,7 @@ RUN_STATUSES: tuple[str, ...] = (
     "skipped_locked",
     "crashed",
     "cancelled",
+    "network",
 )
 STOP_REASONS: tuple[str, ...] = ("exhausted", "cap", "error")
 
@@ -207,7 +208,7 @@ class Subreddit(Base):
         Integer, nullable=False, comment="Epoch seconds when the row was added."
     )
     watermark_created_utc: Mapped[int | None] = mapped_column(
-        Integer, comment="Max created_utc seen in the last complete sweep (informational)."
+        Integer, comment="Max created_utc seen in the last sweep (informational)."
     )
     last_complete_poll_at: Mapped[int | None] = mapped_column(
         Integer, comment="Epoch seconds of the last sweep that reached known territory."
@@ -837,6 +838,9 @@ class Run(Base):
     log_path: Mapped[str | None] = mapped_column(Text, comment="Path of the run's log file.")
     purge_counts_json: Mapped[str | None] = mapped_column(
         Text, comment="Rows purged per table as JSON, so the row-count invariant can read them."
+    )
+    violations_json: Mapped[str | None] = mapped_column(
+        Text, comment="Invariant violations as JSON; NULL when they did not run."
     )
 
 

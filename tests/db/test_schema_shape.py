@@ -9,7 +9,17 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from sqlalchemy import Date, DateTime, Engine, Integer, Time, inspect, text
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Engine,
+    Integer,
+    Time,
+    UniqueConstraint,
+    inspect,
+    text,
+)
 from sqlalchemy.exc import IntegrityError
 
 from insightminer.db.schema import Base
@@ -183,3 +193,39 @@ def test_subreddit_identity_is_per_workspace(engine: Engine, workspace_pk: int, 
         assert conn.execute(text("SELECT count(*) FROM subreddits")).scalar_one() == 2
     with pytest.raises(IntegrityError, match="UNIQUE constraint failed"), engine.begin() as conn:
         conn.execute(insert, {"ws": workspace_pk, "now": now})
+
+
+def test_constraint_names_follow_the_naming_convention(engine: Engine) -> None:
+    """§10.4: ``op.f(...)`` is load-bearing for a batch recreate on SQLite -- a bare string
+    name (e.g. ``"status"``) emits an unnamed-by-convention ``CONSTRAINT status CHECK (...)``
+    instead of ``CONSTRAINT ck_runs_status CHECK (...)``, and nothing else in the suite would
+    notice, because ``make schema`` regenerates ``schema.sql`` from the same damaged database
+    and pytest-alembic's ``test_model_definitions_match_ddl`` does not compare CHECK
+    constraints. This test reflects every table's live CHECK and UNIQUE constraint names and
+    compares them against ``Base.metadata``, so a migration that recreates a table under the
+    wrong name goes red here.
+
+    Primary keys are excluded: ``posts`` and ``comments`` declare ``sqlite_autoincrement``,
+    which forces the inline ``INTEGER PRIMARY KEY`` form rather than a table-level
+    ``PRIMARY KEY (...)`` constraint, so SQLAlchemy's reflection reports their primary-key
+    constraint name as ``None`` even though the naming convention would name it. That is a
+    reflection quirk of AUTOINCREMENT, not a naming defect, so this test does not touch PKs.
+    """
+    insp = inspect(engine)
+    for table in Base.metadata.tables.values():
+        live_checks = {c["name"] for c in insp.get_check_constraints(table.name)}
+        meta_checks = {
+            c.name for c in table.constraints if isinstance(c, CheckConstraint) and c.name
+        }
+        assert live_checks == meta_checks, table.name
+
+        live_unique = {u["name"] for u in insp.get_unique_constraints(table.name)}
+        meta_unique = {
+            c.name for c in table.constraints if isinstance(c, UniqueConstraint) and c.name
+        }
+        assert live_unique == meta_unique, table.name
+
+    assert {c["name"] for c in insp.get_check_constraints("runs")} == {
+        "ck_runs_status",
+        "ck_runs_trigger",
+    }
