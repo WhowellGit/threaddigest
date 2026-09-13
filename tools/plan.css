@@ -1,0 +1,29 @@
+:root{--fg:#1b1f23;--muted:#57606a;--border:#d0d7de;--bg:#fff;--alt:#f6f8fa;--link:#0969da}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--fg);background:var(--bg)}
+.banner{background:#fff8c5;border-bottom:1px solid #d4a72c;padding:8px 24px;font-size:13px;color:#5a4a00}
+.layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:36px;max-width:1500px;margin:0 auto;padding:24px}
+nav.toc{position:sticky;top:12px;align-self:start;max-height:calc(100vh - 24px);overflow:auto;font-size:13px;border-right:1px solid var(--border);padding-right:12px}
+nav.toc ul{list-style:none;padding:0;margin:0}
+nav.toc li.l3{padding-left:14px}
+nav.toc a{color:var(--muted);text-decoration:none;display:block;padding:2px 0;line-height:1.35}
+nav.toc a:hover{color:var(--link)}
+main{min-width:0}
+h1{font-size:26px;margin:.2em 0 .6em}
+h2{font-size:21px;margin:1.9em 0 .6em;padding-bottom:.25em;border-bottom:1px solid var(--border)}
+h3{font-size:17px;margin:1.5em 0 .5em}
+.tw{overflow-x:auto;margin:12px 0 18px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{border:1px solid var(--border);padding:6px 9px;vertical-align:top;text-align:left}
+th{background:var(--alt);font-weight:600}
+tbody tr:nth-child(even){background:#fbfcfd}
+code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--alt);padding:1px 4px;border-radius:4px}
+pre{background:#0d1117;color:#e6edf3;padding:12px 14px;border-radius:6px;overflow-x:auto;font-size:12.5px;line-height:1.35}
+pre code{background:none;color:inherit;padding:0}
+hr{border:0;border-top:1px solid var(--border);margin:28px 0}
+ul,ol{padding-left:24px}
+li{margin:.25em 0}
+p{margin:.6em 0}
+a{color:var(--link)}
+@media (max-width:900px){.layout{grid-template-columns:1fr} nav.toc{position:static;border:0;max-height:none}}
+@media print{nav.toc,.banner{display:none} .layout{display:block;padding:0} pre{white-space:pre-wrap} h2{page-break-after:avoid}}
