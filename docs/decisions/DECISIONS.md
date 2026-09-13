@@ -22,7 +22,7 @@
 | D-12 | 2026-09-12 | TDD policy | Layered: test-first for `core/`, `services/`, migrations; probe-first for the Reddit adapter; route tests written alongside UI templates; every bug fix starts with a failing test | A layer's escaped-bug pattern shows the approach misfits it (e.g. adapter bugs escaping cassettes) |
 | D-13 | 2026-09-12 | External research | One targeted report on engineering controls for AI-assisted codebases, run by Wes in parallel with M0; findings folded into the gates before M1 feature code | The report arrives (fold in), or it has not arrived by M1 start (proceed without) |
 | D-14 | 2026-09-12 | QNAP scope | Only this system: collector + web on one compose file; volume and `runs` table designed so services can be added later | M5 analysis worker joins as a third service |
-| D-15 | 2026-09-12 | Raw JSON | `raw_json` column per row (scrubbable, long-term store) + per-run JSONL kept 30 days, compressed, rewritten on scrub. **JSONL sidecar pending Wes** (adversarial recommendation: cut; schema rev 1 omits `raw_files` so it stays reversible); `raw_rejects` keeps the same 30-day retention | Wes decides on the sidecar (open item 2). If kept: at M1c when the rewrite-on-scrub cost is measured |
+| D-15 (superseded 2026-09-13, see the late section) | 2026-09-12 | Raw JSON | `raw_json` column per row (scrubbable, long-term store) + per-run JSONL kept 30 days, compressed, rewritten on scrub. **JSONL sidecar pending Wes** (adversarial recommendation: cut; schema rev 1 omits `raw_files` so it stays reversible); `raw_rejects` keeps the same 30-day retention | Wes decides on the sidecar (open item 2). If kept: at M1c when the rewrite-on-scrub cost is measured |
 | D-16 | 2026-09-12 | Compliance cadence | Full bulk re-check of every stored item every 2 days while it fits the budget; automatic fallback to tiers (ladder ≤30 d; weekly posts + monthly trees to 1 y; monthly beyond), announced in the digest; all configurable | The full sweep exceeds the budget (automatic), or Reddit's guidance changes |
 | D-17 | 2026-09-12 | GitHub | Wes creates the empty private repo `WhowellGit/insightminer` and pastes the URL; the agent connects, pushes, sets branch protection | The repo is shared with a coworker (then access model and token scopes are re-read) |
 | D-18 | 2026-09-12 | Name | `insightminer` for repo, package, CLI, and User-Agent app id `com.wesmax.insightminer` | Scope widens beyond Reddit (the name is neutral; the UA id must stay honest) |
@@ -45,8 +45,8 @@
 | Purge latency, 30 days to 1 year | Within **8 days** (weekly tier) | Tier fallback is announced in the digest; the per-tier invariant replaces one 48 h invariant that would be red forever after fallback |
 | Purge latency, beyond 1 year | Within **35 days** (monthly tier) | Same |
 | Backups | **No backup older than 14 days is retained** (daily/weekly `VACUUM INTO` and pre-migration copies alike); under the retention sweep; the canary asserts file ages | A backup made before a scrub holds the text until it ages out; nothing rewrites backups |
-| Exports | **No export older than 7 days is retained**; exports exclude raw JSONL by default | Same reasoning; the `raw_json` column is the long-term store |
-| Raw JSONL and `raw_rejects` (if the sidecar is kept) | 30-day retention; every retained line for a scrubbed item is rewritten to a tombstone in the same scrub call; compressed files verified before the plain file is deleted | Second compliance surface; the reason the sidecar is recommended for cutting |
+| Exports | **No export older than 7 days is retained**; exports carry live-content JSONL only | Same reasoning; the `raw_json` column is the long-term store |
+| `raw_rejects` (the JSONL sidecar was cut on 2026-09-13) | 30-day retention; every retained line for a scrubbed item is rewritten to a tombstone in the same scrub call; compressed files verified before the plain file is deleted | Second compliance surface; the reason the sidecar is recommended for cutting |
 | Digests | Computed from the DB as a route (`/reports/{date}`), written to a file only on request; **supersedes** the 2026-09-12 "digest files kept 14 days" | A persisted digest could quote a title deleted the next day |
 | Crosspost parent text | Stripped to `{id, subreddit}` at ingest | The parent lives in an unmonitored sub and is never reconciled |
 | Edits | An event: reconcile upserts the full normalized row so an edited body replaces the old one in DB, FTS, and `raw_json` | Otherwise a 45-day-old edit removing a name would never propagate |
@@ -111,7 +111,7 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 ## 7. Pending Wes (recommendations recorded; not decisions yet)
 
 1. GitHub plan allows branch protection on a private repo (Free does not; Pro does); agent token without `administration`/`workflows` scopes after M0.
-2. Keep or cut the per-run JSONL sidecar (recommendation: cut).
+2. ~~Keep or cut the per-run JSONL sidecar~~ cut, 2026-09-13.
 3. Confirm the compliance bounds in § 2 as written.
 4. Commercial-use stance for a coworker at the company that makes Premiere Pro (the research report calls product-decision insights a grey area).
 5. Exit codes as proposed in § 6.
@@ -122,3 +122,11 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 
 - **Workspace removal:** archive (keep data, stop polling, hide) or delete (destructive gate; removes only data reachable through no other workspace; purge counts recorded). Compliance reconcile is workspace-agnostic. Revisit when: a second workspace exists and shares a source.
 - **Curation in the UI:** manual tag overrides never removed by re-tagging; watch/pin a thread past the ladder; promote a rising phrase into a rule; theme rename/merge; ad-hoc Search Reddit with "monitor" / "harvest" actions; per-tag thumbs feedback. Schema revision 2 (at M2) adds `workspaces.archived_at`, `post_themes.origin`, `posts.watch_until` in one migration, exercising the per-revision fixture path for the first time.
+
+## 2026-09-13 (late) — sidecar cut; owner-handled items; redaction
+
+- **Per-run JSONL sidecar: cut** (Wes, 2026-09-13). `raw_json` per row is the single raw store; `probe --save-fixture` captures exact wire payloads for fixtures; `insightminer export` produces live-content JSONL on demand. Removes `raw_files`, the sink adapter, compression/retention/rewrite-on-scrub, and their invariants and tests (JS-01/02, DB-34/35). Revisit when: a debugging need for exact-wire logs actually arises (then a bounded, ignored-by-default debug log, not a compliance surface).
+- **Compliance bounds and the commercial-use stance:** Wes is handling these himself outside the plan; the plan keeps the bounds as written until he says otherwise.
+- **Earlier-project retrospectives:** redact significant areas (Wes, 2026-09-13): internal identifiers, people, tickets, hosts, paths, service accounts. Originals stay only in the local archive outside the repo. Note: pre-redaction copies remain in local git history; rewrite or accept before the first push.
+- **Agent model tiers** (Wes, 2026-09-13): the main session (the main session) plans, synthesizes, and decides; Opus sub-agents for complex or judgement-bearing work (reviews, judges, migrations, deletion and scrub, under-specified services); Sonnet sub-agents for well-specified mechanical work (inventories, scans, codemods, spec-driven tests). Every sub-agent call names its model. **Why:** every sub-agent had inherited the main session, which was overkill and exhausted the session limit mid-workflow. **Revisit when:** an Opus verifier catches a Sonnet miss twice in a row for one class of stage; that class moves up. Recorded in `PLAN.md` § Review harness and `CLAUDE.md`.
+

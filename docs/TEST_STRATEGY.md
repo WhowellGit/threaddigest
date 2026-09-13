@@ -56,11 +56,11 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-28 | fts_scrub_removes_entry_and_snippets | db | M1c | H | planned | |
 | DB-29 | fts_author_scrub_reindexes_without_author | db | M1c | H | planned | |
 | DB-30 | fts_rebuild_indexes_live_only_and_integrity_check_passes | migration/db | M1a | H | planned | |
-| DB-31 | scrub_touches_four_surfaces_in_one_call | e2e | M1c | H | changed | the JSONL surface exists only if the sidecar is kept (pending Wes); canary also in a title |
+| DB-31 | scrub_touches_four_surfaces_in_one_call | e2e | M1c | H | changed | the JSONL surface is gone (sidecar cut 2026-09-13); canary also in a title |
 | DB-32 | compliance_canary_absent_everywhere_incl_backup | e2e/gate | M1c | H | changed | also asserts no backup older than 14 d and no export older than 7 d (adversarial B1); title canary (B3) |
 | DB-33 | scrubbed_rows_have_no_content_columns | gate | M1c | H | planned | |
-| DB-34 | compressed_jsonl_verified_before_plain_deleted | unit/e2e | M1c | M | changed | hangs on the JSONL sidecar decision (recommendation: cut) |
-| DB-35 | partial_trailing_jsonl_line_tolerated_db_authoritative | unit | M1c | M | changed | same |
+| DB-34 | compressed_jsonl_verified_before_plain_deleted | unit/e2e | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
+| DB-35 | partial_trailing_jsonl_line_tolerated_db_authoritative | unit | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | DB-36 | daily_vacuum_into_backup_recorded_and_verified | e2e | M1c | H | planned | |
 | DB-37 | pre_migrate_backup_order_and_post_checks | migration/e2e | M1a | H | planned | |
 | DB-38 | transaction_per_migration_no_half_state | migration | M1a | H | planned | |
@@ -79,7 +79,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-51 | floors_scoped_by_normalizer_version_and_empty_population_fails | gate | M1a/M1c | H | planned | |
 | DB-52 | web_writer_map_enforced | gate/web | M2 | H | planned | |
 | DB-53 | authors_counters_match_count | gate | M1c | M | planned | |
-| DB-54 | counters_equal_table_deltas | gate | M1a | H | changed | the `raw_files.item_count` clause drops with the sidecar |
+| DB-54 | counters_equal_table_deltas | gate | M1a | H | changed | the `raw_files.item_count` clause is dropped (sidecar cut 2026-09-13) |
 | DB-55 | row_counts_never_decrease_without_recorded_purge | gate | M1c/M2 | M | planned | |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
@@ -114,7 +114,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RC-04 | author_deletion_terminal_mod_removal_returns | service | M1c | H | planned | |
 | RC-05 | account_deletion_scrubs_author_only | service | M1c | H | planned | |
 | RC-06 | reconcile_cadence_invariant_and_tier_fallback | service+digest | M1c/M3 | M | changed | invariant is per tier: 60 h ≤ 30 d, 8 d to 1 y, 35 d beyond (replaces 48 h + 12 h grace) |
-| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface only if the sidecar is kept; canary in a title too |
+| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too |
 | SC-02 | compliance_canary_end_to_end | e2e | M1c | H | changed | scans `data/**`; digest is a route (no file); asserts backup/export file ages (B1) |
 | FR-01 | per_source_freshness_degraded | e2e | M1a | H | planned | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8) |
 | FR-02 | freshness_anchor_uniform_staleness | e2e | M1a | H | cut | anchor cut (adversarial A8: sweep and anchor are the same call); `new_head()` port and `set_live_anchor` go with it; SW-07 zero-yield detection kept |
@@ -129,9 +129,9 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RL-04 | every_mutating_command_takes_lock_writes_run_row | gate | M1a | H | planned | |
 | RL-05 | wall_clock_ceiling_partial_after_batch | service | M1d | M | planned | |
 | RL-06 | sigterm_finishes_batch_cancelled | e2e | M1d | M | planned | cancel at the request boundary (D-16), pending Wes |
-| RL-07 | write_side_failures_abort_page_cleanly | e2e | M1a | H | planned | (b)/(c) sink cases drop with the sidecar; (a) DB-locked case stays |
-| JS-01 | jsonl_per_run_file_compress_verify_before_delete | unit+service | M1c | H | changed | hangs on the JSONL sidecar decision (recommendation: cut) |
-| JS-02 | jsonl_retention_gate_and_partial_trailing_line | service | M1c | M | changed | same |
+| RL-07 | write_side_failures_abort_page_cleanly | e2e | M1a | H | planned | (b)/(c) sink cases dropped (sidecar cut 2026-09-13); (a) DB-locked case stays |
+| JS-01 | jsonl_per_run_file_compress_verify_before_delete | unit+service | M1c | H | cut | per-run JSONL sidecar cut 2026-09-13 |
+| JS-02 | jsonl_retention_gate_and_partial_trailing_line | service | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | TH-01 | theme_regex_timeout_and_caps | unit | M1d | H | planned | |
 | TH-02 | theme_inputs_bot_exclusion_retag | service | M1d | H | changed | crosspost parent text stripped to `{id, subreddit}` at ingest (no `matched_field=crosspost_parent`); bot flag is a heuristic per author, never inherited |
 | DG-01 | digest_golden_denominators_from_state | unit+service | M1d | H | changed | golden gains the M1d sections pulled forward: distinct-author ranking, top untagged (7 d, ≥3 authors), rising title phrases |
@@ -144,7 +144,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | AD-02 | responses_failure_paths_exact_counts | adapter-responses | M1a | H | planned | |
 | AD-03 | cassette_tree_serialization_no_lazy_fetch | adapter-cassette | M1b | H | planned | |
 | AD-04 | contract_suite_fake_vs_praw | contract | M1a–M1c | H | planned | |
-| GT-01 | guard_reachability_meta_and_planted_invariants | gate | M0→ | H | planned | sidecar-dependent plantings (`raw_files`, JSONL tombstone) drop with the sidecar; scope is post-run invariants only (A3 split) |
+| GT-01 | guard_reachability_meta_and_planted_invariants | gate | M0→ | H | planned | sidecar-dependent plantings dropped (sidecar cut 2026-09-13); scope is post-run invariants only (A3 split) |
 | GT-02 | pk_stability_three_reruns | gate | M1a | H | changed | drop `max(pk)==count(*)` (A10); `pk`/`first_seen_at` stability kept |
 
 ### 3.3 Enforcement, gates, ratchets, CI — `2026-09-13-panel-enforcement.md` §B (38), hooks §D
@@ -233,7 +233,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | UI-37 | Preview uses the CLI's matcher, shows denominators | behavior | M2 | P0 | planned | |
 | UI-38 | Save re-tags preserving timestamps; stale badge | behavior | M2 | P0 | changed | re-tag always runs as the CLI subprocess with a run row (no inline path); the UI polls the run |
 | UI-39 | Config YAML export/import round trip | behavior | M2 | P1 | planned | |
-| UI-40 | Export zip integrity | behavior | M2 | P0 | changed | raw JSONL excluded by default; exports older than 7 days are swept |
+| UI-40 | Export zip integrity | behavior | M2 | P0 | changed | no raw sidecar (cut 2026-09-13), live-content JSONL only; exports older than 7 days are swept |
 | UI-41 | Archive import behind gate; zip-slip and integrity refusals | behavior | M2 | P1 | planned | import from a server-side path |
 | UI-42 | `/system` renders every doctor check; notification test | template | M2 | P0 | changed | the delivery record is best-effort, not a proof (A4); check-row assertions unchanged |
 | UI-43 | Apply pending migration backs up first; maintenance mode | behavior | M2 | P0 | planned | |
@@ -286,7 +286,7 @@ Enforcement and GitHub (enforcement §G, adversarial A2/E1/E8):
 
 Compliance and data (DB §F, ingest §E, adversarial B1/D3/E18, plan open items 2–4):
 9. Confirm the compliance bounds as written: no backup older than 14 d, no export older than 7 d, per-tier reconcile ages 60 h / 8 d / 35 d, real purge latency 48–72 h for items under 30 days.
-10. Per-run JSONL sidecar: keep or cut? (Cut; `raw_json` and `probe --save-fixture` cover provenance; JS-01/02, DB-34/35 and the JSONL clauses elsewhere go with it.)
+10. Per-run JSONL sidecar: **cut, decided 2026-09-13.** JS-01/02 and DB-34/35 are cut; the JSONL clauses in DB-31, DB-54, SC-01, RL-07, GT-01 are dropped.
 11. Purge semantics for "stop and delete captured data": hard delete with a recorded purge run (recommended) or mark-and-hide? Decides DB-55.
 12. Scrub latency for items confirmed only by `info()` absence: accept up to ~4 days, or re-check first misses at the end of the same run (recommended)?
 13. Unknown `removed_by_category` with a `[removed]` body: which removed state, and may `removed_by_reddit` return to live on an intact payload? (Every `removed_*` may return; only `deleted_by_author` is terminal.)

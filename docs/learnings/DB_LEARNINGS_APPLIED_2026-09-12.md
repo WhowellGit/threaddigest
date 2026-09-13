@@ -118,3 +118,7 @@ Add dated entries; strike through when done, with the commit or test that closed
 ## Correction 2026-09-13
 
 The source documents referenced above as `~/Desktop/Reddit/Database_Key_Learnings/` now live in the repo at `docs/reference/earlier-project-retrospectives/`; the Desktop originals were archived to `~/repos/insightminer-desktop-archive/` (decision D-08, amended the same day).
+
+## Correction 2026-09-13 (late): sidecar cut
+
+The per-run JSONL sidecar was cut on 2026-09-13 (Wes's decision on the adversarial reviewer's recommendation). Item 25 (compressed raw files verified before deletion) and the "JSONL rewrite verified" clause of the M1c checklist are moot; `raw_json` per row is the single raw store and the scrub test covers DB, FTS, and `post_themes` only.

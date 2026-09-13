@@ -1,6 +1,6 @@
 # STATUS (prune-stale; rewritten, never appended)
 
-**As of 2026-09-13, end of the first build session.** Plan approved. The M0 foundation tranche is built, gated, and committed locally on `main` (M0 commit `e7a6f8a`; cleanup commits after it added the plan renderer, curation specs, and handoff fixes; see `git log -1` for HEAD). No GitHub remote yet, so CI has never executed and the no-commit-to-main guard is inactive until `make setup` installs pre-commit and a remote exists.
+**As of 2026-09-13, end of the first build session.** Plan approved. Late on 2026-09-13: the per-run JSONL sidecar was cut from the design (`raw_json` per row is the single raw store) and the agent model-tier policy (the main session plans, Opus judges, Sonnet does mechanical work) was adopted into `PLAN.md` and `CLAUDE.md`. The M0 foundation tranche is built, gated, and committed locally on `main` (M0 commit `e7a6f8a`; cleanup commits after it added the plan renderer, curation specs, and handoff fixes; see `git log -1` for HEAD). No GitHub remote yet, so CI has never executed and the no-commit-to-main guard is inactive until `make setup` installs pre-commit and a remote exists.
 
 ## What exists and is green
 - `make check` passes end to end and was reproduced in a fresh clone by an independent verifier: ruff format + lint (strict rule set incl. banned APIs), mypy strict on `src/` (daemon state now under `.build/`, never tracked), import-linter (3 layering contracts kept), pytest (532 test functions by the ratchet's AST count, 941 collected cases, 97% line coverage, network blocked, warnings are errors), ratchets at the measured baseline.
@@ -18,10 +18,9 @@
 - Small follow-ups: Settings should read `.env` (the launchd wrapper exports it today); suppression baseline is 11 noqa / 7 type-ignores / 5 pragmas (bootstrap level, to be driven down).
 
 ## Decisions waiting on Wes
-- Reddit account + script app credentials; GitHub private repo `WhowellGit/insightminer` and whether the plan allows branch protection; agent token scope after M0.
-- Keep or cut the per-run JSONL sidecar (recommendation: cut).
-- Confirm compliance bounds (14-day backups, 7-day exports, per-tier reconcile ages) and the commercial-use stance for a coworker.
-- `docs/reference/earlier-project-retrospectives/` contains the earlier project's internal identifiers (Jira URLs, a named employee email, another user's home paths). The repo is private; decide before any handoff to a coworker whether to keep, redact, or drop the folder in favor of `docs/learnings/DB_LEARNINGS_APPLIED_2026-09-12.md`.
+- Compliance bounds and the commercial-use stance: Wes is handling these himself.
+- `docs/reference/earlier-project-retrospectives/` (~700 KB of the earlier employer's internal material): Wes asked whether the eight files still earn their place before any redaction. A tiered assessment (Sonnet readers, Opus judge) is measuring the residual, not-yet-distilled insight; outcome and action are recorded in `DECISIONS.md` (late 2026-09-13 section). Whatever the outcome, unredacted copies remain in local git history; decide whether to rewrite history before the first push.
+- Wes returns later today to answer: Reddit login and script-app credentials, the GitHub repo, and the agent token scope.
 
 ## Known contradictions to settle in the D0 follow-up
 - Test-count floor: the adversarial review cut it, the enforcement panel kept it with the loosening protocol; the tool implements the floors with loosening (kept for now).

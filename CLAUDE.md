@@ -63,6 +63,16 @@ first-run setup. The CLI exists for schedulers, containers, tests, and break-gla
 The CLI mirrors the UI, never the reverse: both call the same `services/` functions, and
 `web` never imports `cli` (import-linter enforces it).
 
+## Agent model tiers
+
+Every sub-agent call (the `Agent` tool or a workflow `agent()`) names its model; nothing inherits.
+the main session is the main session: planning, synthesis, decisions, edits to the plan or enforcement
+surfaces. **Opus** for judgement-bearing work: reviewers, judges and critics, migrations,
+`core/deletion`, `services/scrub`, `db/repo`, under-specified services, red-gate debugging.
+**Sonnet** for well-specified mechanical work: inventories, scans, codemods, tests written from a
+spec row, fixture scrubbing, residue sweeps. Unsure → the higher tier, with the reason in the
+workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → "Agent model tiers".
+
 ## Commands
 
 `make setup` · `make check` · `make test` · `make run` · `make schema` · `make ratchet-bump` ·
