@@ -33,7 +33,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-05 | timestamp_columns_are_integer_epoch | db+unit | M0 | H | planned | |
 | DB-06 | next_check_at_not_null_enforced | db | M1a | H | planned | |
 | DB-07 | derived_enums_closed_upstream_enums_open | db | M1a | H | planned | |
-| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | planned | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus |
+| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | planned | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus (stress corpus cut 2026-09-13, N-11) |
 | DB-09 | every_column_has_a_comment | unit | M0 | M | planned | |
 | DB-10 | fts_definition_shape (live views, `_docsize`) | db | M1a | H | planned | |
 | DB-11 | create_engine_only_in_db_engine | gate | M0 | H | changed | symbol ban is ruff `TID251` (`create_engine`, `text(`, `sqlite3.connect`); import-linter confines modules only |

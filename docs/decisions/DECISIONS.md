@@ -135,7 +135,33 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 
 ### Pending (added late 2026-09-13)
 
-- **Which question the #1 priority answers**: new complaints, or complaints the vendor already knows about but under-weights? The earlier project set out to find untracked crashes and found five for five already filed but mishandled; "mistracked" became the defensible capability. Decide before M1d closes the digest design; the cheap mechanics (distinct authors across time buckets; "still complaining after N months" via the 365-day ladder stage) are half built.
-- **Proposed mechanisms from the residual scan, awaiting Wes** (each adds a guard or a table, so "hold the count" applies): `hard_after=` on every deliberately relaxed gate, printed by `tools/ratchet.py` and red once passed; a `duties` table so recurring human duties (guard review, restore drill, digest read) have an age that `doctor` and the digest show; a disposition on every amber signal with a quarterly "dismissed without action" share; a superseded-claims check extending the doc-currency gate; the apparatus-to-product ratio printed at each quarterly review; the guard-portfolio ratio (guards on the surface Wes reads vs internal). Spec refinements that add no mechanism (digest section status, zero states carry their window, caps count this run's work, reconcile diffs before writing, upstream caveats in column comments, fullname shape guard) go into the tranche briefs at M1b to M2.
+- ~~Which question the #1 priority answers~~ **Decided 2026-09-13 (Wes):** the digest's job is the original one: monitor Premiere Pro complaints, make managing them easier, and extract useful insights, above all by piecing together the scattered, vague, non-technical reports into the story of the actual user problem (customers do not think like engineers and rarely give enough detail; assembling that story is the biggest gap in support). The "known but under-weighted" framing from the earlier project is a good idea kept **separable and optional**, not a design driver, and there is no plan to connect Insight Miner to the earlier project's data sources: they are different projects. Recorded as D-28.
+- **Proposed mechanisms from the residual scan, Wes's rulings 2026-09-13:** `hard_after=` on relaxed ratchet lines: approved on the recommendation ("seems early, but if small cost, no problem"); build as a small change to `tools/ratchet.py` with a gate test. Duties record: approved, kept light (one table, ages on `/system`, one digest line) at M2. Disposition on every amber: **not adopted**; Wes's reading is that warnings in his environment often never reach him and get dismissed by agents, so the fix is enforcement, not a dismissal button; adopted instead as D-29 (nothing in the development gate is advisory; product ambers are derived state no agent can clear). The two ratios at quarterly review: approved. The superseded-claims doc check: approved by Wes later that evening and built as G34 (`tests/gates/test_superseded_claims.py`, the Retired claims table below). Spec refinements that add no mechanism go into the tranche briefs at M1b to M2.
 - **Raw retrospectives disposition**: remove now with a history rewrite while the repo is young and has no remote (archive stays readable), redact and keep, or keep as is until a coworker handoff is concrete.
+- **D-28, product intent restated** (Wes, 2026-09-13): Insight Miner monitors Premiere Pro complaints on Reddit to make managing complaints easier and to extract useful insights; the hard, valuable part is assembling the story of the actual user problem from scattered, vague reports. The earlier project's "known but under-weighted" capability stays separable and optional; no bridge to the earlier project's data sources. **Why:** Wes's original intent; a different project from the earlier one. **Revisit when:** the M5 analysis layer is designed (that is where story-assembly across posts lives).
+- **D-29, nothing advisory in the gate** (Wes, 2026-09-13): every development-time check either fails the build or lands in a ledger that needs an approval; agents cannot dismiss a warning. Product-side ambers (`partial` runs) are derived from the run row and shown on the UI pill and in the digest; no agent can clear them. **Why:** Wes's experience is that warnings do not reach him and get dismissed by agents; the earlier project's unenforced builds, duplicate builds, and silent failures came from exactly that gap. **Revisit when:** never for the development gate; the product-side dismissal control is reconsidered once Wes has used the UI.
+- **Learnings are extracted, systems are not blended** (Wes, 2026-09-13): the earlier project's harness, database, and working practices are source material for lessons; Insight Miner adopts practices on their own evidence and does not import the harness or connect to that system. **Why:** Wes's stated intent, after the harness assessment was framed as "carry forward"; different projects.
+- **Prune the reference material** (Wes, 2026-09-13, queued): remove documents or sections that are useless here or that could lead the project down the wrong road again, in the repo and in the archive; Wes approves the removal list first, since the living originals exist only in his earlier project's repo. **Why:** "we've written a lot of things down, and it often doesn't get enforced"; material that misleads is worse than material that is missing.
+
+## Retired claims (machine-read)
+
+Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
+
+| Phrase | Retired by | Since |
+|---|---|---|
+| `per-run JSONL` | D-15 superseded (sidecar cut) | 2026-09-13 |
+| `raw_files` | D-15 superseded (sidecar cut) | 2026-09-13 |
+| `freshness anchor` | N-08 | 2026-09-13 |
+| `test-count floor` | N-09 | 2026-09-13 |
+| `kill rate` | N-10 | 2026-09-13 |
+| `stress scenario` | N-11 | 2026-09-13 |
+| `stress corpus` | N-11 | 2026-09-13 |
+| `launchd dead-man` | N-12 | 2026-09-13 |
+| `dead-man's switch` | N-12 (the launchd job; Healthchecks.io remains) | 2026-09-13 |
+| `at most three` | N-16 (hard-block hooks) | 2026-09-13 |
+| `notifier proof` | adversarial review downgrade, PLAN § adversarial changes | 2026-09-13 |
+| `trailing-median` | deferred to M3, PLAN § adversarial changes | 2026-09-13 |
+| `trailing 7-run median` | deferred to M3, PLAN § adversarial changes | 2026-09-13 |
+| `CODEOWNERS` | declined, PLAN decisions table (enforcement model) | 2026-09-13 |
+| `feeds theme precision` | operator feedback is not precision (late 2026-09-13 section) | 2026-09-13 |
 

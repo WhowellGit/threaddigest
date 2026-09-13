@@ -11,6 +11,7 @@
 | Decision | Choice |
 |---|---|
 | Communities (v1) | r/premiere, r/VideoEditing, r/editors; optional r/AfterEffects, r/DavinciResolve. (Subreddit names are case-insensitive: r/videoediting *is* r/VideoEditing; the report's "distinct lowercase variant" is wrong. r/AdobePremierePro likely does not exist; the add-subreddit validator will say so.) |
+| Product intent (restated 2026-09-13) | Monitor Premiere Pro complaints to make managing them easier and extract useful insights; the valuable, hard part is assembling the story of the actual user problem from scattered, vague, non-technical reports. The earlier project's "known but under-weighted" framing stays separable and optional; no connection to the earlier project's data sources (D-28) |
 | "Themes" | Three concepts: **subreddit sources** (polled completely), **themes** = named keyword/regex rule groups that tag captured posts locally, **saved Reddit-wide searches** as a third source type (M3). #1 priority: surface top Premiere Pro quality issues/complaints |
 | UI stack | FastAPI + Jinja2 + HTMX, old-Reddit density, no JS build step |
 | Deleted/removed content | Scrub text + author, keep the ID row as a tombstone, render `[deleted]`/`[removed]`; deleted text must not survive anywhere (DB, raw files, exports) |
@@ -331,7 +332,7 @@ Wireframe (post page):
 | Column silently 100% NULL (field read from the wrong shape) | Population-floor invariant fails the run and names the column | fixture with the field nested elsewhere than the normalizer expects |
 | A gate that has gone inert (skips instead of failing) | Its positive control fails CI | remove the gate's precondition in a test environment and assert red |
 | Source freshness (a subreddit quietly not fetched for days while runs stay green) | Per-source freshness check flags `degraded`; digest names the source | fake makes one sub fail quietly across 2 runs |
-| Uniform staleness (everything equally old, every relative check passes) | Freshness anchor flags `degraded`; digest says "no new items for K runs" | fake returns the same listing for K runs while the live anchor shows newer posts |
+| Uniform staleness (everything equally old, every relative check passes) | Freshness anchor flags `degraded`; digest says "no new items for K runs" | fake returns the same listing for K runs while the live anchor shows newer posts (freshness anchor cut 2026-09-13, N-08; per-source zero-new detection kept) |
 | Test suite pointed at the real data dir | Settings refuse to start; tests only ever touch temp dirs | unset the opt-in variable and run a test from the repo root |
 | Repeated reruns churn primary keys | PK-stability invariant fails | run the fake scenario 3× and compare `pk`, `first_seen_at`, `max(pk)` |
 | Same post normalizes differently via two paths | Shape-parity test fails | probe fixture captured via listing and via tree |
@@ -408,7 +409,7 @@ Source: the retrospectives in `docs/reference/earlier-project-retrospectives/`, 
 | Coverage counters | run row + digest | % self posts with `selftext_html`, % comments with `author_fullname`, % due posts harvested, `raw_rejects`, `unknown_enum_values`, % posts tagged; structural floors at M1a (100% on live rows with `author_state=known`); *the trailing-median amber alarm is deferred to M3 after 60 days of baseline (2026-09-13)* | run `partial` |
 | Stress scenario | `pytest -m slow`, weekly CI | *Cut 2026-09-13 (N-11)*: the four `EXPLAIN QUERY PLAN` assertions that hot queries use the declared indexes remain | test fails |
 | Hard-block hooks | Claude Code `PreToolUse`, exactly two (N-16) | no `--no-verify` or direct push to `main`; no hand edits to `.ratchets/` or the hook settings; self-protecting, failing closed on internal error; project hook settings load only when the session starts in the repo root, so sessions start in `~/repos/insightminer` | tool call blocked |
-| Doc currency | one test | *Reduced 2026-09-13 to the INDEX-to-docs check in both directions* (`tests/gates/test_doc_currency.py`); `KNOWN_ISSUES.md` rows pointing at their regression tests, `DECISIONS.md` settled negatives, and "no counts restated in prose" are review-checked | CI fails |
+| Doc currency | one test | *Reduced 2026-09-13 to the INDEX-to-docs check in both directions* (`tests/gates/test_doc_currency.py`); `KNOWN_ISSUES.md` rows pointing at their regression tests, `DECISIONS.md` settled negatives, and "no counts restated in prose" are review-checked; the retired-claims check (G34, 2026-09-13) fails any live-document line that states a retired mechanism without its retirement marker | CI fails |
 
 ### Silent-failure controls
 
@@ -435,7 +436,7 @@ Source: the retrospectives in `docs/reference/earlier-project-retrospectives/`, 
 | "Works on my machine" | `uv.lock`, `.python-version`, Docker image, portability CI job, `doctor` |
 | Time-dependent flaky tests | injected `Clock`; time-machine; no `sleep` in tests |
 | Partial run reported as success | invariants; counters reconciled; `ok` requires zero warnings |
-| "Tests pass" claimed on a subset | CI is the authority; test-count floor; `make check` summary |
+| "Tests pass" claimed on a subset | CI is the authority; test-count floor; `make check` summary (test-count floor cut as a gate 2026-09-13, N-09; assert-count and collected-test floors remain) |
 | Over-abstraction | four layers only; rule: no new abstraction without two concrete uses |
 | Docs drift | README quickstart executed by the portability job |
 
@@ -502,7 +503,7 @@ The adversarial reviewer's central charge was that the plan cites the earlier pr
 
 | Stage | Where | How |
 |---|---|---|
-| Now (M0–M3) | This Mac | `uv run insightminer serve` on 127.0.0.1 (or a launchd `KeepAlive` agent); launchd `StartCalendarInterval` runs `run` daily (e.g., 06:30; runs on wake if the Mac was asleep). Logs in `data/logs/`. Alerts: on failure the CLI posts a macOS notification (`osascript display notification`) and the UI shows a red banner; a second small launchd job runs `insightminer doctor --alert-if-stale 36h` as a local dead-man's switch. The launchd wrapper invokes the project's virtualenv interpreter by absolute path (never `python3`, which is 3.9 on stock macOS) and wraps long backfills in `caffeinate -i`. **Location constraint:** launchd jobs are silently denied access to TCC-protected folders (`~/Desktop`, `~/Documents`, `~/Downloads`, `/Volumes/*`), which the earlier project hit directly; the repo and `DATA_DIR` live at `~/repos/insightminer`, outside them, and `doctor` checks the path; scheduled runs are wrapped in `caffeinate -i` so a closed lid cannot strand a run |
+| Now (M0–M3) | This Mac | `uv run insightminer serve` on 127.0.0.1 (or a launchd `KeepAlive` agent); launchd `StartCalendarInterval` runs `run` daily (e.g., 06:30; runs on wake if the Mac was asleep). Logs in `data/logs/`. Alerts: on failure the CLI posts a macOS notification (`osascript display notification`) and the UI shows a red banner; a second small launchd job runs `insightminer doctor --alert-if-stale 36h` hourly for the UI health rows (the launchd dead-man's switch was dropped 2026-09-13, N-12; the Healthchecks.io ping is the dead-man from M1d). The launchd wrapper invokes the project's virtualenv interpreter by absolute path (never `python3`, which is 3.9 on stock macOS) and wraps long backfills in `caffeinate -i`. **Location constraint:** launchd jobs are silently denied access to TCC-protected folders (`~/Desktop`, `~/Documents`, `~/Downloads`, `/Volumes/*`), which the earlier project hit directly; the repo and `DATA_DIR` live at `~/repos/insightminer`, outside them, and `doctor` checks the path; scheduled runs are wrapped in `caffeinate -i` so a closed lid cannot strand a run |
 | M4 | Docker on Mac → QNAP Container Station | `python:3.13-slim` + `uv sync --frozen --no-dev`; `compose.yaml` with `./data` local volume, `env_file` for secrets, supercronic schedule, `HEALTHCHECK` via `doctor --no-network`. Same image on QNAP; home IP preserved (best for Reddit). Optional Healthchecks.io/ntfy ping at the end of each successful run |
 | Optional, lowest priority | Remote access | Prefer Tailscale to reach the QNAP UI from anywhere over moving the fetcher to a VPS: datacenter IPs are treated worse by Reddit. A VPS would only host a read-only UI copy if ever needed |
 
@@ -606,7 +607,7 @@ The earlier system (a bug-intelligence pipeline over an issue tracker, pull requ
 | Boolean off-switch silently disabled a safety mechanism fleet-wide | No flag may skip reconcile or scrub; budget is a hard-capped ceiling |
 | Half-built DB promoted to live; destructive scripts one mistake from data loss | Destructive-operation gate with a recorded verified backup plus `--yes`; web and Datasette open read-only |
 | Ratchets ran only in the full suite, not in the commit path; "the only thing between a regression and the corpus was someone remembering to run the full suite" | Gates in pre-commit and required CI; human review on enforcement surfaces (CODEOWNERS) was considered and declined on 2026-09-13 in favour of compensating controls |
-| Small-input tests hid a 90-minute production merge | Weekly stress scenario with wall-time budgets and `EXPLAIN QUERY PLAN` index assertions; indexes declared up front |
+| Small-input tests hid a 90-minute production merge | Weekly stress scenario with wall-time budgets and `EXPLAIN QUERY PLAN` index assertions; indexes declared up front (stress scenario cut 2026-09-13, N-11; the EXPLAIN QUERY PLAN assertions remain) |
 | `python3` resolved to 3.9 and silently corrupted output; a second OS surfaced a cluster of silent Mac-first bugs | Absolute interpreter path in launchd; Linux as the primary CI matrix; utf-8, `os.replace`, guarded `fcntl` |
 | Fixed-template notifications lied; an alert path could itself be broken | Digest composed from state; the UI status pill derived from `runs` is the canonical alert; `notify --test` is a manual check (the weekly proof was downgraded 2026-09-13) |
 | Process outran the product: ~74 ADRs and hundreds of docs before code moved; 81% of docs were agent exhaust | Gates time-boxed to two days; guard count held; agent reports never committed; four living docs with one currency test; size ratchets |
@@ -622,8 +623,8 @@ Five focused reviewers, run in parallel, each producing concrete test specificat
 | Panel | Scope | Output |
 |---|---|---|
 | Database integrity and migrations | upsert semantics, PK stability, FTS sync and rebuild, Alembic batch mode, backup/restore gate, schema snapshot and fingerprint, `DATA_DIR` isolation | ~30 specified tests + fixture DB plan per revision |
-| Ingest and collector failure modes | fake-gateway scenario catalogue for every failure-matrix row, parity across ingest paths, state machine table, freshness anchor, budget and ladder, reconcile | scenario builder API + ~50 specified tests |
-| Enforcement, gates, and CI | ratchet implementations, positive controls, import-linter contracts, CODEOWNERS, hooks, portability job, `GUARDS.md` structure | CI workflow design + gate-by-gate positive-control specs |
+| Ingest and collector failure modes | fake-gateway scenario catalogue for every failure-matrix row, parity across ingest paths, state machine table, freshness anchor, budget and ladder, reconcile | scenario builder API + ~50 specified tests (freshness anchor cut 2026-09-13, N-08; per-source zero-new detection kept) |
+| Enforcement, gates, and CI | ratchet implementations, positive controls, import-linter contracts, CODEOWNERS, hooks, portability job, `GUARDS.md` structure | CI workflow design + gate-by-gate positive-control specs (CODEOWNERS declined 2026-09-13) |
 | UI and delivery surface | route and DOM assertions, security middleware, Run now, export integrity, FTS sanitizer, Playwright smoke | ~40 specified tests |
 | Adversarial review | attacks the combined strategy for unfalsifiable gates, list-policing guards, gaps against the failure catalogue, and over-engineering | prioritized cut list and the final `TEST_STRATEGY.md` outline |
 

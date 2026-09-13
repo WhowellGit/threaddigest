@@ -64,6 +64,16 @@ first-run setup. The CLI exists for schedulers, containers, tests, and break-gla
 The CLI mirrors the UI, never the reverse: both call the same `services/` functions, and
 `web` never imports `cli` (import-linter enforces it).
 
+## Reporting to Wes
+
+Clarity, not brevity. Write for a typical engineer who does not carry the project's whole history in
+their head: plain English, jargon reduced and explained on first use, more context where the logic is
+complicated, never dumbed down. An update opens with a short summary of what happened and offers
+detail rather than dumping it. Never bring a half-formed question: assess thoroughly first, then
+present a plain-English summary with context, a recommendation, a confidence level, and the pros,
+cons, and risks; ask only if a genuine choice remains. Every set of findings or options carries a
+recommendation and a confidence level. Applies to chat, PR bodies, and document summaries.
+
 ## Practices carried from the earlier project (2026-09-13)
 
 - **Claim provenance.** Any claim of the form "X works / is fixed / improved" in a PR body, commit
