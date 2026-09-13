@@ -14,13 +14,13 @@ BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
 
-.PHONY: help setup check test run schema ratchet-bump ratchet-loosen
+.PHONY: help setup check test run schema ratchet-bump ratchet-loosen plan-html
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
 	@echo "make check            ruff format, ruff check, mypy strict, import-linter, pytest+coverage, ratchets"
 	@echo "make test             uv run pytest"
-	@echo "make run              uv run insightminer run"
+	@echo "make run              uv run insightminer run   (the run command ships in M1a)"
 	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\"  loosen one floor (lands a GUARDS.md row)"
@@ -42,7 +42,7 @@ $(BUILD_DIR):
 check: | $(BUILD_DIR)
 	$(UV) run ruff format --check
 	$(UV) run ruff check
-	@rc=0; $(UV) run dmypy run -- src || rc=$$?; \
+	@rc=0; $(UV) run dmypy --status-file $(BUILD_DIR)/dmypy.json run -- src || rc=$$?; \
 	if [ $$rc -eq 1 ]; then exit 1; fi; \
 	if [ $$rc -ne 0 ]; then echo "dmypy exited $$rc; falling back to mypy"; $(UV) run mypy src; fi
 	$(UV) run lint-imports
@@ -69,7 +69,7 @@ test:
 	$(UV) run pytest -m "$(MARKEXPR)"
 
 run:
-	$(UV) run insightminer run
+	@echo "make run: the 'insightminer run' command ships in M1a; nothing to run yet."; exit 2
 
 plan-html: ## render docs/PLAN.md to docs/PLAN.html for browser review
 	$(UV) run python tools/render_plan.py

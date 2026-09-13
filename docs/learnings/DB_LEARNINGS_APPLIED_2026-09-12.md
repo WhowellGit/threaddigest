@@ -113,3 +113,8 @@ Add dated entries; strike through when done, with the commit or test that closed
 - [ ] M4: `doctor` check that the data directory is a local filesystem on the QNAP; backups recorded with row-count verification.
 - [ ] Quarterly: restore drill; guard pedigree review; prune guards that never fire and are cheap to lose.
 - [ ] Pending: adversarial review of this applied set (proposed panel).
+
+
+## Correction 2026-09-13
+
+The source documents referenced above as `~/Desktop/Reddit/Database_Key_Learnings/` now live in the repo at `docs/reference/earlier-project-retrospectives/`; the Desktop originals were archived to `~/repos/insightminer-desktop-archive/` (decision D-08, amended the same day).

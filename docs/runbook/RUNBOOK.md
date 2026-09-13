@@ -9,10 +9,10 @@ Target: under 10 minutes from clone to first run; the weekly portability CI job 
 1. Prerequisites on a Mac: Homebrew; `brew install uv gh`; git identity `Wes Howell <wes@weshowell.com>`; `uv python install 3.13`.
 2. Reddit side (Wes only): dedicated account with verified email; script app at reddit.com/prefs/apps (type **script**, redirect `http://localhost:8765`); accept the Data API terms; keep `client_id`, `client_secret`, username.
 3. `git clone <repo> ~/repos/insightminer` — the path must be outside `~/Desktop`, `~/Documents`, `~/Downloads`, `/Volumes/*` (launchd/TCC) and contain no spaces. `doctor` checks this.
-4. `make setup` — installs `uv` if missing, `uv sync --frozen`, installs pre-commit hooks, copies `.env.example` to `.env`, runs `db init`.
+4. `make setup` — installs `uv` if missing (Homebrew, else the official installer), `uv python install 3.13`, `uv sync --all-groups`, copies `.env.example` to `.env` if absent, `uv run pre-commit install`. `db init` arrives with the CLI in M1a.
 5. Put credentials in `.env` (owner-only permissions; never committed) or, from M2, use the browser `/setup` wizard (paste credentials, **Test connection**, choose subreddits, first sweep).
 6. `uv run insightminer doctor` — expects auth OK with rate-limit headers and exactly two HTTP calls (token + about), DB at head, data dir writable and outside TCC folders.
-7. `make run` for the first sweep, or `insightminer run --budget 5000` under `caffeinate -i` for the one-shot backfill (~1 hour). **(M1a+)**
+7. **(M1a+)** `make run` for the first sweep (today it only prints that the command is not built yet), or `insightminer run --budget 5000` under `caffeinate -i` for the one-shot backfill (~1 hour). **(M1a+)**
 8. Scheduler **(M1d+)**: `deploy/launchd/*.plist` with `ProgramArguments[0]` the absolute `.venv` interpreter (never `python3`, which is 3.9 on stock macOS), `StartCalendarInterval` 06:30, wrapped in `caffeinate -i`; `plutil -lint` the plist; load with `launchctl`. A two-minute test job verifies TCC behavior on this Mac before relying on it.
 9. Non-developer hand-over **(M4)**: `docker compose up` then the `/setup` wizard; no terminal after that. The coworker registers their own Reddit app; secrets are never shared or exported.
 
@@ -34,8 +34,8 @@ Recurring human duties are held to three: read the digest, acknowledge alerts in
 1. Failing test first → implement → `make check` green locally (ruff, mypy strict, import-linter, pytest with `--block-network` and `-W error`, schema snapshot, pytest-alembic, ratchet compare).
 2. Commit on a branch (pre-commit: ruff format+lint, `dmypy` whole tree, gitleaks, large-file check, `no-commit-to-branch main`). Never `--no-verify`.
 3. Open the PR with the template: `## Tests changed` (file, reason per changed `tests/**` file), the pasted `make check` block, ratchet table, `## Independent review` for deletion/scrub/migration/`repo.py` changes.
-4. CI required checks: `check`, `ratchets`, `ratchet-loosen-approval` (runs only on a loosening; Wes clicks approve after reading the `GUARDS.md` ledger row), `pr-body`, `portability` when triggered. Merge when green.
-5. `make deploy` on the Mac: `git pull`, `uv sync --frozen`, `insightminer db upgrade` (backs up first, § 4), restart `serve`; then `insightminer doctor`.
+4. CI required check today: `check` (the workflow also has `py314`, `portability`, `actionlint`). Planned for M1: `ratchets`, `ratchet-loosen-approval` (runs only on a loosening; Wes clicks approve after reading the `GUARDS.md` ledger row), `pr-body`. CI has not executed yet: the repo has no remote. Merge when green.
+5. **(M1d+)** `make deploy` on the Mac: `git pull`, `uv sync --frozen`, `insightminer db upgrade` (backs up first, § 4), restart `serve`; then `insightminer doctor`.
 6. Post-deploy: the next scheduled run's status on `/runs`; the weekly `audit` issue lists every enforcement-surface change for Wes to read.
 7. Roll back: previous git tag + `db restore` of the pre-migration backup (§ 5). Never auto-downgrade.
 
@@ -43,7 +43,7 @@ Recurring human duties are held to three: read the digest, acknowledge alerts in
 
 Every schema change is an Alembic migration (`render_as_batch=True`, naming convention, reversible, never edited after it is applied). Full PR checklist: database panel report § C (`docs/reference/reviews/2026-09-13-panel-db-integrity.md`).
 
-1. Before writing the migration, generate the fixture DB for the *current* head from pre-change code: `make fixture` → `tests/fixtures/db/<rev>.sqlite` + manifest (the set must equal `alembic history` minus head).
+1. **(M1a+)** Before writing the migration, generate the fixture DB for the *current* head from pre-change code: `make fixture` → `tests/fixtures/db/<rev>.sqlite` + manifest (the set must equal `alembic history` minus head).
 2. Write the migration; batch operations on `posts`/`comments` must `DROP VIEW posts_live` first, recreate the view and the three FTS triggers after, then run the FTS `'rebuild'`; `PRAGMA foreign_keys=OFF` is issued in `env.py` outside the transaction (a no-op inside one); `transaction_per_migration=True`.
 3. New NOT NULL columns are expand/contract: add nullable → backfill from `raw_json` → switch reads → drop later. Never rename in place. A new invariant is scoped by `normalizer_version` or a backfill flag so it cannot turn day one red.
 4. `make schema` regenerates `src/insightminer/db/schema.sql` (DDL plus the generated column-comment section); review its diff in the PR. Models must match DDL (`include_object` excludes `%_fts`, `%_fts_%`, `%_live`).
@@ -70,7 +70,7 @@ Drill (plan: quarterly, manual, logged here; panels propose weekly automation �
 
 Source: enforcement panel report § F and the plan's guard design rules. Ledger: `docs/runbook/GUARDS.md`.
 
-1. `make guard-review` **(M0+)** prints one row per gate id: date its positive control last ran (junit), firings this quarter (pinned "Guard firings" issue, never typed), runtime cost.
+1. `make guard-review` **(M3+)** prints one row per gate id: date its positive control last ran (junit), firings this quarter (pinned "Guard firings" issue, never typed), runtime cost.
 2. Wes assigns a verdict per guard: **EARNED** (fired in anger and was right), **EARNED AT BIRTH ONLY**, **UNPROVEN**, **SELF-SERVING** (fires only on its own test or on formatting).
 3. Rules: SELF-SERVING → drop or redesign this quarter. UNPROVEN for four consecutive quarters and > 5 s per run → drop candidate unless the class is data loss or compliance (thresholds pending Wes). Every loosening approved this quarter is re-read for a pattern. Adding a guard goes through the guard-count approval path and needs a birth incident, a positive control, and a `GUARDS.md` row; widening an existing guard is preferred and needs no approval.
 4. Record the count in the review note **with its source line** from the tool output; move dropped guards to `GUARDS.md` § Retired with the reason and what replaced them.

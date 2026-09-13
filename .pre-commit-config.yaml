@@ -35,7 +35,7 @@ repos:
     hooks:
       - id: dmypy
         name: mypy --strict on the whole src tree (dmypy)
-        entry: uv run dmypy run -- src
+        entry: uv run dmypy --status-file .build/dmypy.json run -- src
         language: system
         pass_filenames: false
         types_or: [python, pyi, toml]

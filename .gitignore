@@ -18,3 +18,5 @@ htmlcov/
 .DS_Store
 # derived review artifact (make plan-html)
 docs/PLAN.html
+# mypy daemon state (per machine, per tree)
+.dmypy.json
