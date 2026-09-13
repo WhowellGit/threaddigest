@@ -116,3 +116,9 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 4. Commercial-use stance for a coworker at the company that makes Premiere Pro (the research report calls product-decision insights a grey area).
 5. Exit codes as proposed in § 6.
 6. The owner questions consolidated in `docs/TEST_STRATEGY.md` § 6 (loosening approval mode, perimeter width, pre-push scope, `/setup` on the LAN, purge semantics, restore-drill automation, and the rest).
+
+
+## 2026-09-13 (late) — workspace lifecycle and curation controls
+
+- **Workspace removal:** archive (keep data, stop polling, hide) or delete (destructive gate; removes only data reachable through no other workspace; purge counts recorded). Compliance reconcile is workspace-agnostic. Revisit when: a second workspace exists and shares a source.
+- **Curation in the UI:** manual tag overrides never removed by re-tagging; watch/pin a thread past the ladder; promote a rising phrase into a rule; theme rename/merge; ad-hoc Search Reddit with "monitor" / "harvest" actions; per-tag thumbs feedback. Schema revision 2 (at M2) adds `workspaces.archived_at`, `post_themes.origin`, `posts.watch_until` in one migration, exercising the per-revision fixture path for the first time.
