@@ -6,10 +6,10 @@
 
 | ID | Date | Symptom | Root cause | Regression test (node id) | Status |
 |---|---|---|---|---|---|
-| | | | | | |
+| KI-001 | 2026-09-13 | A fresh clone's `make check` printed green while `dmypy` type-checked the *original* repo | `.dmypy.json` (daemon state holding the original tree's absolute path) was tracked in git, so the fresh clone's daemon attached to the wrong tree | tests/gates/test_no_tracked_daemon_state.py::test_dmypy_state_is_not_tracked_and_is_ignored | fixed |
 
-<!-- First row goes here when the first bug is fixed. Format example (do not count as a row):
-| KI-001 | 2026-10-01 | Post page 500 on a scrubbed post with no permalink | template built the deep link from `permalink` instead of `reddit_id` | tests/web/test_post_page.py::test_tombstone_deep_link_uses_id | fixed |
+<!-- Format example (do not count as a row):
+| KI-0XX | 2026-10-01 | Post page 500 on a scrubbed post with no permalink | template built the deep link from `permalink` instead of `reddit_id` | tests/web/test_post_page.py::test_tombstone_deep_link_uses_id | fixed |
 -->
 
 ## Swept: investigated, no issue found
