@@ -73,6 +73,22 @@ def test_ddl_is_transactional(engine: Engine) -> None:
     assert "ddl_probe" not in inspect(engine).get_table_names()
 
 
+def test_busy_timeout_is_overridable_and_defaults_to_30s(db_path: Path) -> None:
+    """§10.5: ``busy_timeout_ms`` overrides the pragma for THIS engine only, and every
+    existing call site (no ``busy_timeout_ms`` given) still gets the 30 s default.
+    """
+    default_engine = engine_for(db_path)
+    override_engine = engine_for(db_path, busy_timeout_ms=300)
+    try:
+        with default_engine.connect() as conn:
+            assert conn.exec_driver_sql("PRAGMA busy_timeout").scalar() == 30_000
+        with override_engine.connect() as conn:
+            assert conn.exec_driver_sql("PRAGMA busy_timeout").scalar() == 300
+    finally:
+        default_engine.dispose()
+        override_engine.dispose()
+
+
 def test_checkpoint_truncate_empties_the_wal(
     engine: Engine, db_path: Path, insert_post: PostInserter
 ) -> None:

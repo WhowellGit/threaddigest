@@ -63,6 +63,12 @@ packages = ["src/insightminer"]
 testpaths = ["tests"]
 addopts = "-q -m 'not live' --block-network --strict-markers -W error"
 xfail_strict = true
+# The repo root on sys.path, plus tests/__init__.py + tests/db/__init__.py, so
+# `from tests.db.sqlhelp import table_digest, read_run` resolves under the plain
+# `pytest` console script (not just `python -m pytest`) from tests/services/,
+# tests/e2e/ and tests/gates/ -- none of which is on the TID251 per-file-ignore list
+# for text()/create_engine (design-round5.md §2.2, §2.3).
+pythonpath = ["."]
 markers = [
   "live: needs real Reddit credentials; never runs in CI",
   "slow: weekly jobs",

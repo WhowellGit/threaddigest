@@ -16,13 +16,22 @@ connect-time pragmas run before any ``BEGIN``, which matters because ``journal_m
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 from urllib.parse import quote
 
 from sqlalchemy import Connection, Engine, create_engine, event
 from sqlalchemy.engine import URL
 
-__all__ = ["CONNECTION_PRAGMAS", "checkpoint_truncate", "engine_for"]
+__all__ = [
+    "CONNECTION_PRAGMAS",
+    "DEFAULT_BUSY_TIMEOUT_MS",
+    "checkpoint_truncate",
+    "engine_for",
+]
+
+#: Lock wait every connection gets unless :func:`engine_for` is given an override. Extracted
+#: from ``CONNECTION_PRAGMAS`` so the default and the override cannot drift (design-round5 §10.5).
+DEFAULT_BUSY_TIMEOUT_MS: Final = 30_000
 
 #: Pragmas applied to every connection, in order. ``journal_mode`` is persistent in the
 #: file; the rest are per-connection and must be re-applied on every checkout.
@@ -30,7 +39,7 @@ CONNECTION_PRAGMAS: tuple[tuple[str, str], ...] = (
     ("journal_mode", "WAL"),
     ("synchronous", "NORMAL"),
     ("foreign_keys", "ON"),
-    ("busy_timeout", "30000"),
+    ("busy_timeout", str(DEFAULT_BUSY_TIMEOUT_MS)),
     ("temp_store", "MEMORY"),
     ("secure_delete", "ON"),
 )
@@ -49,12 +58,31 @@ def _sqlite_url(db_path: Path, *, read_only: bool) -> URL:
     return URL.create("sqlite+pysqlite", database=filename, query=query)
 
 
-def engine_for(db_path: Path, *, read_only: bool = False) -> Engine:
+def _pragmas_with_busy_timeout(busy_timeout_ms: int | None) -> tuple[tuple[str, str], ...]:
+    """``CONNECTION_PRAGMAS`` with the one ``busy_timeout`` value substituted, or unchanged."""
+    if busy_timeout_ms is None:
+        return CONNECTION_PRAGMAS
+    return tuple(
+        (name, str(busy_timeout_ms) if name == "busy_timeout" else value)
+        for name, value in CONNECTION_PRAGMAS
+    )
+
+
+def engine_for(
+    db_path: Path, *, read_only: bool = False, busy_timeout_ms: int | None = None
+) -> Engine:
     """Return an engine for the SQLite file at ``db_path`` with the project pragmas.
 
     ``read_only=True`` opens the file with ``mode=ro`` so any write raises
     ``OperationalError``; the file must already exist.
+
+    ``busy_timeout_ms`` overrides the default :data:`DEFAULT_BUSY_TIMEOUT_MS` lock wait for
+    THIS engine only; every other pragma is unchanged and every existing call site keeps the
+    30 s default. The parameter exists because two tests need the application's writer to
+    actually give up on a held write lock inside a test's lifetime rather than after half a
+    minute, and ``mock.patch`` is banned outside ``tests/adapters/`` (design-round5 §10.5).
     """
+    pragmas = _pragmas_with_busy_timeout(busy_timeout_ms)
     engine = create_engine(_sqlite_url(db_path, read_only=read_only))
 
     @event.listens_for(engine, "connect")
@@ -63,7 +91,7 @@ def engine_for(db_path: Path, *, read_only: bool = False) -> Engine:
         dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         try:
-            for name, value in CONNECTION_PRAGMAS:
+            for name, value in pragmas:
                 cursor.execute(f"PRAGMA {name}={value}")
         finally:
             cursor.close()
