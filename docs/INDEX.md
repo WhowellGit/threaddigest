@@ -62,6 +62,7 @@
 ### `recent/`
 
 - `recent/STATUS.md` — what is in flight on the stated date, what is deferred, what waits on Wes, next steps. Read when: every session start.
+- `recent/M1A_TRANCHE_A.md` — execution brief for the network-independent half of M1a (repository, lock, run lifecycle, sweep, invariants, doctor, migrate, CLI against the fake gateway); prune-stale, deleted when M1a closes. Read when: working on M1a.
 
 ### `reference/`
 
