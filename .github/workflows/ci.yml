@@ -1,0 +1,130 @@
+# CI for Insight Miner. `check` is the required job and runs exactly `make check`.
+# No live tests and no secrets: the only token used is the workflow's own github.token,
+# read-only, to clone the repo inside the portability container.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # weekly (Monday 06:17 UTC): portability job
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check (required)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the ratchet compare reads the floors committed on main
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - name: Sync locked dependencies
+        run: uv sync --all-groups --locked
+      - name: make check
+        run: make check
+      - name: Upload .build (coverage.json, check-summary.json)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .build/
+          if-no-files-found: warn
+          retention-days: 14
+
+  py314:
+    # Informational only: tells us when the pin can move up. requires-python excludes 3.14,
+    # so this job widens it in its own checkout and re-resolves; nothing is committed.
+    name: py314 (informational)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - name: Widen requires-python for this job only
+        run: sed -i -E 's/^requires-python = .*/requires-python = ">=3.13,<3.15"/' pyproject.toml
+      - name: Sync (re-resolves the lock for 3.14; not committed)
+        run: uv sync --all-groups --python 3.14
+      - name: pytest
+        run: uv run pytest -p no:cacheprovider
+      - name: mypy
+        run: uv run mypy src
+
+  portability:
+    # Proves the README quickstart on a fresh Ubuntu container: clone, make setup, make check.
+    # Runs weekly, and on any change to the files that define setup. The change test is a
+    # step with an `if:` (not a `paths:` filter) so the job is never "skipped-but-required".
+    name: portability (fresh container)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install what a fresh machine is assumed to have (git, curl, make)
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates make
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decide whether to run
+        id: changed
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [ "$EVENT" = "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BASE" HEAD \
+              | grep -E -x 'Makefile|pyproject\.toml|uv\.lock|\.python-version|README\.md'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fresh clone, make setup, make check (the README quickstart)
+        if: steps.changed.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "$RUNNER_TEMP/fresh"
+          cd "$RUNNER_TEMP/fresh"
+          git fetch --quiet origin "$SHA"
+          git checkout --quiet --detach "$SHA"
+          git remote set-url origin "https://github.com/${REPO}.git"
+          make setup
+          make check
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint workflow files
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color

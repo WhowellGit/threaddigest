@@ -1,0 +1,5 @@
+filterwarnings_ignore=0
+mypy_overrides=1
+noqa=11
+pragma_no_cover=5
+type_ignore=7

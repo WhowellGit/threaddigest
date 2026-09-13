@@ -1,40 +1,90 @@
 # Insight Miner reference corpus — INDEX (the router)
 
-> Purpose: one line per document and *when to read it*. Keep this file short. Everything below moves into the repo as `docs/` at setup (M0); until then it lives here in `~/Desktop/Reddit/insightminer-docs/`.
-> Update policy: add a line when a document is added; remove it when the document is retired. A currency test will check INDEX ↔ folder in both directions once the repo exists.
+> Purpose: one line per document and *when to read it*. Keep this file short. The corpus lives in the repo at `docs/` since M0 (2026-09-13) and travels with the code.
+> Update policy: add a line when a document is added; remove it when the document is retired. The doc-currency test checks INDEX ↔ `docs/**/*.md` in both directions, so every file under `docs/` must appear below exactly once.
 
 ## How the corpus is organized
 
 | Folder | What lives here | Update policy | Read when |
 |---|---|---|---|
+| `docs/` (root) | `PLAN.md` (the plan; canonical for design and decisions), `TEST_STRATEGY.md` (router into the test specs), this file | Plan revised in place with dated corrections; strategy rewritten per version | Plan: before any design change. Strategy: before writing or changing tests |
 | `insights/` | Dated captures of strategy discussions and the reasoning behind decisions | Append-only, dated entries | Starting a new phase, or when a decision is being questioned |
-| `learnings/` | Hard-earned lessons: the canonical `LEARNINGS.md` plus dated "applied" notes | Append-only; canonical file curated | Before touching the area the lesson is about (router lines below say which) |
-| `decisions/` | `DECISIONS.md`: settled choices and settled negatives with triggers for revisiting | Append-only; each entry has a date and a "revisit when" | Before proposing an alternative to something already decided |
-| `reference/` | External material: research reports, prior-project retrospectives, reviewer reports, API notes | Immutable copies; add, never edit | When the source of a claim is needed |
-| `runbook/` | `RUNBOOK.md`, `KNOWN_ISSUES.md`, `GUARDS.md`, `DATA_DICTIONARY.md` | Prune-stale; generated where possible | Operating, debugging, or adding a guard |
+| `learnings/` | Hard-earned lessons: dated "applied" notes now; a canonical curated learnings file is added when the first project-native lesson lands | Append-only; canonical file curated | Before touching the area the lesson is about (routing table says which) |
+| `decisions/` | `DECISIONS.md`: settled choices, settled negatives, compliance bounds, Postgres-exit triggers, threat model, each with a "revisit when" | Append-only; dated entries | Before proposing an alternative to something already decided |
+| `reference/` | External and immutable material: the research report, the earlier project's retrospectives, reviewer and panel reports | Add, never edit | When the source of a claim is needed |
+| `runbook/` | `RUNBOOK.md`, `KNOWN_ISSUES.md`, `GUARDS.md`; a data dictionary generated from `schema.sql` joins at M1a | Prune-stale; generated where possible | Operating, debugging, adding a guard, fixing a bug |
 | `recent/` | `STATUS.md`: what is in flight and what is next | Rewritten, never appended | Start of every working session |
 
 ## Routing table (task → read first)
 
 | If you are about to… | Read |
 |---|---|
-| Start a session | `recent/STATUS.md` (not yet created; will hold in-flight work) |
-| Touch the database schema, migrations, upserts, FTS, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2, then `runbook/RUNBOOK.md` § migrations (repo) |
-| Touch deletion, scrubbing, reconcile, or anything compliance-related | Plan § Data model (content-state machine), `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §2, `runbook/KNOWN_ISSUES.md` (repo) |
-| Add or change a gate, ratchet, invariant, or test policy | Plan § Robustness → "Guard design rules", `reference/reviews/2026-09-12-db-learnings-review-A.md` §B, `runbook/GUARDS.md` (repo) |
-| Change the collector's fetch, budget, revisit, or search behavior | Plan § Collector algorithm, `reference/reviews/2026-09-12-collector-design-review.md` §1 |
-| Change the web UI | Plan § Web UI, `reference/reviews/2026-09-12-ui-design-review.md` |
-| Wonder why something was decided the way it was | `insights/INSIGHTS_2026-09-12.md`, then `decisions/DECISIONS.md` (repo) |
-| Evaluate a new approach or library | `decisions/DECISIONS.md` § settled negatives first (do not rebuild a killed lever) |
+| Start a session | `recent/STATUS.md`, then the row below that matches the task |
+| Write or change any test, or decide what to test first | `TEST_STRATEGY.md` (spec table and status), then the panel report it points at |
+| Touch the database schema, migrations, upserts, FTS, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2, `reference/reviews/2026-09-13-panel-db-integrity.md` (§A specs, §C migration checklist, §D fingerprint), `runbook/RUNBOOK.md` § 4 |
+| Touch deletion, scrubbing, reconcile, or anything compliance-related | Plan § Data model (content-state machine), `decisions/DECISIONS.md` § 2 (compliance bounds), `reference/reviews/2026-09-13-panel-ingest.md` §B.6–B.7, `runbook/KNOWN_ISSUES.md` |
+| Add, change, loosen, or retire a gate, ratchet, invariant, or hook | Plan § Robustness → "Guard design rules" and "Adversarial review: what changed", `reference/reviews/2026-09-13-panel-enforcement.md` §B–§D, `runbook/GUARDS.md`, `runbook/RUNBOOK.md` § 6 |
+| Change the collector's fetch, budget, revisit, reconcile, or search behavior | Plan § Collector algorithm, `reference/reviews/2026-09-13-panel-ingest.md` §A (fake API) and §B, `reference/reviews/2026-09-12-collector-design-review.md` §1 |
+| Change the web UI, middleware, or an operator flow | Plan § Web UI, `reference/reviews/2026-09-13-panel-ui.md` (§A specs, §B operator checklist, §C setup threat model), `reference/reviews/2026-09-12-ui-design-review.md` |
+| Fix a bug | `runbook/KNOWN_ISSUES.md` (add the row; failing test first) |
+| Deploy, migrate, restore, or run the quarterly review | `runbook/RUNBOOK.md` |
+| Wonder why something was decided the way it was | `insights/INSIGHTS_2026-09-12.md`, then `decisions/DECISIONS.md` |
+| Evaluate a new approach, library, or "just add a check" | `decisions/DECISIONS.md` § 3 settled negatives first; `reference/reviews/2026-09-13-adversarial-review.md` §C (over-engineering cut list) |
+| Question a Reddit-side behavior | `reference/2026-09-11-compass-research-report.md`; `reference/reviews/2026-09-13-panel-ingest.md` §C (probe plan) |
 
-## Documents in this corpus today
+## Documents in this corpus
 
-- `insights/INSIGHTS_2026-09-12.md` — the strategy discussion of 2026-09-12: priorities, honest-take points, every decision and its reasoning, principles worth keeping.
-- `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` — the exact plan changes made after reading the earlier project's database retrospectives, with sources; decisions raised; lessons that did not transfer; the living follow-up list for evolving the database implementation.
-- `reference/reviews/2026-09-12-collector-design-review.md` — independent design review of the collector, data model, PRAW behavior (verified against upstream), failure-mode matrix, migration practices.
-- `reference/reviews/2026-09-12-ui-design-review.md` — independent design review of the Reddit-style local web UI.
-- `reference/reviews/2026-09-12-db-learnings-review-A.md` — reviewer A's extraction from `KEY_LEARNINGS.md`, `DEAD_ENDS_AND_RULED_OUT.md`, `VALUE_STAGE_KEY_LEARNINGS.md`.
-- `reference/reviews/2026-09-12-db-learnings-review-B.md` — reviewer B's extraction from `SYSTEM_ARCHITECTURE_AND_REBUILD.md`, `PROJECT_JOURNEY.md`.
-- `../Database_Key_Learnings/` — the earlier project's eight retrospective documents (source material, immutable copies).
-- `../compass_artifact_…_text_markdown.md` — the Compass research report on building a rules-compliant Reddit miner (source material).
-- `~/Desktop/InsightMiner-Plan.html` — the current rendered plan (regenerated after each revision; the markdown source is the plan file managed by Claude Code).
+### Root
+
+- `PLAN.md` — the plan: context and decisions table, architecture, module map, data model, collector algorithm, CLI, web UI, testing strategy, robustness and enforcement (with the panel corrections and the adversarial changes), release practices, deployment, milestones, open items, appendices. Read when: any design question; it is canonical.
+- `TEST_STRATEGY.md` — v1 router into the five panel reports: layered policy, kinds of tests and sweeps, every spec ID with layer/phase/priority/status (cut list applied), the M0 gate set and M1a invariants, guard design rules, open owner questions. Read when: writing tests or deciding test order.
+- `INDEX.md` — this router.
+
+### `insights/`
+
+- `insights/INSIGHTS_2026-09-12.md` — the kickoff strategy discussion: Wes's priorities, insights, every decision and its reasoning, the 2026-09-13 additions, principles worth keeping. Read when: a decision is questioned or a new phase starts.
+
+### `learnings/`
+
+- `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` — ranked adoption of the earlier project's database lessons with confidence/importance/value/cost, the guard design rules, what was declined, decisions raised, lessons that did not transfer, the living follow-up list. Read when: touching `db/`, migrations, test isolation, or invariants.
+
+### `decisions/`
+
+- `decisions/DECISIONS.md` — settled choices (D-nn), compliance bounds, settled negatives (N-nn), Postgres-exit triggers, LAN threat model, reviewer-question decisions, and the pending-Wes list. Read when: before proposing an alternative or claiming compliance.
+
+### `runbook/`
+
+- `runbook/RUNBOOK.md` — setup, daily operation from the UI, deploy, migrate, restore drill, quarterly guard review; steps known so far, later-milestone steps marked. Read when: operating or deploying.
+- `runbook/KNOWN_ISSUES.md` — fixed bugs with root cause and the regression test node id (currency-checked). Read when: fixing a bug or seeing a familiar symptom.
+- `runbook/GUARDS.md` — the guard ledger: Active (M0 shipped set with birth incident, mechanism, positive-control node, verdict), external controls with "last seen red", Retired, Loosenings. Read when: adding, loosening, or reviewing a guard.
+
+### `recent/`
+
+- `recent/STATUS.md` — what is in flight on the stated date, what is deferred, what waits on Wes, next steps. Read when: every session start.
+
+### `reference/`
+
+- `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit miner: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
+
+`reference/earlier-project-retrospectives/` — the earlier database project's eight retrospective documents (immutable copies; source material for the learnings):
+
+- `reference/earlier-project-retrospectives/INDEX.md` — what each retrospective covers and the shared meta-lesson. Read when: choosing which retrospective to open.
+- `reference/earlier-project-retrospectives/CRITICAL_FAILURES_RETROSPECTIVE.md` — the ranked ~15 failures; a number that was real but measured wrong, scoped wrong, or asked the wrong question. Read when: designing a metric or invariant.
+- `reference/earlier-project-retrospectives/DEAD_ENDS_AND_RULED_OUT.md` — levers proven not to work; do not rebuild. Read when: evaluating an approach.
+- `reference/earlier-project-retrospectives/KEY_LEARNINGS.md` — the engineering-reliability log: silent-failure swallowing, rate limits, schema drift, credentials, orchestration. Read when: touching error handling or sync logic.
+- `reference/earlier-project-retrospectives/WHY_THE_GUARDS_EXIST.md` — what incident birthed each guard, what it caught since, and the design rule separating guards that work from ones that only look like they work. Read when: adding or reviewing a guard.
+- `reference/earlier-project-retrospectives/PROJECT_JOURNEY.md` — the narrative arc: no upfront spec, aggressive iteration, self-correction. Read when: judging a process decision.
+- `reference/earlier-project-retrospectives/SYSTEM_ARCHITECTURE_AND_REBUILD.md` — how the earlier system was built, where its debt concentrated, how to rebuild from zero. Read when: making an architecture trade-off.
+- `reference/earlier-project-retrospectives/VALUE_STAGE_KEY_LEARNINGS.md` — the retrieval/value-stage lessons; capture the lesson, not just the number. Read when: M5 analysis work begins.
+
+`reference/reviews/` — independent reviewer and panel reports (raw, unedited):
+
+- `reference/reviews/2026-09-12-collector-design-review.md` — collector, data model, PRAW behavior verified against upstream, failure-mode matrix, migration practices. Read when: changing fetch, paging, or the adapter.
+- `reference/reviews/2026-09-12-ui-design-review.md` — the Reddit-style local web UI design review: routes, wireframes, nested comments, settings UX, Run now, export, search, testing, styling. Read when: changing the UI.
+- `reference/reviews/2026-09-12-db-learnings-review-A.md` — reviewer A's extraction from `KEY_LEARNINGS`, `DEAD_ENDS_AND_RULED_OUT`, `VALUE_STAGE_KEY_LEARNINGS` (failure catalogue cited as "A #nn"). Read when: an "A #nn" citation needs its source.
+- `reference/reviews/2026-09-12-db-learnings-review-B.md` — reviewer B's extraction from `SYSTEM_ARCHITECTURE_AND_REBUILD`, `PROJECT_JOURNEY` (cited as "B Snn/Fnn/Inn/Tnn"). Read when: a "B …" citation needs its source.
+- `reference/reviews/2026-09-13-panel-db-integrity.md` — database panel: 55 specs (DB-01…55), three empirical SQLite corrections, fixture-DB plan, migration checklist, `schema.sql` and fingerprint design, judgements, owner questions. Read when: touching `db/`.
+- `reference/reviews/2026-09-13-panel-ingest.md` — ingest panel: `FakeRedditGateway` scenario-builder API, 60 specs (SW/SS/TE/TR/RV/RC/SC/FR/PA/NM/RL/JS/TH/DG/CF/AD/GT-nn), probe plan (P-01…17), judgements (D-1…18), owner questions. Read when: touching the collector or the fake.
+- `reference/reviews/2026-09-13-panel-enforcement.md` — enforcement panel: CI design, 38 gates (G01…38) with positive controls, ratchet file format and one-way protocol, hooks, cut list, compensating controls, `GUARDS.md` structure, owner questions. Read when: touching CI, ratchets, hooks, or `tests/gates/`.
+- `reference/reviews/2026-09-13-panel-ui.md` — UI panel: 55 specs (UI-01…55), operator-complete checklist, setup-wizard threat model, plan judgements, owner questions. Read when: touching `web/`.
+- `reference/reviews/2026-09-13-adversarial-review.md` — the adversarial pass: unfalsifiable gates, gaps against the failure catalogue, over-engineering cut list, contradictions, unverified claims, disagreements with the ranked learnings, risks, top 10 changes. Read when: tempted to add a gate, or when a plan claim needs a second opinion.

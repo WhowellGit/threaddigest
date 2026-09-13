@@ -41,6 +41,7 @@ dev = [
   "import-linter>=2.1",
   "pre-commit>=4.0",
   "types-PyYAML",
+  "types-regex>=2026.9.10.20260911",
 ]
 
 [build-system]
@@ -50,21 +51,94 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/insightminer"]
 
+# ---------------------------------------------------------------------------
+# pytest
+#   -m 'not live'    live tests are deselected here, so the skip ratchet stays at zero
+#   --block-network  any socket connect inside a test raises (pytest-recording)
+#   --strict-markers unknown markers are errors, so a typo cannot silently un-skip or un-gate
+#   -W error         warnings are errors: PRAW deprecations and SQLAlchemy warnings surface now
+# --cov is NOT here on purpose: the Makefile passes it so plain `uv run pytest` stays fast.
+# ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q -m 'not live' --block-network"
+addopts = "-q -m 'not live' --block-network --strict-markers -W error"
+xfail_strict = true
 markers = [
   "live: needs real Reddit credentials; never runs in CI",
   "slow: weekly jobs",
   "gate: positive control proving a guard can go red",
+  "macos: needs macOS tooling (plutil, launchd); deselected on the Linux CI matrix, run on the Mac",
 ]
 
+[tool.coverage.run]
+source = ["insightminer"]
+branch = true
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
+# docs/ holds immutable reference copies; ruff formats fenced Python inside Markdown,
+# so it must not see them.
+extend-exclude = ["docs"]
 
+[tool.ruff.lint]
+# PLW1514 is still a preview rule in ruff 0.16. explicit-preview-rules means only rules
+# named by exact code (PLW1514) opt in; prefixes like "E" or "B" never pull in preview rules.
+preview = true
+explicit-preview-rules = true
+select = [
+  "E", "W",        # pycodestyle (includes E722 bare except)
+  "F",             # pyflakes
+  "I",             # isort
+  "B",             # flake8-bugbear (includes B904 raise ... from inside except)
+  "UP",            # pyupgrade
+  "N",             # pep8-naming
+  "S110", "S112",  # try-except-pass / try-except-continue
+  "BLE",           # blind except
+  "TRY",           # tryceratops: exception hygiene
+  "PLW1514",       # open() without encoding= (Linux/Mac drift)
+  "C901",          # complexity: size ratchet
+  "PLR0915",       # too many statements: size ratchet
+  "TID251",        # banned API (see below)
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.flake8-bugbear]
+# typer/fastapi declare parameters through call expressions in defaults by design.
+extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends", "fastapi.Query", "fastapi.Form"]
+
+# Connection chokepoint and no-mocking-internals policy (docs/PLAN.md, Silent-failure controls).
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sqlalchemy.create_engine".msg = "Engines are created only in insightminer.db.engine (WAL, foreign_keys, secure_delete are applied there)."
+"sqlalchemy.text".msg = "Raw SQL lives inside insightminer.db only; go through the repository or insightminer.db.engine."
+"sqlite3.connect".msg = "Open the database through insightminer.db.engine, never sqlite3 directly."
+"unittest.mock.patch".msg = "Do not patch internals: test through the fake gateway (insightminer.adapters.reddit_fake) and a real temp DB. Allowed only under tests/adapters/."
+
+# Ruff can only lift TID251 as a whole per path, not per banned name. db/ and tests/db/ are
+# lifted for create_engine/text/sqlite3; tests/adapters/ for mock.patch. Review keeps the split.
+[tool.ruff.lint.per-file-ignores]
+"src/insightminer/db/**" = ["TID251"]
+"tests/db/**" = ["TID251"]
+"tests/adapters/**" = ["TID251"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.13"
 strict = true
 files = ["src"]
+
+# Reason: praw and prawcore ship neither type hints nor a py.typed marker and no stubs exist.
+# The adapter (adapters/reddit_praw.py) wraps them behind the typed Protocols in ports.py,
+# so the untyped surface stops there. This override is a suppression: the suppression
+# ratchet counts it, and it is removed the day PRAW ships types.
+[[tool.mypy.overrides]]
+module = ["praw.*", "prawcore.*"]
+ignore_missing_imports = true

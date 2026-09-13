@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+"""Ratchet floors for Insight Miner: measure, compare, bump, loosen. Standard library only.
+
+Usage (from the repo root; the Makefile wraps these):
+
+    uv run python tools/ratchet.py measure [--write PATH]
+    uv run python tools/ratchet.py compare [--main-ref REF|none]
+    uv run python tools/ratchet.py bump
+    uv run python tools/ratchet.py loosen KEY=<family>.<key>[=<value>] REASON="<why>"
+
+Families, one file each under ``.ratchets/`` (``key=value`` lines, sorted, LF, trailing
+newline). Direction says which way a value may move without approval.
+
+    coverage.txt      line_percent           up    slack 0.5 point
+        totals.percent_covered in .build/coverage.json (0.00 when the report is missing)
+    tests.txt         collected              up    slack 2%
+        ``def test*`` functions and ``Test*`` methods in test files under tests/ (AST)
+                      asserts                up    slack 2%
+        ``assert`` statements in test files (AST)
+    skips.txt         count                  down  slack 0
+        pytest.mark.skip/skipif/xfail and pytest.skip/xfail/importorskip under tests/ (AST)
+    suppressions.txt  noqa                   down  slack 0
+        ``# noqa`` comments in src/ and tests/ (tokenizer)
+                      type_ignore            down  slack 0
+        ``# type: ignore`` comments
+                      pragma_no_cover        down  slack 0
+        ``# pragma: no cover`` comments
+                      filterwarnings_ignore  down  slack 0
+        filterwarnings/simplefilter("ignore...") calls (AST) and pyproject filterwarnings entries
+                      mypy_overrides         down  slack 0
+        ``[[tool.mypy.overrides]]`` entries in pyproject.toml
+
+Counting is structural (AST and tokenizer), so a marker inside a string literal is not a
+suppression and a comment rewrap cannot hide one. Every skip and suppression is printed
+with its file:line on every run.
+
+``compare`` makes three comparisons and exits 0 (ok), 1 (red or stale) or 3 (loosening):
+
+1. measured vs file: a move against direction beyond the slack is RED;
+2. file vs ``render(measured)``: a floor lagging the measurement beyond the slack, an
+   unknown or missing key, or non-canonical formatting is STALE ("run make ratchet-bump");
+3. file vs ``git show <main>:.ratchets/<family>.txt``: a value moved against direction
+   relative to main, or a key removed, is a LOOSENING that needs approval and a row in
+   docs/runbook/GUARDS.md (which ``loosen`` writes). The ref is ``--main-ref``, else
+   ``$RATCHET_MAIN_REF``, else the first of ``main`` / ``origin/main`` that exists; when
+   none exists the run is red (CI must fetch main). ``--main-ref none`` skips it.
+
+``bump`` writes the measured values, keeping (never moving) any value that would go
+against direction; it exits 1 when a kept value is outside the slack, i.e. when only
+``loosen`` can make the tree green. ``loosen`` writes one value, refuses anything looser
+than the measurement, and appends a ledger row under ``## Loosenings`` in GUARDS.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import datetime as dt
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tokenize
+import tomllib
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import NoReturn
+
+RATCHET_DIR = ".ratchets"
+LEDGER_PATH = Path("docs") / "runbook" / "GUARDS.md"
+LEDGER_HEADING = "## Loosenings"
+LEDGER_HEADER = "| Date | Key | From | To | Reason | PR |"
+LEDGER_SEPARATOR = "|---|---|---|---|---|---|"
+COVERAGE_JSON = Path(".build") / "coverage.json"
+MAIN_REF_ENV = "RATCHET_MAIN_REF"
+DEFAULT_MAIN_REFS = ("main", "origin/main")
+
+EXIT_OK = 0
+EXIT_RED = 1
+EXIT_LOOSENING = 3
+EPS = 1e-9
+UP = "up"
+DOWN = "down"
+
+Number = int | float
+
+
+def fail(message: str) -> NoReturn:
+    """Exit 1 with a one-line reason on stderr."""
+    raise SystemExit(message)
+
+
+@dataclass(frozen=True)
+class Spec:
+    family: str
+    key: str
+    direction: str
+    slack_abs: float = 0.0
+    slack_pct: float = 0.0
+    is_float: bool = False
+
+    @property
+    def name(self) -> str:
+        return f"{self.family}.{self.key}"
+
+    @property
+    def bound(self) -> str:
+        return "floor" if self.direction == UP else "ceiling"
+
+    def tolerance(self, reference: Number) -> float:
+        return self.slack_abs + self.slack_pct * abs(reference)
+
+    def parse(self, raw: str) -> Number:
+        return float(raw) if self.is_float else int(raw)
+
+    def fmt(self, value: Number) -> str:
+        return f"{value:.2f}" if self.is_float else str(int(value))
+
+    def against(self, new: Number, old: Number) -> bool:
+        """True when ``new`` moves against this ratchet's direction relative to ``old``."""
+        return new < old if self.direction == UP else new > old
+
+
+SPECS: tuple[Spec, ...] = (
+    Spec("coverage", "line_percent", UP, slack_abs=0.5, is_float=True),
+    Spec("tests", "collected", UP, slack_pct=0.02),
+    Spec("tests", "asserts", UP, slack_pct=0.02),
+    Spec("skips", "count", DOWN),
+    Spec("suppressions", "noqa", DOWN),
+    Spec("suppressions", "type_ignore", DOWN),
+    Spec("suppressions", "pragma_no_cover", DOWN),
+    Spec("suppressions", "filterwarnings_ignore", DOWN),
+    Spec("suppressions", "mypy_overrides", DOWN),
+)
+FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
+
+
+def specs_for(family: str) -> list[Spec]:
+    return sorted((spec for spec in SPECS if spec.family == family), key=lambda spec: spec.key)
+
+
+def spec_by_name(name: str) -> Spec | None:
+    return next((spec for spec in SPECS if spec.name == name), None)
+
+
+# --------------------------------------------------------------------------- measuring
+
+
+@dataclass
+class Measurement:
+    values: dict[str, dict[str, Number]]
+    hits: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    def to_json(self) -> dict[str, object]:
+        out: dict[str, object] = {family: dict(self.values[family]) for family in FAMILIES}
+        out["hits"] = list(self.hits)
+        out["notes"] = list(self.notes)
+        return out
+
+
+def _py_files(base: Path) -> list[Path]:
+    if not base.is_dir():
+        return []
+    return sorted(p for p in base.rglob("*.py") if "__pycache__" not in p.parts)
+
+
+def _test_files(root: Path) -> list[Path]:
+    return [
+        p
+        for p in _py_files(root / "tests")
+        if p.name.startswith("test_") or p.name.endswith("_test.py")
+    ]
+
+
+def _parse_module(path: Path) -> ast.Module:
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError as exc:
+        msg = f"ratchet: cannot parse {path}: {exc}"
+        raise SystemExit(msg) from exc
+
+
+def _dotted(node: ast.expr) -> str:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _is_test_function(node: ast.stmt) -> bool:
+    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
+
+
+def count_tests(tree: ast.Module) -> int:
+    total = 0
+    for node in tree.body:
+        if _is_test_function(node):
+            total += 1
+        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            total += sum(1 for sub in node.body if _is_test_function(sub))
+    return total
+
+
+def count_asserts(tree: ast.Module) -> int:
+    return sum(1 for node in ast.walk(tree) if isinstance(node, ast.Assert))
+
+
+SKIP_MARKS = frozenset({"skip", "skipif", "xfail"})
+SKIP_CALLS = frozenset({"skip", "xfail", "importorskip"})
+
+
+def skip_hits(tree: ast.Module, rel: str) -> list[str]:
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute):
+            continue
+        base = _dotted(node.value)
+        if base.endswith("mark") and node.attr in SKIP_MARKS:
+            hits.append(f"{rel}:{node.lineno} pytest.mark.{node.attr}")
+        elif base == "pytest" and node.attr in SKIP_CALLS:
+            hits.append(f"{rel}:{node.lineno} pytest.{node.attr}")
+    return hits
+
+
+COMMENT_PATTERNS: dict[str, re.Pattern[str]] = {
+    "noqa": re.compile(r"#\s*noqa\b", re.IGNORECASE),
+    "type_ignore": re.compile(r"#\s*type:\s*ignore\b"),
+    "pragma_no_cover": re.compile(r"#\s*pragma:\s*no\s+cover\b"),
+}
+
+
+def comment_hits(path: Path, rel: str) -> list[tuple[str, str]]:
+    text = path.read_text(encoding="utf-8")
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except tokenize.TokenError as exc:
+        msg = f"ratchet: cannot tokenize {path}: {exc}"
+        raise SystemExit(msg) from exc
+    hits = []
+    for tok in tokens:
+        if tok.type != tokenize.COMMENT:
+            continue
+        for key, pattern in COMMENT_PATTERNS.items():
+            hits.extend((key, f"{rel}:{tok.start[0]} {key}") for _ in pattern.finditer(tok.string))
+    return hits
+
+
+WARNING_FILTER_CALLS = frozenset({"filterwarnings", "simplefilter"})
+
+
+def _string_arg(node: ast.expr | None) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def warning_filter_hits(tree: ast.Module, rel: str) -> list[str]:
+    hits = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _dotted(node.func).rsplit(".", 1)[-1]
+        if name not in WARNING_FILTER_CALLS:
+            continue
+        action = _string_arg(node.args[0]) if node.args else None
+        for keyword in node.keywords:
+            if keyword.arg == "action":
+                action = _string_arg(keyword.value)
+        if action is not None and action.startswith("ignore"):
+            hits.append(f"{rel}:{node.lineno} {name}({action!r})")
+    return hits
+
+
+def pyproject_hits(root: Path) -> tuple[list[str], list[str]]:
+    path = root / "pyproject.toml"
+    if not path.is_file():
+        return [], []
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    tool = data.get("tool", {})
+    filters = tool.get("pytest", {}).get("ini_options", {}).get("filterwarnings", [])
+    if isinstance(filters, str):
+        filters = [filters]
+    filter_hits = [
+        f"pyproject.toml filterwarnings {entry!r}"
+        for entry in filters
+        if str(entry).startswith("ignore")
+    ]
+    overrides = tool.get("mypy", {}).get("overrides", [])
+    override_hits = [
+        f"pyproject.toml [[tool.mypy.overrides]] module={entry.get('module')!r}"
+        for entry in overrides
+    ]
+    return filter_hits, override_hits
+
+
+def measure_coverage(path: Path, notes: list[str]) -> float:
+    if not path.is_file():
+        notes.append(f"coverage report {path} missing; line_percent measured as 0.00")
+        return 0.0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return round(float(data["totals"]["percent_covered"]), 2)
+
+
+def measure(root: Path, coverage_json: Path) -> Measurement:
+    notes: list[str] = []
+    hits: list[str] = []
+    counts = {"noqa": 0, "type_ignore": 0, "pragma_no_cover": 0, "filterwarnings_ignore": 0}
+    collected = asserts = skips = 0
+
+    for path in _test_files(root):
+        tree = _parse_module(path)
+        collected += count_tests(tree)
+        asserts += count_asserts(tree)
+
+    for path in _py_files(root / "tests"):
+        rel = path.relative_to(root).as_posix()
+        found = skip_hits(_parse_module(path), rel)
+        skips += len(found)
+        hits.extend(found)
+
+    for base in ("src", "tests"):
+        for path in _py_files(root / base):
+            rel = path.relative_to(root).as_posix()
+            for key, hit in comment_hits(path, rel):
+                counts[key] += 1
+                hits.append(hit)
+            found = warning_filter_hits(_parse_module(path), rel)
+            counts["filterwarnings_ignore"] += len(found)
+            hits.extend(found)
+
+    filter_hits, override_hits = pyproject_hits(root)
+    counts["filterwarnings_ignore"] += len(filter_hits)
+    hits.extend(filter_hits)
+    hits.extend(override_hits)
+
+    values: dict[str, dict[str, Number]] = {
+        "coverage": {"line_percent": measure_coverage(coverage_json, notes)},
+        "tests": {"collected": collected, "asserts": asserts},
+        "skips": {"count": skips},
+        "suppressions": {**counts, "mypy_overrides": len(override_hits)},
+    }
+    return Measurement(values=values, hits=hits, notes=notes)
+
+
+# --------------------------------------------------------------------------- files
+
+
+def render_family(family: str, values: dict[str, Number]) -> str:
+    return "".join(f"{spec.key}={spec.fmt(values[spec.key])}\n" for spec in specs_for(family))
+
+
+def parse_family_text(text: str) -> dict[str, str]:
+    raw: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        key, sep, value = line.partition("=")
+        if not sep:
+            msg = f"line without '=': {line!r}"
+            raise ValueError(msg)
+        raw[key.strip()] = value.strip()
+    return raw
+
+
+def family_path(root: Path, family: str) -> Path:
+    return root / RATCHET_DIR / f"{family}.txt"
+
+
+def read_family_text(root: Path, family: str) -> str | None:
+    """Raw file text with line endings preserved, so CRLF is visible to the canonical check."""
+    path = family_path(root, family)
+    if not path.is_file():
+        return None
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def read_family_values(root: Path, family: str) -> dict[str, Number]:
+    """Lenient read: known keys that parse; missing file or bad lines yield fewer keys."""
+    text = read_family_text(root, family)
+    if text is None:
+        return {}
+    try:
+        raw = parse_family_text(text)
+    except ValueError:
+        return {}
+    values: dict[str, Number] = {}
+    for spec in specs_for(family):
+        try:
+            values[spec.key] = spec.parse(raw[spec.key])
+        except (KeyError, ValueError):
+            continue
+    return values
+
+
+def write_family(root: Path, family: str, values: dict[str, Number]) -> None:
+    path = family_path(root, family)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(render_family(family, values))
+    os.replace(tmp, path)
+
+
+# --------------------------------------------------------------------------- git
+
+
+def _git(root: Path, *args: str) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def ref_exists(root: Path, ref: str) -> bool:
+    return _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") is not None
+
+
+def resolve_main_ref(root: Path, explicit: str | None) -> str | None:
+    """The ref holding the committed floors, or None when the check is explicitly skipped."""
+    chosen = explicit or os.environ.get(MAIN_REF_ENV)
+    if chosen:
+        if chosen.lower() == "none":
+            return None
+        if not ref_exists(root, chosen):
+            fail(f"ratchet: main ref {chosen!r} not found in {root}")
+        return chosen
+    for candidate in DEFAULT_MAIN_REFS:
+        if ref_exists(root, candidate):
+            return candidate
+    fail(
+        "ratchet: no main baseline found (neither 'main' nor 'origin/main' exists); "
+        "fetch main, pass --main-ref REF, or --main-ref none to skip the loosening check"
+    )
+
+
+def main_family_values(root: Path, ref: str, family: str) -> dict[str, Number] | None:
+    text = _git(root, "show", f"{ref}:{RATCHET_DIR}/{family}.txt")
+    if text is None:
+        return None
+    try:
+        raw = parse_family_text(text)
+    except ValueError:
+        return None
+    values: dict[str, Number] = {}
+    for spec in specs_for(family):
+        try:
+            values[spec.key] = spec.parse(raw[spec.key])
+        except (KeyError, ValueError):
+            continue
+    return values
+
+
+# --------------------------------------------------------------------------- compare
+
+
+@dataclass(frozen=True)
+class Finding:
+    status: str
+    subject: str
+    detail: str
+
+    def line(self) -> str:
+        return f"{self.status:<9} {self.subject:<34} {self.detail}"
+
+
+def _compare_values(spec: Spec, floor: Number, measured: Number) -> Finding:
+    tol = spec.tolerance(floor)
+    gap = abs(measured - floor)
+    if spec.against(measured, floor) and gap > tol + EPS:
+        word = "below" if spec.direction == UP else "above"
+        return Finding(
+            "RED",
+            spec.name,
+            f"measured {spec.fmt(measured)} is {word} the {spec.bound} {spec.fmt(floor)} "
+            f"(slack {tol:g})",
+        )
+    if gap > tol + EPS:
+        return Finding(
+            "STALE",
+            spec.name,
+            f"{spec.bound} {spec.fmt(floor)} lags measured {spec.fmt(measured)} "
+            f"(slack {tol:g}); run make ratchet-bump",
+        )
+    return Finding("OK", spec.name, f"{spec.bound}={spec.fmt(floor)} measured={spec.fmt(measured)}")
+
+
+def compare_family_file(
+    root: Path, family: str, measured: dict[str, Number]
+) -> tuple[list[Finding], dict[str, Number] | None]:
+    """Comparisons 1 and 2. Returns findings and the parsed file values (None if unusable)."""
+    text = read_family_text(root, family)
+    if text is None:
+        return [
+            Finding("RED", family, f"{RATCHET_DIR}/{family}.txt missing; run make ratchet-bump")
+        ], None
+    try:
+        raw = parse_family_text(text)
+    except ValueError as exc:
+        return [Finding("STALE", family, f"unparseable ({exc}); run make ratchet-bump")], None
+
+    findings: list[Finding] = []
+    values: dict[str, Number] = {}
+    for spec in specs_for(family):
+        if spec.key not in raw:
+            findings.append(Finding("STALE", spec.name, "missing from file; run make ratchet-bump"))
+            continue
+        try:
+            values[spec.key] = spec.parse(raw[spec.key])
+        except ValueError:
+            findings.append(Finding("STALE", spec.name, f"unparseable value {raw[spec.key]!r}"))
+    for key in raw:
+        if key not in values and spec_by_name(f"{family}.{key}") is None:
+            findings.append(
+                Finding("STALE", f"{family}.{key}", "unknown key; run make ratchet-bump")
+            )
+    if findings:
+        return findings, None
+
+    if text != render_family(family, values):
+        findings.append(
+            Finding(
+                "STALE",
+                family,
+                f"{family}.txt is not canonical (hand-edited?); run make ratchet-bump",
+            )
+        )
+    findings.extend(
+        _compare_values(spec, values[spec.key], measured[spec.key]) for spec in specs_for(family)
+    )
+    return findings, values
+
+
+def compare_family_main(
+    root: Path, family: str, values: dict[str, Number], ref: str
+) -> list[Finding]:
+    """Comparison 3: the file against the floors committed on main."""
+    on_main = main_family_values(root, ref, family)
+    if on_main is None:
+        return [Finding("NOTE", family, f"no baseline on {ref} (new family)")]
+    findings = []
+    for spec in specs_for(family):
+        if spec.key not in on_main:
+            continue
+        if spec.key not in values:
+            findings.append(Finding("LOOSENING", spec.name, f"present on {ref}, removed here"))
+        elif spec.against(values[spec.key], on_main[spec.key]):
+            findings.append(
+                Finding(
+                    "LOOSENING",
+                    spec.name,
+                    f"{spec.fmt(on_main[spec.key])} on {ref} -> {spec.fmt(values[spec.key])} here; "
+                    "needs approval and a GUARDS.md row (make ratchet-loosen)",
+                )
+            )
+    return findings
+
+
+def compare(root: Path, measurement: Measurement, main_ref: str | None) -> list[Finding]:
+    findings: list[Finding] = []
+    if main_ref is None:
+        findings.append(Finding("NOTE", "main", "loosening check skipped (--main-ref none)"))
+    for family in FAMILIES:
+        file_findings, values = compare_family_file(root, family, measurement.values[family])
+        findings.extend(file_findings)
+        if values is not None and main_ref is not None:
+            findings.extend(compare_family_main(root, family, values, main_ref))
+    return findings
+
+
+def exit_code(findings: Iterable[Finding]) -> int:
+    statuses = {finding.status for finding in findings}
+    if statuses & {"RED", "STALE"}:
+        return EXIT_RED
+    if "LOOSENING" in statuses:
+        return EXIT_LOOSENING
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- bump / loosen
+
+
+def bump(root: Path, measurement: Measurement) -> int:
+    rc = EXIT_OK
+    for family in FAMILIES:
+        current = read_family_values(root, family)
+        new: dict[str, Number] = {}
+        for spec in specs_for(family):
+            measured = measurement.values[family][spec.key]
+            old = current.get(spec.key)
+            if old is not None and spec.against(measured, old):
+                new[spec.key] = old
+                beyond = abs(measured - old) > spec.tolerance(old) + EPS
+                print(
+                    f"KEPT      {spec.name:<34} measured {spec.fmt(measured)} would loosen the "
+                    f"{spec.bound} {spec.fmt(old)}; refusing (use make ratchet-loosen "
+                    f'KEY={spec.name} REASON="...")'
+                )
+                if beyond:
+                    rc = EXIT_RED
+            else:
+                new[spec.key] = measured
+                was = f" (was {spec.fmt(old)})" if old is not None else ""
+                print(f"SET       {spec.name:<34} {spec.fmt(measured)}{was}")
+        write_family(root, family, new)
+    return rc
+
+
+def _is_placeholder_row(line: str) -> bool:
+    cells = line.strip().strip("|").split("|")
+    return all(not cell.strip() for cell in cells)
+
+
+def append_ledger_row(path: Path, cells: list[str]) -> None:
+    row = "| " + " | ".join(cells) + " |"
+    text = path.read_text(encoding="utf-8") if path.is_file() else "# Guards ledger\n"
+    lines = text.splitlines()
+    try:
+        heading = lines.index(LEDGER_HEADING)
+    except ValueError:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([LEDGER_HEADING, "", LEDGER_HEADER, LEDGER_SEPARATOR, row])
+    else:
+        end = next(
+            (i for i in range(heading + 1, len(lines)) if lines[i].startswith("## ")), len(lines)
+        )
+        table = [i for i in range(heading + 1, end) if lines[i].lstrip().startswith("|")]
+        if len(table) < 2:
+            insert_at = heading + 1
+            lines[insert_at:insert_at] = ["", LEDGER_HEADER, LEDGER_SEPARATOR, row, ""]
+        elif len(table) >= 3 and _is_placeholder_row(lines[table[-1]]):
+            lines[table[-1]] = row
+        else:
+            lines.insert(table[-1] + 1, row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def parse_loosen_args(tokens: list[str]) -> tuple[str, str | None, str]:
+    """Parse ``KEY=family.key[=value]`` and ``REASON=...`` (any order) to (name, value, reason)."""
+    assignment = reason = None
+    for token in tokens:
+        head, sep, rest = token.partition("=")
+        if not sep:
+            fail(f"ratchet: unexpected argument {token!r}")
+        if head.upper() == "KEY":
+            assignment = rest
+        elif head.upper() == "REASON":
+            reason = rest
+        elif "." in head:
+            assignment = token
+        else:
+            fail(f"ratchet: unexpected argument {token!r}")
+    if not assignment:
+        fail("ratchet: loosen needs KEY=<family>.<key>[=<value>]")
+    if reason is None or not reason.strip():
+        fail('ratchet: loosen needs REASON="<why>"')
+    name, sep, value = assignment.partition("=")
+    return name.strip(), value.strip() if sep else None, reason.strip()
+
+
+def loosen(
+    root: Path, measurement: Measurement, name: str, raw_value: str | None, reason: str
+) -> int:
+    spec = spec_by_name(name)
+    if spec is None:
+        known = ", ".join(s.name for s in SPECS)
+        fail(f"ratchet: unknown key {name!r}; known keys: {known}")
+    measured = measurement.values[spec.family][spec.key]
+    try:
+        value = spec.parse(raw_value) if raw_value is not None else measured
+    except ValueError as exc:
+        msg = f"ratchet: {name}: cannot parse value {raw_value!r}"
+        raise SystemExit(msg) from exc
+
+    current = read_family_values(root, spec.family)
+    if spec.key not in current:
+        fail(f"ratchet: {name} has no committed value yet; run make ratchet-bump first")
+    old = current[spec.key]
+    if not spec.against(value, old):
+        fail(
+            f"ratchet: {name}={spec.fmt(value)} is not a loosening of the {spec.bound} "
+            f"{spec.fmt(old)}; use make ratchet-bump for tightenings"
+        )
+    tol = spec.tolerance(value)
+    if abs(value - measured) > tol + EPS:
+        relation = "looser" if spec.against(value, measured) else "still red"
+        fail(
+            f"ratchet: {name}={spec.fmt(value)} is {relation} against the measured "
+            f"{spec.fmt(measured)} (slack {tol:g}); floors track measurement, so the "
+            f"value must be {spec.fmt(measured)} (omit the value to use it)"
+        )
+
+    current[spec.key] = value
+    write_family(root, spec.family, current)
+    safe_reason = " ".join(reason.replace("|", "\\|").split())
+    append_ledger_row(
+        root / LEDGER_PATH,
+        [dt.date.today().isoformat(), spec.name, spec.fmt(old), spec.fmt(value), safe_reason, ""],
+    )
+    print(
+        f"LOOSENED  {spec.name:<34} {spec.fmt(old)} -> {spec.fmt(value)}; "
+        f"row appended to {LEDGER_PATH}"
+    )
+    return EXIT_OK
+
+
+# --------------------------------------------------------------------------- cli
+
+
+def _print_measurement(measurement: Measurement) -> None:
+    for hit in measurement.hits:
+        print(f"HIT       {hit}")
+    for note in measurement.notes:
+        print(f"NOTE      {note}")
+
+
+def _default_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="ratchet.py", description=__doc__.split("\n\n")[0])
+    parser.add_argument("--root", type=Path, default=_default_root(), help="repository root")
+    parser.add_argument(
+        "--coverage-json",
+        type=Path,
+        default=None,
+        help=f"default <root>/{COVERAGE_JSON.as_posix()}",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    measure_p = sub.add_parser("measure", help="print the measured values as JSON")
+    measure_p.add_argument("--write", type=Path, default=None, help="also write the JSON here")
+    compare_p = sub.add_parser("compare", help="three-way comparison; exit 0/1/3")
+    compare_p.add_argument(
+        "--main-ref", default=None, help="git ref with the committed floors, or 'none'"
+    )
+    sub.add_parser("bump", help="write measured values, never moving against direction")
+    loosen_p = sub.add_parser("loosen", help='KEY=<family>.<key>[=<value>] REASON="<why>"')
+    loosen_p.add_argument("assignments", nargs="+")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    root: Path = args.root.resolve()
+    coverage_json: Path = args.coverage_json or root / COVERAGE_JSON
+    measurement = measure(root, coverage_json)
+
+    if args.command == "measure":
+        payload = json.dumps(measurement.to_json(), indent=2, sort_keys=True) + "\n"
+        if args.write is not None:
+            target: Path = args.write
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+        sys.stdout.write(payload)
+        return EXIT_OK
+
+    _print_measurement(measurement)
+    if args.command == "compare":
+        findings = compare(root, measurement, resolve_main_ref(root, args.main_ref))
+        for finding in findings:
+            print(finding.line())
+        rc = exit_code(findings)
+        counts = {
+            s: sum(1 for f in findings if f.status == s)
+            for s in ("OK", "RED", "STALE", "LOOSENING")
+        }
+        print(
+            f"ratchet: {counts['OK']} ok, {counts['RED']} red, {counts['STALE']} stale, "
+            f"{counts['LOOSENING']} loosening -> exit {rc}"
+        )
+        return rc
+    if args.command == "bump":
+        return bump(root, measurement)
+    name, value, reason = parse_loosen_args(args.assignments)
+    return loosen(root, measurement, name, value, reason)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
