@@ -5,6 +5,10 @@ not-ok -- are reachable from a test without staging a whole invocation. *A check
 an ok branch tested is not a check*, so every function here answers one question and returns
 one :class:`Check` rather than folding several into a verdict.
 
+A thirteenth, :func:`check_hooks_installed`, follows the same contract but is **not** in
+:func:`run_checks`: it diagnoses a developer checkout rather than an installation, and
+§15.2's list is twelve. ``make check`` calls it directly; see its own section below.
+
 **Zero HTTP is structural, not a promise.** ``no_network`` defaults to ``True`` and
 :func:`run_checks` never touches ``gateway`` on that path: the parameter exists so the M1c
 connectivity check has a seam to land in, and CF-01 proves the tranche-A default by handing
@@ -55,6 +59,7 @@ __all__ = [
     "check_data_dir_writable",
     "check_database_present",
     "check_free_disk",
+    "check_hooks_installed",
     "check_last_run_age",
     "check_lock_not_stale",
     "check_no_stale_running_rows",
@@ -62,6 +67,7 @@ __all__ = [
     "check_schema_fingerprint",
     "check_settings_valid",
     "parse_duration",
+    "repo_root_from",
     "run_checks",
 ]
 
@@ -435,6 +441,87 @@ def check_no_stale_running_rows(conn: Connection, *, now: int, stale_after_secon
         name=name,
         ok=False,
         detail=f"{len(stale)} stale `running` row(s): {listed}",
+        severity=CheckSeverity.WARNING,
+    )
+
+
+# --- the developer checkout, deliberately outside run_checks -----------------------------------
+#
+# ``hooks_installed`` diagnoses the *checkout a change is made in*, not the installation an
+# operator runs: an installed wheel has no hooks to install and `/system` has no use for the
+# row. It is therefore a ``Check`` like the twelve above -- same contract, same shape, usable
+# from the same report the day someone wants it there -- but it is not in :func:`run_checks`,
+# whose list §15.2 fixes at twelve and whose exact membership two tests pin. ``make check``
+# calls it through ``tools/hooks_status.py`` so its closing line is derived, never narrated.
+
+
+#: The file that marks the repository root when walking up from this package.
+ROOT_MARKER: Final = "pyproject.toml"
+
+#: What pre-commit's generated hook says about itself; a hand-written or sample hook does not.
+HOOK_MARKER: Final = "pre-commit"
+
+
+def repo_root_from(start: Path) -> Path | None:
+    """The nearest directory at or above ``start`` that holds a ``pyproject.toml``."""
+    base = start if start.is_dir() else start.parent
+    for candidate in (base, *base.parents):
+        if (candidate / ROOT_MARKER).is_file():
+            return candidate
+    return None
+
+
+def _git_hooks_dir(root: Path) -> Path | None:
+    """``root``'s git hooks directory, or ``None`` when ``root`` is not a git checkout.
+
+    A linked worktree's ``.git`` is a *file* naming that worktree's git directory, whose
+    ``commondir`` points at the shared one -- and the shared one is where the hooks that run
+    for every worktree live. Following it is the difference between reporting the truth and
+    reporting "no git repository" to every agent that works in a worktree.
+    """
+    dot_git = root / ".git"
+    if dot_git.is_dir():
+        return dot_git / "hooks"
+    if not dot_git.is_file():
+        return None
+    pointer = dot_git.read_text(encoding="utf-8").strip()
+    prefix = "gitdir:"
+    if not pointer.startswith(prefix):
+        return None
+    git_dir = Path(pointer[len(prefix) :].strip())
+    if not git_dir.is_absolute():
+        git_dir = root / git_dir
+    common = git_dir / "commondir"
+    if common.is_file():
+        git_dir = git_dir / common.read_text(encoding="utf-8").strip()
+    return git_dir.resolve() / "hooks"
+
+
+def check_hooks_installed(start: Path | None = None) -> Check:
+    """The checkout's ``pre-commit`` hook is installed, so the gates actually run on commit.
+
+    Three states, all of them real answers:
+
+    * **ok** -- ``<git dir>/hooks/pre-commit`` exists and names pre-commit;
+    * **not ok** -- there is a git repository and that hook is missing or is something else
+      (git's own ``pre-commit.sample`` is not installed: git never runs it);
+    * **ok, "no git repository"** -- an installed wheel or a container has nothing to
+      install hooks into. That is a healthy state, not a skipped check.
+
+    ``start`` is the walk-up's starting point (a temp tree in the tests); it defaults to this
+    package, so the answer is about the checkout this code was imported from.
+    """
+    name = "hooks_installed"
+    root = repo_root_from(start if start is not None else Path(__file__).resolve().parent)
+    hooks_dir = None if root is None else _git_hooks_dir(root)
+    if hooks_dir is None:
+        return Check(name=name, ok=True, detail="no git repository", severity=CheckSeverity.WARNING)
+    hook = hooks_dir / "pre-commit"
+    installed = hook.is_file() and HOOK_MARKER in hook.read_text(encoding="utf-8", errors="replace")
+    return Check(
+        name=name,
+        ok=installed,
+        detail=f"{hook} runs pre-commit" if installed else "run make hooks",
         severity=CheckSeverity.WARNING,
     )
 

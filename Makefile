@@ -14,10 +14,11 @@ BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
 
-.PHONY: help setup check test run fixture schema ratchet-bump ratchet-loosen plan-html
+.PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
+	@echo "make hooks            install the pre-commit hooks into this checkout (nothing else)"
 	@echo "make check            ruff format, ruff check, mypy strict, import-linter, pytest+coverage, ratchets"
 	@echo "make test             uv run pytest"
 	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
@@ -34,6 +35,12 @@ setup:
 	$(UV) python install 3.13
 	$(UV) sync --all-groups
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example: add your Reddit app credentials."; fi
+	$(MAKE) hooks
+
+# Standalone so an existing checkout can install the hooks without a full `make setup`, and
+# so `make check`'s closing line has something to name. `make setup` calls this target
+# rather than repeating the command: one installer, one place to fix it.
+hooks:
 	$(UV) run pre-commit install
 
 $(BUILD_DIR):
@@ -54,6 +61,7 @@ check: | $(BUILD_DIR)
 	@cat $(SUMMARY)
 	@echo
 	@echo "<!-- make-check-summary:end -->"
+	@$(UV) run python tools/hooks_status.py
 
 ratchet-bump:
 	$(RATCHET) bump
