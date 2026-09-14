@@ -104,6 +104,31 @@ def unresolved(root: Path, doc: Path, column: str) -> list[str]:
     return problems
 
 
+def duplicate_ids(text: str, pattern: str) -> list[str]:
+    """Ids that head more than one table row (``KI-009``, ``G23``): a register whose ids are not
+    unique cannot be cited. Birth incident 2026-09-14: two open rows reused KI-005 and KI-006,
+    which already named fixed bugs, and nothing noticed."""
+    seen: dict[str, int] = {}
+    for line in strip_comments(text).splitlines():
+        cells = split_row(line)
+        if cells and re.fullmatch(pattern, cells[0]):
+            seen[cells[0]] = seen.get(cells[0], 0) + 1
+    return sorted(key for key, count in seen.items() if count > 1)
+
+
+def test_register_ids_are_unique() -> None:
+    issues = duplicate_ids((ROOT / KNOWN_ISSUES).read_text(encoding="utf-8"), r"KI-\d+")
+    guards = duplicate_ids((ROOT / GUARDS).read_text(encoding="utf-8"), r"G\d+(?:/G\d+)*")
+    assert not issues, "KNOWN_ISSUES.md reuses ids: " + ", ".join(issues)
+    assert not guards, "GUARDS.md reuses ids: " + ", ".join(guards)
+
+
+def test_positive_control_a_reused_id_is_red() -> None:
+    table = "| ID | Date |\n|---|---|\n| KI-001 | a |\n| KI-002 | b |\n| KI-001 | c |\n"
+    assert duplicate_ids(table, r"KI-\d+") == ["KI-001"]
+    assert duplicate_ids(table.replace("| KI-001 | c |", "| KI-003 | c |"), r"KI-\d+") == []
+
+
 def test_every_known_issues_row_cites_a_regression_test_that_exists() -> None:
     problems = unresolved(ROOT, KNOWN_ISSUES, ISSUES_COLUMN)
     assert not problems, "KNOWN_ISSUES.md cites tests that do not exist:\n" + "\n".join(problems)
