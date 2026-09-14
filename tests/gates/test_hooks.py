@@ -367,3 +367,151 @@ def test_settings_json_registers_both_hooks_with_timeout_5() -> None:
         assert hook["command"].endswith(f"/tools/hooks/{script}")
         assert "$CLAUDE_PROJECT_DIR" in hook["command"]
         assert (HOOKS_DIR / script).is_file()
+
+
+# ------------------------------------------------------------- read_before_touch (G49)
+#
+# The third hook, added on Wes's ruling of 2026-09-14 against the two-hook cut (N-16): an edit
+# under a rule file's ``paths:`` must follow a read of the documents that rule file names first.
+# Log-first: it writes a ledger entry and allows until its mode file says ``block``. Every test
+# runs the script the way Claude Code would, with a synthetic project, rule file, and transcript.
+
+READ_BEFORE = HOOKS_DIR / "read_before_touch.sh"
+
+
+def _routed_project(project: Path, mode: str) -> Path:
+    """One rule file routing ``src/x/db/**`` to two documents, in the given mode."""
+    (project / ".claude" / "rules").mkdir(parents=True)
+    (project / ".claude" / "rules" / "db.md").write_text(
+        '---\npaths:\n  - "src/x/db/**"\n---\n# db\n\n'
+        "Read first: `docs/DB.md` §1 and `docs/RUNBOOK.md` § Migrate.\n",
+        encoding="utf-8",
+    )
+    (project / "docs").mkdir()
+    (project / "docs" / "DB.md").write_text("# db\n", encoding="utf-8")
+    (project / "docs" / "RUNBOOK.md").write_text("# runbook\n", encoding="utf-8")
+    (project / "tools" / "hooks").mkdir(parents=True)
+    (project / "tools" / "hooks" / "read_before_touch.mode").write_text(
+        mode + "\n", encoding="utf-8"
+    )
+    (project / "src" / "x" / "db").mkdir(parents=True)
+    return project
+
+
+def _read_line(project: Path, rel: str) -> str:
+    """One transcript line shaped like a Read tool call on ``rel``."""
+    content = [{"type": "tool_use", "name": "Read", "input": {"file_path": str(project / rel)}}]
+    return json.dumps({"type": "assistant", "message": {"content": content}})
+
+
+def _transcript(project: Path, *read_paths: str) -> Path:
+    transcript = project / "transcript.jsonl"
+    transcript.write_text(
+        "".join(_read_line(project, p) + "\n" for p in read_paths), encoding="utf-8"
+    )
+    return transcript
+
+
+def _edit_payload(project: Path, rel: str, transcript: Path, session: str = "s1") -> dict[str, Any]:
+    return {
+        "tool_name": "Edit",
+        "tool_input": {"file_path": str(project / rel)},
+        "cwd": str(project),
+        "session_id": session,
+        "transcript_path": str(transcript),
+    }
+
+
+def _ledger(project: Path) -> list[dict[str, Any]]:
+    path = project / ".build" / "hooks" / "read_before_touch.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.mark.gate("G49")
+def test_read_before_touch_logs_and_allows_in_log_mode(project: Path) -> None:
+    _routed_project(project, "log")
+    transcript = _transcript(project)  # nothing read yet
+    proc = run_hook(READ_BEFORE, _edit_payload(project, "src/x/db/repo.py", transcript), project)
+    assert proc.returncode == 0, proc.stderr
+    (entry,) = _ledger(project)
+    assert entry["missing"] == ["docs/DB.md", "docs/RUNBOOK.md"]
+    assert (
+        entry["rules"] == ["db.md"]
+        and entry["mode"] == "log"
+        and entry["file"] == "src/x/db/repo.py"
+    )
+
+
+@pytest.mark.gate("G49")
+def test_read_before_touch_blocks_in_block_mode_and_allows_once_read(project: Path) -> None:
+    _routed_project(project, "block")
+    half = _transcript(project, "docs/DB.md")  # one of the two documents read
+    proc = run_hook(READ_BEFORE, _edit_payload(project, "src/x/db/repo.py", half), project)
+    assert proc.returncode == 2, proc.stderr
+    assert "before reading docs/RUNBOOK.md" in proc.stderr
+    both = _transcript(project, "docs/DB.md", "docs/RUNBOOK.md")
+    proc = run_hook(READ_BEFORE, _edit_payload(project, "src/x/db/repo.py", both, "s2"), project)
+    assert proc.returncode == 0, proc.stderr
+
+
+@pytest.mark.gate("G49")
+def test_read_before_touch_ignores_unrouted_files_and_other_tools(project: Path) -> None:
+    _routed_project(project, "block")
+    transcript = _transcript(project)
+    unrouted = _edit_payload(project, "src/x/other.py", transcript)
+    assert run_hook(READ_BEFORE, unrouted, project).returncode == 0
+    assert run_hook(READ_BEFORE, bash_payload("echo hi", project), project).returncode == 0
+    outside = {**unrouted, "tool_input": {"file_path": "/elsewhere/a.py"}}
+    assert run_hook(READ_BEFORE, outside, project).returncode == 0
+    assert _ledger(project) == []
+
+
+@pytest.mark.gate("G49")
+def test_read_before_touch_scans_the_transcript_incrementally(project: Path) -> None:
+    _routed_project(project, "log")
+    transcript = _transcript(project)
+    run_hook(READ_BEFORE, _edit_payload(project, "src/x/db/a.py", transcript), project)
+    with transcript.open("a", encoding="utf-8") as handle:
+        handle.write(_read_line(project, "docs/DB.md") + "\n")
+        handle.write(json.dumps({"summary": f"read {project / 'docs/RUNBOOK.md'}"}) + "\n")
+    run_hook(READ_BEFORE, _edit_payload(project, "src/x/db/a.py", transcript), project)
+    assert len(_ledger(project)) == 1, "the second call must find both documents in the new bytes"
+    (cache,) = (project / ".build" / "hooks" / "read_cache").glob("*.json")
+    state = json.loads(cache.read_text(encoding="utf-8"))
+    assert state["offset"] == transcript.stat().st_size
+    assert set(state["seen"]) == {"docs/DB.md", "docs/RUNBOOK.md"}
+
+
+@pytest.mark.gate("G49")
+@pytest.mark.parametrize(("mode", "expected"), [("log", 0), ("block", 2)])
+def test_read_before_touch_internal_errors_follow_the_mode(
+    project: Path, mode: str, expected: int
+) -> None:
+    _routed_project(project, mode)
+    proc = run_hook(READ_BEFORE, "{not json", project)
+    assert proc.returncode == expected, proc.stderr
+    if mode == "log":
+        (entry,) = _ledger(project)
+        assert "error" in entry
+    else:
+        assert "failing closed" in proc.stderr
+
+
+def test_read_before_touch_is_executable_bash_with_a_committed_mode() -> None:
+    assert os.access(READ_BEFORE, os.X_OK)
+    text = READ_BEFORE.read_text(encoding="utf-8")
+    assert text.startswith("#!/usr/bin/env bash\n") and "set -uo pipefail" in text
+    mode = (HOOKS_DIR / "read_before_touch.mode").read_text(encoding="utf-8").strip()
+    assert mode in {"log", "block"}
+
+
+def test_every_registered_hook_command_is_an_existing_executable_script() -> None:
+    """Registration is checked against the tree: a registered command naming a script that
+    does not exist is a hook that never runs (installed-ness, not existence)."""
+    settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
+    for entry in settings["hooks"]["PreToolUse"]:
+        for hook in entry["hooks"]:
+            rel = hook["command"].split('"$CLAUDE_PROJECT_DIR"/', 1)[1]
+            assert os.access(REPO_ROOT / rel, os.X_OK), rel
