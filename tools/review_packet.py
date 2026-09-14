@@ -40,6 +40,15 @@ from typing import NoReturn
 PROJECT = "Insight Miner"
 TEMPLATE = Path("docs") / "reference" / "reviews" / "templates" / "external-deep-research.md"
 CLAIMS = Path("docs") / "reference" / "reviews" / "templates" / "claims.md"
+REDACTIONS = Path("docs") / "reference" / "reviews" / "templates" / "redactions.txt"
+#: Placeholders for the owner's identity, which is read from git and the machine at build
+#: time (Wes, 2026-09-14): the name, the email, the email's domain, the machine username.
+NAME_PLACEHOLDER = "the owner"
+EMAIL_PLACEHOLDER = "owner@example.invalid"
+DOMAIN_PLACEHOLDER = "example.invalid"
+USER_PLACEHOLDER = "[user]"
+EXTRA_PLACEHOLDER = "the-owner"
+MIN_REDACTION_LENGTH = 4
 PLAN = Path("docs") / "PLAN.md"
 INTENT_HEADING = "## Intent (read this first)"
 DEFAULT_OUT = Path(".build") / "review-packets"
@@ -99,6 +108,8 @@ EXCLUDED_PREFIXES = (
     # The identifier gate's own test spells out the banned identifiers as its positive controls
     # (split strings that defeat the scan, not a reader); the ledger row G35 describes it.
     "tests/gates/test_no_imported_identifiers.py",
+    # the owner-identity list is an input to the redaction, never content
+    "docs/reference/reviews/templates/redactions.txt",
 )
 UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "MANIFEST.json")
 #: A bundle larger than this is written in numbered parts, so no single upload is beyond what
@@ -147,6 +158,44 @@ def excluded(rel: str) -> bool:
     return rel.startswith(EXCLUDED_PREFIXES) or name.startswith(".env")
 
 
+def owner_identity(root: Path) -> list[tuple[str, str]]:
+    """Strings to replace and their placeholders, longest first: the git identity, the
+    email's domain, the machine username, and the entries of the redactions file at HEAD."""
+    pairs: list[tuple[str, str]] = []
+    name = git_optional(root, "config", "user.name")
+    email = git_optional(root, "config", "user.email")
+    if name:
+        pairs.append((name, NAME_PLACEHOLDER))
+    if email:
+        pairs.append((email, EMAIL_PLACEHOLDER))
+        if "@" in email:
+            pairs.append((email.split("@", 1)[1], DOMAIN_PLACEHOLDER))
+    pairs.append((Path.home().name, USER_PLACEHOLDER))
+    if tracked_under(root, REDACTIONS.as_posix()):
+        for line in (
+            git_bytes(root, "show", f"HEAD:{REDACTIONS.as_posix()}").decode("utf-8").splitlines()
+        ):
+            entry = line.split("#", 1)[0].strip()
+            if not entry:
+                continue
+            original, sep, placeholder = entry.partition("=>")
+            pairs.append((original.strip(), placeholder.strip() if sep else EXTRA_PLACEHOLDER))
+    seen: set[str] = set()
+    unique = []
+    for original, placeholder in pairs:
+        if len(original) >= MIN_REDACTION_LENGTH and original not in seen:
+            seen.add(original)
+            unique.append((original, placeholder))
+    return sorted(unique, key=lambda pair: -len(pair[0]))
+
+
+def git_optional(root: Path, *args: str) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(root), *args], capture_output=True, text=True, check=False
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def tracked_under(root: Path, spec: str) -> list[str]:
     """Tracked files under ``spec`` (a file or a directory), in git's sorted order."""
     out = git(root, "ls-files", "-z", "--", spec)
@@ -162,8 +211,10 @@ class Packet:
     files: dict[str, bytes] = field(default_factory=dict)  # rel path -> content, in order
     bundle_files: dict[str, list[str]] = field(default_factory=dict)
     skipped_binary: list[str] = field(default_factory=list)
+    redactions: dict[str, int] = field(default_factory=dict)
 
     def collect(self) -> None:
+        identity = owner_identity(self.root)
         seen: set[str] = set()
         for bundle, specs in BUNDLES.items():
             members: list[str] = []
@@ -174,11 +225,18 @@ class Packet:
                     seen.add(rel)
                     content = git_bytes(self.root, "show", f"HEAD:{rel}")
                     try:
-                        content.decode("utf-8")
+                        text = content.decode("utf-8")
                     except UnicodeDecodeError:
                         self.skipped_binary.append(rel)
                         continue
-                    self.files[rel] = content
+                    for original, placeholder in identity:
+                        hits = text.count(original)
+                        if hits:
+                            text = text.replace(original, placeholder)
+                            self.redactions[placeholder] = (
+                                self.redactions.get(placeholder, 0) + hits
+                            )
+                    self.files[rel] = text.encode("utf-8")
                     members.append(rel)
             self.bundle_files[bundle] = members
 
@@ -281,6 +339,7 @@ def render_readme(
     )
     skipped = "\n".join(f"- `{rel}`" for rel in packet.skipped_binary) or "- (none)"
     excluded_rules = "\n".join(f"- `{prefix}`" for prefix in EXCLUDED_PREFIXES)
+    redacted = sum(packet.redactions.values())
     return f"""# {PROJECT} review packet: commit `{packet.commit[:12]}`, {packet.date}
 
 This packet is the committed tree of a small personal system at one commit, assembled by
@@ -304,10 +363,13 @@ searching, because the parts are large and a retrieval tool will not read them i
   carries a verdict column, and about sixty test docstrings cite `round5-findings.json`, a
   panel file that is not tracked and not here. Treat every recorded conclusion as a claim
   under review.
-- The owner's name and contact details appear in the git-identity rows of the plan, the
-  decisions log, and the runbook; nothing else personal is here, and there are no secrets:
-  the packet is built from tracked files only, and the tree's own gates refuse a committed
-  secret.
+- The owner's name, email address and its domain, account handle, and machine username are
+  replaced by placeholders (`the owner`, `owner@example.invalid`, `example.invalid`,
+  `the-owner`, `[user]`) everywhere, including inside code and paths; the manifest counts the
+  substitutions per placeholder ({redacted:,} in total). The owner's first name remains, as
+  the operator the documents address. Nothing else personal is here, and there are no
+  secrets: the packet is built from tracked files only, and the tree's own gates refuse a
+  committed secret.
 
 ## What the system is
 
@@ -434,6 +496,7 @@ def write_packet(
             for part_name in part_sizes
         ],
         "skipped_binary": packet.skipped_binary,
+        "redactions": dict(sorted(packet.redactions.items())),
         "excluded_prefixes": list(EXCLUDED_PREFIXES),
     }
     (out / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -521,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if packet.skipped_binary:
         print(f"skipped binary: {', '.join(packet.skipped_binary)}")
+    total = sum(packet.redactions.values())
+    print(f"redactions: {total} substitutions across {len(packet.redactions)} placeholders")
     dest: Path | None = args.copy_to
     if args.desktop:
         dest = Path.home() / "Desktop" / f"insightminer-review-packet-{stamp}"

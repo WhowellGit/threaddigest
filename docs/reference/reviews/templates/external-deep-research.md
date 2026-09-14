@@ -8,6 +8,28 @@ that enforces it, the source, and the tests. `00-README.md` gives the reading or
 the file index at its end maps every file to the upload part that holds it; use it before searching.
 `02-CLAIMS.md` lists the claims the project stakes its correctness on.
 
+## Intent, success, and acceptance
+
+**Why this review exists.** The owner is one person building this system with an agent, and
+the project's own rule is that same-model builders agreeing is not confirmation. This review is
+the first look by a different model family before the next stages (comment trees, reconcile
+and scrub, the daily digest) are built on the current design. Its purpose is to find the errors
+that would cost data, compliance, or a milestone while they are cheap to fix. It is not a
+request for validation, a summary, a redesign, or a comparison with other tools.
+
+**What a successful review looks like.** Findings that survive the owner's triage: each one is
+re-checked by running the cheapest check you name, and a finding that survives changes the
+code, a test, a document, or the plan. Three findings that survive are worth more than fifteen
+that do not. Saying that an area holds as far as you can tell, and why, is a valid result; a
+confident finding that fails its own check is the failure to avoid.
+
+**Acceptance criteria for your report.** It is accepted for triage when every finding carries a
+verbatim quote with part, path, and line; a mechanism (why, with evidence); a cost and a
+confidence on the scales below; and a cheapest check the owner can run in under an hour. A
+finding without a quote or a check is dropped unread. The report ends with the cannot-judge
+list and at most five questions, and contains no summary of the system and no restatement of
+the plan.
+
 Three facts about the packet that change how you read it:
 
 - **There is no real Reddit adapter yet.** Tranche B waits on credentials. The fake gateway's

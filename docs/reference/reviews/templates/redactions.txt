@@ -1,0 +1,6 @@
+# Owner-identity strings the packet builder replaces before anything leaves the machine
+# (Wes, 2026-09-14: name-related redactions are fine). One entry per line, either
+# `original => placeholder` or a bare string, which becomes `the-owner`. The builder adds the
+# git identity (user.name, user.email, its domain) and the machine username by itself, so
+# this file carries only what git does not know. It is never packed: the builder excludes it.
+WhowellGit => the-owner

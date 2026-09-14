@@ -43,6 +43,11 @@ PLANTED: dict[str, str | bytes] = {
     "docs/reference/reviews/2026-01-01-prior-verdict.md": "# a prior verdict: keep out\n",
     "tests/fixtures/db/rev1.db": b"\x00\x01\x02binary",
     "src/insightminer/blob.bin": b"\xff\xfe\x00binary-in-src",
+    "docs/runbook/RUNBOOK.md": (
+        "Git identity: Packet Owner <packet.owner@owner-domain.test>; account OwnerHandle;\n"
+        "site https://owner-domain.test/; the operator is Packet.\n"
+    ),
+    "docs/reference/reviews/templates/redactions.txt": "# extras\nOwnerHandle => the-owner\n",
 }
 
 
@@ -75,6 +80,8 @@ def repo(tmp_path: Path) -> Path:
             path.write_text(content, encoding="utf-8")
     git(root, "init", "-q")
     git(root, "symbolic-ref", "HEAD", "refs/heads/main")
+    git(root, "config", "user.name", "Packet Owner")
+    git(root, "config", "user.email", "packet.owner@owner-domain.test")
     git(root, "add", "-A", "-f")
     git(root, "commit", "-q", "-m", "baseline")
     return root
@@ -218,3 +225,38 @@ def test_the_index_maps_every_file_to_its_part_and_large_bundles_split(
     assert sum(len(files) for files in parts.values()) == len(manifest["files"])
     readme = (out / "00-README.md").read_text(encoding="utf-8")
     assert "2-harness-1.md" in readme and "## File index" in readme
+
+
+def test_the_owners_identity_is_replaced_everywhere(repo: Path, tmp_path: Path) -> None:
+    """Wes, 2026-09-14: name-related redactions before anything leaves the machine. The
+    identity comes from git and the redactions file, never from a string in the builder."""
+    out = tmp_path / "packet"
+    proc = run_tool(repo, "--out", str(out))
+    assert proc.returncode == 0, proc.stderr
+    manifest = json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))
+    packed = {entry["path"] for entry in manifest["files"]}
+    assert "docs/reference/reviews/templates/redactions.txt" not in packed
+    everything = "".join(
+        (out / name).read_text(encoding="utf-8")
+        for name in ("00-README.md", "1-documents.md", "2-harness.md", "3-source.md", "4-tests.md")
+    )
+    for original in (
+        "Packet Owner",
+        "packet.owner@owner-domain.test",
+        "owner-domain.test",
+        "OwnerHandle",
+    ):
+        assert original not in everything, original
+    documents = (out / "1-documents.md").read_text(encoding="utf-8")
+    assert "the owner <owner@example.invalid>" in documents
+    assert "account the-owner" in documents and "https://example.invalid/" in documents
+    assert "the operator is Packet." in documents  # a first name alone is not replaced
+    assert manifest["redactions"] == {
+        "example.invalid": 1,
+        "owner@example.invalid": 1,
+        "the owner": 1,
+        "the-owner": 1,
+    }
+    tree_copy = (out / "tree" / "docs" / "runbook" / "RUNBOOK.md").read_text(encoding="utf-8")
+    assert "Packet Owner" not in tree_copy
+    assert "substitutions" in proc.stdout
