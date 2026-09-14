@@ -20,17 +20,13 @@ from insightminer.adapters.reddit_fake import FakeRedditGateway
 from insightminer.db.engine import db_path_for, engine_for
 from insightminer.db.schema import Base
 
-DEMO_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "json" / "demo.json"
+#: ``demo_fixture_path`` is the session-scoped, generated corpus from ``tests/conftest.py``
+#: (root conftests *are* inherited, so this one does not restate it).
 
 
 @pytest.fixture
 def cli_runner() -> CliRunner:
     return CliRunner()
-
-
-@pytest.fixture
-def demo_fixture_path() -> Path:
-    return DEMO_FIXTURE
 
 
 @pytest.fixture

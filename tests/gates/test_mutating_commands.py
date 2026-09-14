@@ -18,8 +18,17 @@ from insightminer.db.engine import db_path_for, engine_for
 from insightminer.db.schema import Base
 from insightminer.services import lock
 
-DEMO_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "json" / "demo.json"
 FIXTURE_0001 = Path(__file__).resolve().parents[1] / "fixtures" / "db" / "0001.sqlite"
+
+#: Stands in for the demo corpus inside the argument lists below. The corpus is generated
+#: into a session temp directory (``tests/conftest.py``), so there is no path to freeze at
+#: import time -- the placeholder is replaced per test by :func:`_with_fixture`.
+FIXTURE_PLACEHOLDER = "{fixture}"
+
+
+def _with_fixture(args: list[str], fixture: Path) -> list[str]:
+    return [str(fixture) if arg == FIXTURE_PLACEHOLDER else arg for arg in args]
+
 
 #: The documented command tree (section 11.1), as a set of space-joined dotted paths.
 EXPECTED_COMMAND_TREE = {
@@ -71,7 +80,7 @@ def _prepare_for_db_upgrade(cli_runner: CliRunner, data_dir: Path) -> None:
 
 
 MUTATING_COMMANDS: list[tuple[str, list[str], Callable[[CliRunner, Path], None]]] = [
-    ("run", ["run", "--gateway", "fake", "--fixture", str(DEMO_FIXTURE)], _prepare_for_run),
+    ("run", ["run", "--gateway", "fake", "--fixture", FIXTURE_PLACEHOLDER], _prepare_for_run),
     ("db_init", ["db", "init"], _prepare_for_db_init),
     ("db_upgrade", ["db", "upgrade"], _prepare_for_db_upgrade),
 ]
@@ -107,6 +116,7 @@ def test_every_mutating_command_takes_the_lock_and_writes_a_run_row(
     prepare: Callable[[CliRunner, Path], None],
     cli_runner: CliRunner,
     isolated_data_dir: Path,
+    demo_fixture_path: Path,
 ) -> None:
     """Runs against the DEFAULT ``GATEWAY_FACTORY`` (section 11.6, item 4): ``run`` builds
     its own ``FakeRedditGateway`` from ``--fixture`` on disk, so the production
@@ -114,6 +124,7 @@ def test_every_mutating_command_takes_the_lock_and_writes_a_run_row(
     """
     assert name in {case[0] for case in MUTATING_COMMANDS}  # keeps the id list honest
     prepare(cli_runner, isolated_data_dir)
+    args = _with_fixture(args, demo_fixture_path)
 
     lock_path = isolated_data_dir / "locks" / "collector.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +145,7 @@ EXCLUDED_COMMANDS: list[tuple[str, list[str]]] = [
     ("db_current", ["db", "current"]),
     (
         "run_dry_run",
-        ["run", "--dry-run", "--gateway", "fake", "--fixture", str(DEMO_FIXTURE)],
+        ["run", "--dry-run", "--gateway", "fake", "--fixture", FIXTURE_PLACEHOLDER],
     ),
 ]
 
@@ -144,7 +155,11 @@ EXCLUDED_COMMANDS: list[tuple[str, list[str]]] = [
     "name,args", EXCLUDED_COMMANDS, ids=[case[0] for case in EXCLUDED_COMMANDS]
 )
 def test_excluded_commands_write_nothing(
-    name: str, args: list[str], cli_runner: CliRunner, db_at_head: Path
+    name: str,
+    args: list[str],
+    cli_runner: CliRunner,
+    db_at_head: Path,
+    demo_fixture_path: Path,
 ) -> None:
     """A dry run opens no writable connection, so it is not a mutating command (section
     11.4); ``doctor``, ``config validate`` and ``db current`` are read-only by construction.
@@ -155,7 +170,7 @@ def test_excluded_commands_write_nothing(
     try:
         with engine.connect() as conn:
             before = {t: table_digest(conn, t) for t in Base.metadata.tables}
-        result = cli_runner.invoke(cli.app, args)
+        result = cli_runner.invoke(cli.app, _with_fixture(args, demo_fixture_path))
         with engine.connect() as conn:
             after = {t: table_digest(conn, t) for t in Base.metadata.tables}
     finally:

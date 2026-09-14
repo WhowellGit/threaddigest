@@ -14,13 +14,14 @@ BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
 
-.PHONY: help setup check test run schema ratchet-bump ratchet-loosen plan-html
+.PHONY: help setup check test run fixture schema ratchet-bump ratchet-loosen plan-html
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
 	@echo "make check            ruff format, ruff check, mypy strict, import-linter, pytest+coverage, ratchets"
 	@echo "make test             uv run pytest"
-	@echo "make run              db init, then run --gateway fake against .build/run-data"
+	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
+	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
 	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\"  loosen one floor (lands a GUARDS.md row)"
@@ -73,9 +74,14 @@ test:
 # explicit and NOT the default ./data, because `--gateway fake` is refused against the real
 # data directory (D-10 / CF-02) and a developer smoke run must never touch collected data.
 RUN_DATA_DIR ?= $(BUILD_DIR)/run-data
-RUN_FIXTURE ?= tests/fixtures/json/demo.json
+# Generated, never committed (data/ is git-ignored): `make fixture` is the only producer,
+# and `make run` regenerates it so a demo never collects from a stale corpus.
+RUN_FIXTURE ?= data/demo.json
 
-run: | $(BUILD_DIR)
+fixture:
+	$(UV) run python tools/make_demo_fixture.py $(RUN_FIXTURE)
+
+run: fixture | $(BUILD_DIR)
 	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer db init
 	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer run --gateway fake --fixture $(RUN_FIXTURE)
 

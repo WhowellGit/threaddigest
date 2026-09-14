@@ -31,7 +31,11 @@ def _visible_post_count(fixture_path: Path) -> int:
 
 def test_every_seeded_source_is_present_in_the_demo_fixture(demo_fixture_path: Path) -> None:
     """section 11.7: the sweep drives off ``config/seed.yaml``; the fake gateway is built
-    from ``demo.json``. The two name lists must agree, restating neither.
+    from the generated demo corpus. The two name lists must agree, restating neither.
+
+    This reads the *generated file*; ``tests/tools/test_make_demo_fixture.py`` reads the
+    generator's constants. Both, because a generator that agrees with the seed and a file
+    that does not would mean the file came from somewhere else.
     """
     seed = yaml.safe_load(SEED_FILE.read_text(encoding="utf-8"))
     fixture = json.loads(demo_fixture_path.read_text(encoding="utf-8"))
