@@ -23,6 +23,7 @@ from typing import Any, Final
 from sqlalchemy import (
     Connection,
     RowMapping,
+    Select,
     Table,
     case,
     delete,
@@ -60,6 +61,7 @@ __all__ = [
     "due_posts",
     "enabled_subreddits",
     "finish_run",
+    "floor_population",
     "insert_item_snapshots",
     "insert_post_sources",
     "insert_rejects",
@@ -1060,6 +1062,27 @@ def source_outcomes(
     return outcomes
 
 
+def _floor_population_stmt(*, since: int, normalizer_version: int) -> Select[tuple[int]]:
+    """``count(*)`` over the population the floors evaluate: live, known-author posts
+    written this run at this normalizer version (design-round5 §14.2).
+
+    One builder for both halves of the floor, so the population :func:`floor_population`
+    measures and the population :func:`live_rows_missing` looks for NULLs in cannot drift
+    apart -- which is the whole point of DB-51's "an empty population fails".
+    """
+    posts = _table("posts")
+    return (
+        select(func.count())
+        .select_from(posts)
+        .where(
+            posts.c.content_state == "live",
+            posts.c.author_state == "known",
+            posts.c.normalizer_version == normalizer_version,
+            posts.c.last_fetched_at >= since,
+        )
+    )
+
+
 def live_rows_missing(conn: Connection, *, column: str, since: int, normalizer_version: int) -> int:
     """Live, known-author posts written since ``since`` that carry NULL in ``column``.
 
@@ -1072,20 +1095,28 @@ def live_rows_missing(conn: Connection, *, column: str, since: int, normalizer_v
         msg = f"{column!r} is not a column of posts"
         raise ValueError(msg)
     target = posts.c[column]
-    stmt = (
-        select(func.count())
-        .select_from(posts)
-        .where(
-            posts.c.content_state == "live",
-            posts.c.author_state == "known",
-            posts.c.normalizer_version == normalizer_version,
-            posts.c.last_fetched_at >= since,
-            target.is_(None),
-        )
+    stmt = _floor_population_stmt(since=since, normalizer_version=normalizer_version).where(
+        target.is_(None)
     )
     if column == "selftext_html":
         stmt = stmt.where(posts.c.is_self.is_(True), posts.c.selftext != "")
     return int(conn.execute(stmt).scalar_one())
+
+
+def floor_population(conn: Connection, *, since: int, normalizer_version: int) -> int:
+    """How many rows :func:`live_rows_missing` evaluates over, with no column named.
+
+    DB-51's clause (b): a floor that evaluates over zero rows is inert, so
+    ``population_floors_hold`` needs the population's size as well as its NULL count
+    (design-round5 §14.2). §5.3 lists no such read -- ``live_rows_missing`` answers only
+    "how many are NULL" -- and ``services/`` may not build SQL (§1), so the query lives here
+    next to the predicate it shares.
+    """
+    return int(
+        conn.execute(
+            _floor_population_stmt(since=since, normalizer_version=normalizer_version)
+        ).scalar_one()
+    )
 
 
 def rows_below_normalizer_version(conn: Connection, *, table: str, since: int, version: int) -> int:
