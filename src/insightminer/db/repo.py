@@ -54,6 +54,7 @@ __all__ = [
     "UpsertOutcome",
     "advance_watermark",
     "all_sources_for_freshness",
+    "author_values",
     "backups_of_kind",
     "clear_subreddit_error",
     "default_workspace_pk",
@@ -71,6 +72,7 @@ __all__ = [
     "live_counts",
     "live_rows_missing",
     "mark_runs",
+    "post_source_values",
     "post_values",
     "prior_posts",
     "recent_sweeping_runs",
@@ -335,6 +337,36 @@ def post_values(write: PostWrite) -> dict[str, Any]:
     }
 
 
+def author_values(write: AuthorWrite) -> dict[str, Any]:
+    """The one mapping from ``AuthorWrite`` to ``authors`` columns.
+
+    ``seen_at`` fills both ``first_seen_at`` (insert-only) and ``last_seen_at`` (monotonic);
+    ``post_count`` / ``comment_count`` are :func:`recount_authors`' derived columns and are
+    never emitted here. The key set equals
+    ``OWNERSHIP[("authors", IngestPath.SUBREDDIT_NEW)].insert_columns``, which
+    ``tests/db/test_repo_ownership.py`` asserts -- a column added to one side and not the
+    other is a red (panel P2-13).
+    """
+    return {
+        "author_fullname": write.author_fullname,
+        "name": write.name,
+        "first_seen_at": write.seen_at,
+        "last_seen_at": write.seen_at,
+    }
+
+
+def post_source_values(
+    *, post_pk: int, source_type: str, source_pk: int, now: int
+) -> dict[str, Any]:
+    """The one mapping to ``post_sources`` columns; key set == that row's ``insert_columns``."""
+    return {
+        "post_pk": post_pk,
+        "source_type": source_type,
+        "source_pk": source_pk,
+        "first_seen_at": now,
+    }
+
+
 def upsert_posts(
     conn: Connection, writes: Sequence[PostWrite], *, path: IngestPath
 ) -> UpsertOutcome:
@@ -404,12 +436,9 @@ def insert_post_sources(
     conn.execute(
         _upsert_for("post_sources", IngestPath.SUBREDDIT_NEW),
         [
-            {
-                "post_pk": post_pk,
-                "source_type": source_type,
-                "source_pk": source_pk,
-                "first_seen_at": now,
-            }
+            post_source_values(
+                post_pk=post_pk, source_type=source_type, source_pk=source_pk, now=now
+            )
             for post_pk in wanted
         ],
     )
@@ -448,15 +477,7 @@ def upsert_authors(conn: Connection, authors: Sequence[AuthorWrite]) -> None:
         return
     conn.execute(
         _upsert_for("authors", IngestPath.SUBREDDIT_NEW),
-        [
-            {
-                "author_fullname": a.author_fullname,
-                "name": a.name,
-                "first_seen_at": a.seen_at,
-                "last_seen_at": a.seen_at,
-            }
-            for a in collapsed.values()
-        ],
+        [author_values(a) for a in collapsed.values()],
     )
 
 

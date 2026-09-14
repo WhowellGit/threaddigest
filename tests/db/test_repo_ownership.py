@@ -19,8 +19,17 @@ import pytest
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 
+from insightminer.core.models import PostRow
 from insightminer.db.ownership import OWNERSHIP, IngestPath
-from insightminer.db.repo import _upsert_for, recount_authors
+from insightminer.db.repo import (
+    AuthorWrite,
+    PostWrite,
+    _upsert_for,
+    author_values,
+    post_source_values,
+    post_values,
+    recount_authors,
+)
 from insightminer.db.schema import Base
 
 OWNERSHIP_ROWS = list(OWNERSHIP.values())
@@ -138,6 +147,86 @@ def test_monotonic_columns_are_emitted_as_max(own: Any) -> None:
     )
     for name in set(own.update_columns) - set(own.monotonic_columns):
         assert f"max({own.table}.{name}" not in sql
+
+
+def _post_write() -> PostWrite:
+    """One fully-populated ``PostWrite``, built field by field.
+
+    Nothing is defaulted or spread from a helper: the point of the test below is that the
+    builder's key set is checked against a declaration, so the input has to be a real
+    ``PostWrite`` a sweep could produce rather than a mapping shaped to fit.
+    """
+    row = PostRow(
+        reddit_id="abc123",
+        fullname="t3_abc123",
+        subreddit="premiere",
+        subreddit_id="t5_2s9fq",
+        author="editorguy",
+        author_fullname="t2_abcd12",
+        author_flair_text=None,
+        author_is_bot=False,
+        title="a title",
+        selftext="a body",
+        selftext_html="<p>a body</p>",
+        url="https://example.com/x",
+        domain="example.com",
+        permalink="/r/premiere/comments/abc123/",
+        created_utc=1_800_000_000,
+        edited_utc=None,
+        score=3,
+        upvote_ratio=0.9,
+        num_comments=1,
+        link_flair_text=None,
+        over_18=False,
+        spoiler=False,
+        is_self=True,
+        is_video=False,
+        is_gallery=False,
+        post_hint=None,
+        locked=False,
+        stickied=False,
+        archived=False,
+        distinguished=None,
+        crosspost_parent=None,
+        num_crossposts=0,
+        removed_by_category=None,
+        source=IngestPath.SUBREDDIT_NEW.value,
+    )
+    return PostWrite(
+        row=row,
+        subreddit_pk=1,
+        first_seen_at=1_800_000_000,
+        last_fetched_at=1_800_000_000,
+        next_check_at=1_800_086_400,
+        check_stage=0,
+        content_state="live",
+        author_state="known",
+        misses=0,
+        raw_json="{}",
+    )
+
+
+VALUE_BUILDERS = [
+    ("posts", lambda: post_values(_post_write())),
+    ("authors", lambda: author_values(AuthorWrite(author_fullname="t2_a", name="a", seen_at=1))),
+    (
+        "post_sources",
+        lambda: post_source_values(post_pk=1, source_type="subreddit", source_pk=1, now=1),
+    ),
+]
+
+
+@pytest.mark.parametrize("table,build", VALUE_BUILDERS, ids=[case[0] for case in VALUE_BUILDERS])
+def test_value_builder_emits_exactly_the_declared_insert_columns(table: str, build: Any) -> None:
+    """§4.3 rule 4, the *value* half (panel P2-13).
+
+    Every other rule here is about the emitted SQL; nothing compared the dictionaries the
+    three builders actually hand to it against ``insert_columns``. A column added to the
+    declaration but not to the builder (or the reverse) therefore passed silently until an
+    ``INSERT`` hit a NOT NULL at runtime. Asserted for all three rows: set equality, so a
+    drift in either direction is red.
+    """
+    assert set(build()) == set(OWNERSHIP[(table, IngestPath.SUBREDDIT_NEW)].insert_columns)
 
 
 def test_recount_authors_touches_only_the_derived_columns(
