@@ -77,6 +77,7 @@ Source: enforcement panel report § F and the plan's guard design rules. Ledger:
 3. Rules: SELF-SERVING → drop or redesign this quarter. UNPROVEN for four consecutive quarters and > 5 s per run → drop candidate unless the class is data loss or compliance (thresholds pending Wes). Every loosening approved this quarter is re-read for a pattern. Adding a guard goes through the guard-count approval path and needs a birth incident, a positive control, and a `GUARDS.md` row; widening an existing guard is preferred and needs no approval.
 4. Record the count in the review note **with its source line** from the tool output; move dropped guards to `GUARDS.md` § Retired with the reason and what replaced them.
 5. Same session: restore drill (§ 5) if not automated; prune `docs/` for exhaust; re-read `DECISIONS.md` triggers.
+6. Routing drill (review-only, added 2026-09-14): give one fresh-context agent a brief for one routed area (`docs/reference/AGENT_BRIEF.md`) and check from its transcript that it read the routed documents before editing; record hit or miss in the table below. The structural half (every pointer resolves) is mechanical: `tests/gates/test_routing_rows_resolve.py`.
 
 | Quarter | Date | Active count (source line) | Verdicts changed | Dropped / widened | Notes |
 |---|---|---|---|---|---|

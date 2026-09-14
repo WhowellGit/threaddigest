@@ -37,4 +37,12 @@ Almost every item is the same failure: a fact was changed in one place and not i
 
 ## Dated additions
 
-*(none yet)*
+### 2026-09-14 (a fresh-context audit of the adoptions, and the separation scan)
+
+| # | What drifted | Why it happened | What to scan for in the other system | Disposition here |
+|---|---|---|---|---|
+| 15 | The status page was stale within a day of its rewrite: merged work listed as in flight, an install listed as pending, three numbers wrong | The page was rewritten mid-tranche and never re-read; numbers were typed, not derived | Status or resume files that carry counts or "in flight" lists; compare against the log and the tool output | `tests/gates/test_status_page.py`: stamp within two days of HEAD, cap, headings, no restated counts |
+| 16 | Seven gates carried markers and had no ledger row; the ledger's own preamble called a blank control cell a failure while three rows read "none yet" | The register-to-test direction was checked, the test-to-register direction was not | Any register that is checked in one direction only | `tests/gates/test_known_issues_cite_collected_tests.py` widened; rows added; a `guards_without_control` ceiling |
+| 17 | A cited commit hash was dangling in the very commit after the one that remapped hashes | The remap covered the files it knew about; a row written in the same session was missed | Documents citing hashes after any history rewrite | the same gate resolves every cited hash with `git cat-file` |
+| 18 | The identifier gate missed a lowercase codename inside a quoted transcript line and the company's name inside an imported lint name; three cells of the rules table cited enforcers that check something adjacent | Patterns were written for the forms seen in the sweep; enforcer cells were written from intent | Case variants and identifiers embedded in other identifiers; enforcer citations, opened one by one | gate widened with controls; cells reworded; the sweep count given one home |
+| 19 | The memory home that a session started from the Desktop still held eight topic files, one of them 589 bytes behind the real home | Two homes, one tool that looked at one of them | Duplicate memory or config homes keyed to a path | second-home check in `tools/memory_snapshot.py`; stale files moved to the archive |
