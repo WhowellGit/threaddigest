@@ -121,6 +121,37 @@ def test_doctor_rejects_an_unparseable_alert_window_with_78(cli_runner, db_at_he
     assert result.exit_code == 78
 
 
+def test_doctor_rejects_an_unparseable_alert_window_with_78_before_a_database_exists(
+    cli_runner, isolated_data_dir: Path
+) -> None:
+    """The same bad ``--alert-if-stale``, but on a data directory with no database yet (no
+    ``db init`` has run). Before the fix, ``parse_duration`` was only called deep inside
+    ``services.doctor._checks_with_a_database``, so this exact invocation fell through
+    ``database_present`` failing first and exited 1 with the check list printed instead of
+    the documented 78 -- a bad value silently read as "healthy install, just no database."
+    The duration is now parsed once at the top of ``run_checks``, before ``database_present``
+    runs at all, so this is a config error on every path.
+    """
+    del isolated_data_dir  # present only to make "no db init happened" explicit at the call site
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--alert-if-stale", "soon"])
+    assert isinstance(result.exception, SystemExit), result.output
+    assert result.exit_code == 78
+
+
+def test_doctor_with_a_good_alert_window_still_reports_before_a_database_exists(
+    cli_runner, isolated_data_dir: Path
+) -> None:
+    """A valid duration must not be mistaken for a config error just because it is now parsed
+    eagerly: on a data directory with no database yet, ``doctor`` still runs the whole check
+    list and exits 1 for the documented reason (``database_present`` failing, an ERROR-
+    severity check), never 78.
+    """
+    del isolated_data_dir
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--alert-if-stale", "36h"])
+    assert result.exit_code == 1, result.output
+    assert "database_present" in result.output
+
+
 def test_doctor_on_a_corrupt_database_lists_its_checks_instead_of_a_traceback(
     cli_runner, db_at_head: Path
 ) -> None:

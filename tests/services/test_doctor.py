@@ -704,6 +704,38 @@ def test_run_checks_with_a_database_never_creates_the_locks_directory(
     assert not lock_path.exists()
 
 
+# --- alert_if_stale is parsed once, up front (round5 doctor-panel finding) ---------------------
+
+
+def test_run_checks_raises_for_a_bad_duration_without_a_database(
+    settings: Settings, clock: FakeClock
+) -> None:
+    """The duration used to be parsed only deep inside ``_checks_with_a_database``, so
+    ``doctor --alert-if-stale banana`` on a data dir with no database yet never reached it
+    and exited 1 (from ``database_present`` failing) instead of the documented 78. It is now
+    parsed once at the top of ``run_checks``, before ``database_present`` even runs."""
+    with pytest.raises(ValueError, match=r".+"):
+        doctor.run_checks(settings=settings, clock=clock, gateway=None, alert_if_stale="banana")
+
+
+def test_run_checks_raises_for_a_bad_duration_with_a_database(
+    engine: Engine, settings: Settings, clock: FakeClock
+) -> None:
+    """The same bad duration, but with a database present -- the path that already raised
+    before this fix; proves moving the parse did not disturb it."""
+    with pytest.raises(ValueError, match=r".+"):
+        doctor.run_checks(settings=settings, clock=clock, gateway=None, alert_if_stale="banana")
+
+
+def test_run_checks_still_accepts_a_good_duration_without_a_database(
+    settings: Settings, clock: FakeClock
+) -> None:
+    """A valid duration must not be treated as a config error just because it is now parsed
+    eagerly, on the one path (no database yet) that never used to reach the parse at all."""
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=None, alert_if_stale="36h")
+    assert isinstance(report, doctor.DoctorReport)
+
+
 # --- free_disk's other not-ok branch: a filesystem that will not answer ----------------------
 
 

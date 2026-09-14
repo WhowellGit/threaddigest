@@ -646,6 +646,12 @@ def run_checks(
     database this installation can have.
     """
     del gateway, no_network  # tranche A makes no request; see the docstring and CF-01.
+    # Parsed once, up front, before ``database_present`` gets a chance to short-circuit the
+    # list (round5 doctor-panel finding): the old call site sat inside
+    # ``_checks_with_a_database``, so ``doctor --alert-if-stale banana`` on a data dir with
+    # no database yet never reached it and exited 1 (from ``database_present`` failing)
+    # instead of the documented 78. A bad duration is a config error on every path.
+    max_age_seconds = parse_duration(alert_if_stale)
     now = clock.now()
     db_path = db_path_for(settings.data_dir)
     lock_path = settings.data_dir / "locks" / "collector.lock"
@@ -673,7 +679,7 @@ def run_checks(
                 lock_path=lock_path,
                 now=now,
                 stale_after_seconds=settings.static.run.stale_after_minutes * 60,
-                max_age_seconds=parse_duration(alert_if_stale),
+                max_age_seconds=max_age_seconds,
             )
         )
     finally:
