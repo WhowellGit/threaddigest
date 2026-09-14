@@ -5,9 +5,11 @@ not-ok -- are reachable from a test without staging a whole invocation. *A check
 an ok branch tested is not a check*, so every function here answers one question and returns
 one :class:`Check` rather than folding several into a verdict.
 
-A thirteenth, :func:`check_hooks_installed`, follows the same contract but is **not** in
-:func:`run_checks`: it diagnoses a developer checkout rather than an installation, and
-§15.2's list is twelve. ``make check`` calls it directly; see its own section below.
+A thirteenth, :func:`check_hooks_installed`, follows the same contract and is the last row
+:func:`run_checks` appends to every report, WARNING severity, so an uninstalled ``pre-commit``
+hook shows up in the operator report exactly where the other twelve do. ``make check`` also
+calls it directly (through ``tools/hooks_status.py``) for its own closing line; see its own
+section below for why it answers "no git repository" as an ok state on an installed wheel.
 
 **Zero HTTP is structural, not a promise.** ``no_network`` defaults to ``True`` and
 :func:`run_checks` never touches ``gateway`` on that path: the parameter exists so the M1c
@@ -459,14 +461,14 @@ def check_no_stale_running_rows(conn: Connection, *, now: int, stale_after_secon
     )
 
 
-# --- the developer checkout, deliberately outside run_checks -----------------------------------
+# --- the developer checkout: hooks_installed, the thirteenth check -----------------------------
 #
-# ``hooks_installed`` diagnoses the *checkout a change is made in*, not the installation an
-# operator runs: an installed wheel has no hooks to install and `/system` has no use for the
-# row. It is therefore a ``Check`` like the twelve above -- same contract, same shape, usable
-# from the same report the day someone wants it there -- but it is not in :func:`run_checks`,
-# whose list §15.2 fixes at twelve and whose exact membership two tests pin. ``make check``
-# calls it through ``tools/hooks_status.py`` so its closing line is derived, never narrated.
+# ``hooks_installed`` diagnoses the *checkout a change is made in*, not only the installation
+# an operator runs -- an installed wheel or a container has no hooks to install, which is why
+# "no git repository" is one of its ok states rather than a skip. It is a ``Check`` like the
+# twelve above -- same contract, same shape -- and :func:`run_checks` appends it last, WARNING
+# severity, so the operator report carries it too. ``make check`` also calls it directly
+# through ``tools/hooks_status.py`` so its own closing line is derived, never narrated.
 
 
 #: The file that marks the repository root when walking up from this package.
@@ -621,6 +623,15 @@ def _checks_with_a_database(
         ]
 
 
+def _with_hooks_check(checks: list[Check]) -> DoctorReport:
+    """Append the thirteenth check -- ``hooks_installed``, WARNING severity -- and close out
+    the report. The single call site for both of :func:`run_checks`'s return points, so a
+    bad or missing database still gets the same closing check as a healthy one.
+    """
+    checks.append(check_hooks_installed())
+    return DoctorReport(checks=tuple(checks))
+
+
 def run_checks(
     *,
     settings: Settings,
@@ -629,7 +640,7 @@ def run_checks(
     alert_if_stale: str = "36h",
     no_network: bool = True,
 ) -> DoctorReport:
-    """Every §15.2 check, in the order that table lists them.
+    """Every §15.2 check, in the order that table lists them, plus ``hooks_installed``.
 
     ``gateway`` and ``no_network`` are the seam the M1c connectivity check lands in. In
     tranche A ``no_network`` is always true on every shipped path and **this function never
@@ -668,7 +679,7 @@ def run_checks(
             if not db_path.is_file()
             else _checks_with_an_unusable_database(settings, db_path)
         )
-        return DoctorReport(checks=tuple(checks))
+        return _with_hooks_check(checks)
     engine = engine_for(db_path)
     try:
         checks.extend(
@@ -684,4 +695,4 @@ def run_checks(
         )
     finally:
         engine.dispose()
-    return DoctorReport(checks=tuple(checks))
+    return _with_hooks_check(checks)

@@ -13,7 +13,8 @@ from insightminer import cli
 from insightminer.db import repo
 from insightminer.db.engine import db_path_for, engine_for
 
-#: Every check name ``services.doctor.run_checks`` emits with a database present (section 15.2).
+#: Every check name ``services.doctor.run_checks`` emits with a database present (section
+#: 15.2's twelve, plus ``hooks_installed`` wired in as the thirteenth).
 EXPECTED_CHECKS = {
     "settings_valid",
     "data_dir_writable",
@@ -27,6 +28,7 @@ EXPECTED_CHECKS = {
     "lock_not_stale",
     "credentials_present",
     "no_stale_running_rows",
+    "hooks_installed",
 }
 
 

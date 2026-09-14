@@ -615,6 +615,7 @@ def test_config_validate_makes_zero_http(fake: FakeRedditGateway, settings: Sett
 def test_run_checks_covers_every_documented_check_name(
     engine: Engine, settings: Settings, clock: FakeClock, now: int
 ) -> None:
+    """The §15.2 twelve, in order, plus ``hooks_installed`` wired in as the thirteenth."""
     _plant_ok_run(engine, now=now, finished_at=now)
 
     report = doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=True)
@@ -633,6 +634,7 @@ def test_run_checks_covers_every_documented_check_name(
         "lock_not_stale",
         "credentials_present",
         "no_stale_running_rows",
+        "hooks_installed",
     ]
 
 
@@ -755,8 +757,9 @@ def test_check_free_disk_is_not_ok_when_free_space_cannot_be_read(
 
 # --- a database that exists and will not open (round5-findings.json panel P1) ------------------
 
-#: The twelve §15.2 check names, in order -- restated here so a corrupt-database report is
-#: compared against the SAME list the healthy one is, and a short report cannot read as healthy.
+#: The §15.2 twelve plus ``hooks_installed``, in order -- restated here so a corrupt-database
+#: report is compared against the SAME list the healthy one is, and a short report cannot
+#: read as healthy.
 EVERY_CHECK_NAME = [
     "settings_valid",
     "data_dir_writable",
@@ -770,6 +773,7 @@ EVERY_CHECK_NAME = [
     "lock_not_stale",
     "credentials_present",
     "no_stale_running_rows",
+    "hooks_installed",
 ]
 
 
@@ -819,12 +823,13 @@ def test_run_checks_reports_every_check_for_a_corrupt_database(
     assert report.exit_code == 1
 
 
-# --- hooks_installed: the developer checkout, not the operator's installation ------------------
+# --- hooks_installed: the developer checkout, wired into run_checks as the 13th check ----------
 #
-# Deliberately not part of ``run_checks`` (§15.2 fixes that list at twelve, and the two tests
-# above pin its exact membership): this check answers "do commits in THIS checkout run the
-# gates?", which is a question about a working tree, not about an installation. ``make check``
-# calls it through ``tools/hooks_status.py``.
+# Answers "do commits in THIS checkout run the gates?" -- a question about a working tree, not
+# only about an installation, which is why "no git repository" is one of its ok states. Tested
+# here at the granular, per-function level like the twelve above; ``run_checks`` appends it last
+# (see the two list-equality tests above, which pin its membership) and ``make check`` also
+# calls it directly through ``tools/hooks_status.py``.
 
 #: What pre-commit's generated hook looks like at the top; git's own ``pre-commit.sample``
 #: (the not-ok case below) names neither pre-commit nor anything that runs it.
