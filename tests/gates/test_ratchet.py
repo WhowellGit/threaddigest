@@ -74,6 +74,9 @@ EXPECTED = {
         "filterwarnings_ignore": 2,
         "mypy_overrides": 1,
     },
+    # No CLAUDE.md in the throwaway tree, so the rules table contributes nothing; the real
+    # count and its positive controls live in tests/gates/test_rules_name_their_enforcer.py.
+    "review_only_rules": {"count": 0},
 }
 
 

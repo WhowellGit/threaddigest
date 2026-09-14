@@ -8,18 +8,23 @@ This file applies to every agent and human working in the repo.
 
 Enforcement is mechanical wherever possible. "Review" is the PR body plus a human or an
 independent agent; it is the weakest column and appears only where no tool can check the rule.
+The table is itself enforced: `tests/gates/test_rules_name_their_enforcer.py` resolves every
+backticked path, pytest marker, ruff code and `make` target in the right-hand column against the
+tree, so a row may not name an enforcer that does not exist; a row with no resolving enforcer must
+say "review", and the number of review-only rows is a ceiling in `.ratchets/review_only_rules.txt`
+that only goes down.
 
 | Rule | Enforced by |
 |---|---|
 | Never weaken, skip, or delete a test to make a change pass | PR body "Tests changed" table (one reason per file); skip/xfail ratchet, each needing `reason="#issue …"`; assert-count, collected-test, and coverage floors in `.ratchets/`; `xfail_strict` |
-| Never `git commit --no-verify`; never push to `main` | hard-block PreToolUse hook in the project settings (fails closed); pre-commit `no-commit-to-branch`; required CI on `main` |
+| Never `git commit --no-verify`; never push to `main` | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; required CI in `.github/workflows/ci.yml` |
 | Never catch a broad exception without recording it on the run row | ruff `E722`, `BLE001`, `S110`, `S112`, `B904`, `TRY*`; a run with any warning is `partial`, never `ok` |
-| Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | PR body; doc-currency test |
+| Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | PR body; `tests/gates/test_known_issues_cite_collected_tests.py` (every node id a register row cites must name a test that exists) |
 | Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/insightminer/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema` |
 | Never hand-edit `.ratchets/` or the hook settings | hard-block hook; `tools/ratchet.py` is the only writer; floors are compared three ways on every `make check`, so a stale or hand-edited floor is red |
-| Never touch the production DB by hand | tests run in a temp `DATA_DIR` and settings refuse the default dir under pytest; destructive operations need a recorded fresh backup plus a typed confirmation |
-| Never store or log credentials | gitleaks in pre-commit; `.env` is gitignored; config export never includes secrets |
-| Report results by pasting the `make check` block, never by describing it | PR template section; CI is the authority, not the message |
+| Never touch the production DB by hand | `tests/gates/test_data_dir_isolation.py`: tests run in a temp `DATA_DIR` and settings refuse the default dir under pytest; a destructive operation takes a recorded fresh backup first (`tests/services/test_migrate_service.py`); the typed confirmation is review until the mutating commands land |
+| Never store or log credentials | gitleaks in `.pre-commit-config.yaml`; `.env` is gitignored (`.gitignore`); config export never includes secrets |
+| Report results by pasting the `make check` block, never by describing it | review of the PR body against the pasted-block section of the PR template; CI is the authority, not the message |
 | A new guard needs a birth incident, a positive control in `tests/gates/`, a `docs/runbook/GUARDS.md` row, and a check whether an existing guard can be widened | `gate` marker; `tests/gates/` review; GUARDS.md quarterly review |
 | No new abstraction without two concrete uses | review |
 | Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |

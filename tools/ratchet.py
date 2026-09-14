@@ -29,6 +29,14 @@ newline). Direction says which way a value may move without approval.
         filterwarnings/simplefilter("ignore...") calls (AST) and pyproject filterwarnings entries
                       mypy_overrides         down  slack 0
         ``[[tool.mypy.overrides]]`` entries in pyproject.toml
+    review_only_rules.txt
+                      count                  down  slack 0
+        rows of the "Rules and what enforces them" table in CLAUDE.md whose "Enforced by"
+        cell names no enforcer that resolves (an existing path, a pytest marker, a ruff
+        rule code, a make target) and says "review" instead; each is printed with its
+        file:line on every run. ``tests/gates/test_rules_name_their_enforcer.py`` is the
+        gate: a row that neither resolves nor says "review" fails there, and this ceiling
+        is what keeps the review-only count going down and never up.
 
 Counting is structural (AST and tokenizer), so a marker inside a string literal is not a
 suppression and a comment rewrap cannot hide one. Every skip and suppression is printed
@@ -134,6 +142,7 @@ SPECS: tuple[Spec, ...] = (
     Spec("suppressions", "pragma_no_cover", DOWN),
     Spec("suppressions", "filterwarnings_ignore", DOWN),
     Spec("suppressions", "mypy_overrides", DOWN),
+    Spec("review_only_rules", "count", DOWN),
 )
 FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
 
@@ -346,8 +355,170 @@ def measure(root: Path, coverage_json: Path) -> Measurement:
         "tests": {"collected": collected, "asserts": asserts},
         "skips": {"count": skips},
         "suppressions": {**counts, "mypy_overrides": len(override_hits)},
+        "review_only_rules": {"count": measure_rules(root, hits, notes)},
     }
     return Measurement(values=values, hits=hits, notes=notes)
+
+
+# ----------------------------------------------------------- rules and their enforcers
+
+RULES_DOC = "CLAUDE.md"
+RULES_SECTION = "## Rules and what enforces them"
+CELL_SPLIT = re.compile(r"(?<!\\)\|")
+BACKTICKED = re.compile(r"`([^`]+)`")
+REVIEW_WORD = re.compile(r"review", re.IGNORECASE)
+RUFF_CODE = re.compile(r"^[A-Z]{1,5}\d{0,4}\*?$")
+MAKE_INVOCATION = re.compile(r"^make\s+([A-Za-z0-9_.-]+)$")
+MAKE_TARGET = re.compile(r"^([A-Za-z0-9_.-]+)\s*:(?!=)", re.MULTILINE)
+
+ENFORCED = "enforced"
+REVIEW_ONLY = "review-only"
+UNENFORCED = "unenforced"
+
+
+def split_row(line: str) -> list[str]:
+    r"""Cells of a markdown table row, honouring ``\|`` escapes inside a cell."""
+    stripped = line.strip()
+    if not stripped.startswith("|"):
+        return []
+    return [cell.strip() for cell in CELL_SPLIT.split(stripped)[1:-1]]
+
+
+def is_separator_row(cells: list[str]) -> bool:
+    return bool(cells) and all(cell and set(cell) <= set("-: ") for cell in cells)
+
+
+@dataclass(frozen=True)
+class Rule:
+    """One row of the rules table: the rule, what the row claims enforces it, and whether
+    that claim resolves to something installed."""
+
+    line: int
+    rule: str
+    enforcer: str
+    status: str
+    resolved: tuple[str, ...] = ()
+
+    def describe(self) -> str:
+        return f"{RULES_DOC}:{self.line} {self.rule}"
+
+
+@dataclass(frozen=True)
+class Enforcers:
+    """What a backticked token in an "Enforced by" cell may resolve to: a path in the tree
+    (a test, a hook script, a tool, a config file), a declared pytest marker, a selected
+    ruff rule code, or a target the Makefile actually defines."""
+
+    root: Path
+    markers: frozenset[str]
+    ruff_codes: tuple[str, ...]
+    make_targets: frozenset[str]
+
+    def is_path(self, token: str) -> bool:
+        head = token.split("::", 1)[0].strip()
+        if not head or " " in head or ".." in head or head.startswith(("/", "-")):
+            return False
+        return (self.root / head).exists()
+
+    def is_ruff_code(self, token: str) -> bool:
+        if not RUFF_CODE.match(token):
+            return False
+        code = token.rstrip("*")
+        return any(code.startswith(sel) or sel.startswith(code) for sel in self.ruff_codes)
+
+    def is_make_target(self, token: str) -> bool:
+        match = MAKE_INVOCATION.match(token)
+        return match is not None and match.group(1) in self.make_targets
+
+    def resolves(self, token: str) -> bool:
+        return (
+            self.is_path(token)
+            or token in self.markers
+            or self.is_ruff_code(token)
+            or self.is_make_target(token)
+        )
+
+
+def enforcers_for(root: Path) -> Enforcers:
+    markers: set[str] = set()
+    codes: list[str] = []
+    pyproject = root / "pyproject.toml"
+    if pyproject.is_file():
+        tool = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("tool", {})
+        for entry in tool.get("pytest", {}).get("ini_options", {}).get("markers", []):
+            markers.add(str(entry).split(":", 1)[0].strip())
+        codes = [str(code) for code in tool.get("ruff", {}).get("lint", {}).get("select", [])]
+    makefile = root / "Makefile"
+    targets: list[str] = []
+    if makefile.is_file():
+        targets = MAKE_TARGET.findall(makefile.read_text(encoding="utf-8"))
+    return Enforcers(root, frozenset(markers), tuple(codes), frozenset(targets))
+
+
+def rule_rows(text: str) -> list[tuple[int, list[str]]]:
+    """``(line number, cells)`` for every data row of the rules table in CLAUDE.md."""
+    rows: list[tuple[int, list[str]]] = []
+    inside = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        if line.strip() == RULES_SECTION:
+            inside = True
+            continue
+        if not inside:
+            continue
+        if line.startswith("## "):
+            break
+        cells = split_row(line)
+        if not cells or is_separator_row(cells):
+            continue
+        if [cell.lower() for cell in cells] == ["rule", "enforced by"]:
+            continue
+        rows.append((number, cells))
+    return rows
+
+
+def classify_rules(root: Path) -> list[Rule]:
+    """Every rule row with the status of its "Enforced by" cell.
+
+    A cell naming at least one enforcer that resolves is ``enforced``, even when it also
+    mentions review: what makes a rule review-only is having nothing mechanical behind it,
+    and counting the belt-and-braces rows would inflate the ceiling and leave room for a
+    genuinely unenforced rule to slip in under it. A cell with no resolving enforcer that
+    says "review" is ``review-only`` (Wes 2026-09-13: label it, do not pretend); anything
+    else is ``unenforced`` and fails the gate.
+    """
+    path = root / RULES_DOC
+    if not path.is_file():
+        return []
+    enforcers = enforcers_for(root)
+    rules: list[Rule] = []
+    for number, cells in rule_rows(path.read_text(encoding="utf-8")):
+        if len(cells) != 2:
+            rules.append(Rule(number, " | ".join(cells), "", UNENFORCED))
+            continue
+        rule, enforcer = cells
+        resolved = tuple(t for t in BACKTICKED.findall(enforcer) if enforcers.resolves(t))
+        if resolved:
+            status = ENFORCED
+        elif REVIEW_WORD.search(enforcer):
+            status = REVIEW_ONLY
+        else:
+            status = UNENFORCED
+        rules.append(Rule(number, rule, enforcer, status, resolved))
+    return rules
+
+
+def rules_with(rules: Iterable[Rule], status: str) -> list[Rule]:
+    return [rule for rule in rules if rule.status == status]
+
+
+def measure_rules(root: Path, hits: list[str], notes: list[str]) -> int:
+    """Count the review-only rules, printing each one the way a suppression is printed."""
+    if not (root / RULES_DOC).is_file():
+        notes.append(f"{RULES_DOC} missing; review_only_rules measured as 0")
+        return 0
+    review_only = rules_with(classify_rules(root), REVIEW_ONLY)
+    hits.extend(f"{rule.describe()} [review-only]" for rule in review_only)
+    return len(review_only)
 
 
 # --------------------------------------------------------------------------- files
