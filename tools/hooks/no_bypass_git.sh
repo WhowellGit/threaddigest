@@ -13,6 +13,11 @@
 #   git -c core.hooksPath=... / git config core.hooksPath ...
 #   SKIP=... or PRE_COMMIT_ALLOW_NO_CONFIG=... assignments in front of a command (or exported)
 #   pre-commit uninstall
+#   git merge ... while the current branch is main, unless .build/check-green.json (written by
+#     tools/check_stamp.py as the last step of make check) names the tree of the branch being
+#     merged: main only ever receives a tree the check passed on (2026-09-14, from the packet
+#     panel's dry run: nothing else stops a red fast-forward while there is no remote). git pull
+#     on main is refused for the same reason.
 #   git commit whose command text, or whose -F/--file message file, carries an attribution
 #     trailer (Wes's rule: a commit message ends at its last content line, and never names the
 #     model that wrote it). A message file that cannot be read, and -F - (message on stdin, which
@@ -48,6 +53,8 @@ COMMIT_VALUE_OPTS = {
 PUSH_VALUE_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec", "--recurse-submodules"}
 ATTRIBUTION = re.compile(r"Co-Authored[-]By|Generated with \[Claude Code\]", re.IGNORECASE)
 MESSAGE_FILE_OPTS = ("--file", "-F")
+MERGE_VALUE_OPTS = {"-m", "-F", "--file", "-S", "--gpg-sign", "-X", "--strategy-option", "-s", "--strategy", "--into-name"}
+STAMP = os.path.join(".build", "check-green.json")
 
 
 def segments(command):
@@ -124,6 +131,48 @@ def check_message_files(rest, cwd):
             block("message file %s carries an attribution trailer; remove it before committing" % path)
 
 
+def git_out(args, cwd):
+    try:
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = proc.stdout.strip()
+    return out if proc.returncode == 0 and out else None
+
+
+def check_merge_into_main(rest, cwd):
+    """main receives only a tree the check passed on: the stamp must name the merged tree."""
+    if current_branch(cwd) != "main":
+        return
+    sources = []
+    j = 0
+    while j < len(rest):
+        tok = rest[j]
+        if tok in MERGE_VALUE_OPTS:
+            j += 2
+            continue
+        if tok.startswith("-"):
+            j += 1
+            continue
+        sources.append(tok)
+        j += 1
+    if len(sources) != 1:
+        block("git merge into main must name exactly one branch (got %d)" % len(sources))
+    source = sources[0]
+    top = git_out(["rev-parse", "--show-toplevel"], cwd) or cwd
+    try:
+        with open(os.path.join(top, STAMP), encoding="utf-8") as handle:
+            stamp = json.load(handle)
+        stamped = stamp["tree"]
+    except (OSError, ValueError, KeyError, TypeError):
+        block("no green check stamp; run make check on %s (staged, no untracked files) before merging into main" % source)
+    tree = git_out(["rev-parse", "--verify", "--quiet", source + "^{tree}"], cwd)
+    if tree is None:
+        block("cannot resolve %s to a tree; failing closed" % source)
+    if tree != stamped:
+        block("the green check stamp is for a different tree than %s; run make check on it before merging into main" % source)
+
+
 def check_commit_or_merge(sub, rest):
     j = 0
     while j < len(rest):
@@ -195,6 +244,10 @@ def check_git(toks, cwd):
         check_commit_or_merge(sub, rest)
         if sub == "commit":
             check_message_files(rest, git_cwd)
+        else:
+            check_merge_into_main(rest, git_cwd)
+    elif sub == "pull" and current_branch(git_cwd) == "main":
+        block("git pull on main merges without the check stamp; fetch, then merge a checked branch")
     elif sub == "push":
         check_push(rest, git_cwd)
 

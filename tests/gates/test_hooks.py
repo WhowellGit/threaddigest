@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -527,3 +528,118 @@ def test_every_registered_hook_command_is_an_existing_executable_script() -> Non
         for hook in entry["hooks"]:
             rel = hook["command"].split('"$CLAUDE_PROJECT_DIR"/', 1)[1]
             assert os.access(REPO_ROOT / rel, os.X_OK), rel
+
+
+# ------------------------------------------------ no_bypass_git: main receives checked trees
+#
+# 2026-09-14, from the packet panel's dry run: with no remote and the check on the push hook,
+# nothing mechanical stopped a red tree from being fast-forwarded into main, and the
+# two-sessions incident that morning did exactly that. make check now ends by stamping the
+# tree it passed on (tools/check_stamp.py); the hook refuses a merge into main of any other tree.
+
+CHECK_STAMP = REPO_ROOT / "tools" / "check_stamp.py"
+
+
+def git_in(root: Path, *args: str) -> str:
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "HOME": str(root),
+        "GIT_AUTHOR_NAME": "hook-test",
+        "GIT_AUTHOR_EMAIL": "hook-test@example.invalid",
+        "GIT_COMMITTER_NAME": "hook-test",
+        "GIT_COMMITTER_EMAIL": "hook-test@example.invalid",
+    }
+    proc = subprocess.run(
+        ["git", *args], cwd=root, check=True, capture_output=True, text=True, env=env, timeout=60
+    )
+    return proc.stdout.strip()
+
+
+def repo_with_feature(root: Path) -> str:
+    """main with one commit, a feature branch one commit ahead; returns the feature tree hash."""
+    make_repo_on_branch(root, "main")
+    (root / "a.txt").write_text("base\n", encoding="utf-8")
+    git_in(root, "add", "-A")
+    git_in(root, "commit", "-q", "-m", "base")
+    git_in(root, "switch", "-q", "-c", "feature")
+    (root / "b.txt").write_text("feature\n", encoding="utf-8")
+    git_in(root, "add", "-A")
+    git_in(root, "commit", "-q", "-m", "feature")
+    tree = git_in(root, "rev-parse", "feature^{tree}")
+    git_in(root, "switch", "-q", "main")
+    return tree
+
+
+def write_stamp(root: Path, tree: str) -> None:
+    (root / ".build").mkdir(exist_ok=True)
+    (root / ".build" / "check-green.json").write_text(
+        json.dumps({"tree": tree, "commit": "x", "at": "now"}), encoding="utf-8"
+    )
+
+
+def test_merge_into_main_needs_the_green_stamp_for_that_tree(project: Path) -> None:
+    tree = repo_with_feature(project)
+    blocked = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert blocked.returncode == 2 and "no green check stamp" in blocked.stderr
+    write_stamp(project, "0" * 40)
+    stale = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert stale.returncode == 2 and "different tree" in stale.stderr
+    write_stamp(project, tree)
+    allowed = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert allowed.returncode == 0, allowed.stderr
+    allowed = run_hook(
+        NO_BYPASS, bash_payload("git switch main && git merge --ff-only feature", project), project
+    )
+    assert allowed.returncode == 0, allowed.stderr
+    unknown = run_hook(
+        NO_BYPASS, bash_payload("git merge --ff-only nosuchbranch", project), project
+    )
+    assert unknown.returncode == 2 and "cannot resolve" in unknown.stderr
+    pull = run_hook(NO_BYPASS, bash_payload("git pull", project), project)
+    assert pull.returncode == 2 and "git pull on main" in pull.stderr
+
+
+def test_merge_elsewhere_than_main_needs_no_stamp(project: Path) -> None:
+    repo_with_feature(project)
+    git_in(project, "switch", "-q", "-c", "integration")
+    proc = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert proc.returncode == 0, proc.stderr
+    proc = run_hook(NO_BYPASS, bash_payload("git pull", project), project)
+    assert proc.returncode == 0, proc.stderr
+
+
+def run_stamp(root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, str(CHECK_STAMP), "--root", str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=root,
+        timeout=60,
+    )
+
+
+def test_check_stamp_names_the_staged_tree_and_refuses_untracked_files(project: Path) -> None:
+    repo_with_feature(project)
+    git_in(project, "switch", "-q", "feature")
+    proc = run_stamp(project)
+    assert proc.returncode == 0 and "green for tree" in proc.stdout
+    stamp = json.loads((project / ".build" / "check-green.json").read_text(encoding="utf-8"))
+    assert stamp["tree"] == git_in(project, "rev-parse", "HEAD^{tree}")
+    # staged but uncommitted changes: the stamp names the tree the commit will have
+    (project / "b.txt").write_text("feature, revised\n", encoding="utf-8")
+    git_in(project, "add", "-A")
+    proc = run_stamp(project)
+    assert "tracked changes" in proc.stdout
+    stamped = json.loads((project / ".build" / "check-green.json").read_text(encoding="utf-8"))[
+        "tree"
+    ]
+    git_in(project, "commit", "-q", "-m", "revised")
+    assert stamped == git_in(project, "rev-parse", "HEAD^{tree}")
+    # an untracked file: no stamp, and the stale one is removed
+    (project / "c.txt").write_text("untracked\n", encoding="utf-8")
+    proc = run_stamp(project)
+    assert proc.returncode == 0 and "untracked" in proc.stdout
+    assert not (project / ".build" / "check-green.json").exists()

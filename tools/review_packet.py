@@ -197,8 +197,9 @@ def git_optional(root: Path, *args: str) -> str:
 
 
 def tracked_under(root: Path, spec: str) -> list[str]:
-    """Tracked files under ``spec`` (a file or a directory), in git's sorted order."""
-    out = git(root, "ls-files", "-z", "--", spec)
+    """Files under ``spec`` (a file or a directory) in the tree at HEAD, in git's order. The
+    tree, not the index: a staged file that is not committed is not part of any commit."""
+    out = git(root, "ls-tree", "-r", "--name-only", "-z", "HEAD", "--", spec)
     return [p for p in out.split("\0") if p]
 
 

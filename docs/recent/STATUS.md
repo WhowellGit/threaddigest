@@ -6,7 +6,7 @@
 - The third hook (read before touch) is built, tested, and registered, log-first; the ledger review is on 2026-09-28. The code-health ratchet family (G51) is built; its three birth relaxations expire 2026-09-27 unless the counts reach zero or Wes re-approves. The fake gateway split landed as a package of eleven rank-A modules. Nothing on the collector; the next code is tranche B (needs credentials).
 - Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
 - External review round one: the packet builder (`tools/review_packet.py`, G52) and the refute-framed brief are built and refined by an internal panel (`docs/reference/reviews/2026-09-14-packet-brief-panel.md`); the upload set is on the Desktop; Wes runs the three deep-research jobs and the findings are triaged one check at a time (`docs/runbook/RUNBOOK.md` § 7).
-- Hardening queue from the panel's dry run, compliance first: KI-005 (search index keeps scrubbed text until `optimize`) and KI-006 (post content in error columns) through the `harden` skill; then the merge hook that keeps `main` green, the hook-bypass rows, the batch-migration key-recycling test, and the wider data-directory write test.
+- Hardening queue from the panel's dry run, compliance first: KI-005 (search index keeps scrubbed text until `optimize`) and KI-006 (post content in error columns) through the `harden` skill; then the hook-bypass rows, the batch-migration key-recycling test, and the wider data-directory write test. The merge hook that keeps `main` green landed 2026-09-14.
 
 ## Next
 1. QNAP bare remote when the server is fixed: add the remote, first push runs `make check` through the pre-push hook, nightly `git bundle` to the same share as a second copy.
@@ -26,6 +26,7 @@
 - The read-before-touch hook stays in `log` mode until its ledger is reviewed on 2026-09-28; flipping the mode is a reviewed commit, never a hand edit.
 - The hook-settings gate requires every script under `tools/hooks/` to be registered, so a new hook script turns `make check` red until a human registers it; that is the design, not a broken test.
 - Two sessions were live in this checkout on 2026-09-14 and one swept the other's uncommitted edits into its commit; a second live session works in a git worktree until the proposed guard lands (`docs/decisions/DECISIONS.md` § 2026-09-14 (later), incident bullet).
+- `main` receives only a tree `make check` stamped green: stage everything, run the check, commit, switch, merge; a merge without the stamp is refused by the hook, and untracked files block the stamp until they are added.
 - The code-health ceilings move only through `make ratchet-bump` and `make ratchet-loosen`; a relaxation past its date is red until tightened or re-approved with a reason, never hand-edited.
 
 ## Waiting on Wes
