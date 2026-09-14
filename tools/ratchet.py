@@ -6,7 +6,8 @@ Usage (from the repo root; the Makefile wraps these):
     uv run python tools/ratchet.py measure [--write PATH]
     uv run python tools/ratchet.py compare [--main-ref REF|none]
     uv run python tools/ratchet.py bump
-    uv run python tools/ratchet.py loosen KEY=<family>.<key>[=<value>] REASON="<why>"
+    uv run python tools/ratchet.py loosen KEY=<family>.<key>[=<value>] REASON="<why>" \
+        [HARD_AFTER=YYYY-MM-DD]
 
 Families, one file each under ``.ratchets/`` (``key=value`` lines, sorted, LF, trailing
 newline). Direction says which way a value may move without approval.
@@ -42,7 +43,19 @@ Counting is structural (AST and tokenizer), so a marker inside a string literal 
 suppression and a comment rewrap cannot hide one. Every skip and suppression is printed
 with its file:line on every run.
 
-``compare`` makes three comparisons and exits 0 (ok), 1 (red or stale) or 3 (loosening):
+A relaxed line may carry an expiry date on the line below it:
+
+    count=3
+    count.hard_after=2026-11-12
+
+``compare`` prints every live relaxation on every run and turns RED once today is past the
+date, naming the metric and the way back (tighten it, or re-approve through ``loosen``), so
+a deliberate relaxation cannot quietly become permanent. ``bump`` carries the dates over
+untouched; ``loosen`` writes one when given ``HARD_AFTER=YYYY-MM-DD``, which is also how an
+existing relaxation gets a date without hand-editing ``.ratchets/``.
+
+``compare`` makes three comparisons and exits 0 (ok), 1 (red, stale or expired) or 3
+(loosening):
 
 1. measured vs file: a move against direction beyond the slack is RED;
 2. file vs ``render(measured)``: a floor lagging the measurement beyond the slack, an
@@ -56,7 +69,8 @@ with its file:line on every run.
 ``bump`` writes the measured values, keeping (never moving) any value that would go
 against direction; it exits 1 when a kept value is outside the slack, i.e. when only
 ``loosen`` can make the tree green. ``loosen`` writes one value, refuses anything looser
-than the measurement, and appends a ledger row under ``## Loosenings`` in GUARDS.md.
+than the measurement, and appends a ledger row under ``## Loosenings`` in GUARDS.md; with
+``HARD_AFTER`` and the value the file already holds it only stamps the expiry date.
 """
 
 from __future__ import annotations
@@ -78,6 +92,8 @@ from pathlib import Path
 from typing import NoReturn
 
 RATCHET_DIR = ".ratchets"
+HARD_AFTER = "hard_after"
+DATE_TEXT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LEDGER_PATH = Path("docs") / "runbook" / "GUARDS.md"
 LEDGER_HEADING = "## Loosenings"
 LEDGER_HEADER = "| Date | Key | From | To | Reason | PR |"
@@ -524,8 +540,21 @@ def measure_rules(root: Path, hits: list[str], notes: list[str]) -> int:
 # --------------------------------------------------------------------------- files
 
 
-def render_family(family: str, values: dict[str, Number]) -> str:
-    return "".join(f"{spec.key}={spec.fmt(values[spec.key])}\n" for spec in specs_for(family))
+def date_key(key: str) -> str:
+    """The ``hard_after`` line that belongs to ``key``; it sorts right after it."""
+    return f"{key}.{HARD_AFTER}"
+
+
+def render_family(
+    family: str, values: dict[str, Number], dates: dict[str, str] | None = None
+) -> str:
+    dates = dates or {}
+    lines: list[str] = []
+    for spec in specs_for(family):
+        lines.append(f"{spec.key}={spec.fmt(values[spec.key])}\n")
+        if spec.key in dates:
+            lines.append(f"{date_key(spec.key)}={dates[spec.key]}\n")
+    return "".join(lines)
 
 
 def parse_family_text(text: str) -> dict[str, str]:
@@ -572,12 +601,28 @@ def read_family_values(root: Path, family: str) -> dict[str, Number]:
     return values
 
 
-def write_family(root: Path, family: str, values: dict[str, Number]) -> None:
+def read_family_dates(root: Path, family: str) -> dict[str, str]:
+    """Lenient read of the ``<key>.hard_after`` lines, so bump and loosen carry them over."""
+    text = read_family_text(root, family)
+    if text is None:
+        return {}
+    try:
+        raw = parse_family_text(text)
+    except ValueError:
+        return {}
+    return {
+        spec.key: raw[date_key(spec.key)] for spec in specs_for(family) if date_key(spec.key) in raw
+    }
+
+
+def write_family(
+    root: Path, family: str, values: dict[str, Number], dates: dict[str, str] | None = None
+) -> None:
     path = family_path(root, family)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     with tmp.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(render_family(family, values))
+        handle.write(render_family(family, values, dates))
     os.replace(tmp, path)
 
 
@@ -667,6 +712,39 @@ def _compare_values(spec: Spec, floor: Number, measured: Number) -> Finding:
     return Finding("OK", spec.name, f"{spec.bound}={spec.fmt(floor)} measured={spec.fmt(measured)}")
 
 
+def parse_date(raw: str) -> dt.date | None:
+    if not DATE_TEXT.match(raw):
+        return None
+    try:
+        return dt.date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _compare_expiry(spec: Spec, raw_date: str, today: dt.date | None = None) -> Finding:
+    """Every live relaxation is printed on every run; past its date it is RED.
+
+    Wes, 2026-09-13: a deliberately relaxed check carries a date after which it turns red
+    unless re-approved, so "temporary" cannot quietly become permanent.
+    """
+    deadline = parse_date(raw_date)
+    if deadline is None:
+        return Finding("RED", f"{spec.name}.{HARD_AFTER}", f"{raw_date!r} is not YYYY-MM-DD")
+    if (today or dt.date.today()) > deadline:
+        return Finding(
+            "EXPIRED",
+            spec.name,
+            f"relaxation expired {raw_date}: tighten the {spec.bound}, or re-approve with "
+            f'make ratchet-loosen KEY={spec.name} REASON="..." HARD_AFTER=<new date>',
+        )
+    return Finding(
+        "RELAXED",
+        spec.name,
+        f"relaxed {spec.bound}, hard_after={raw_date}: red from the day after unless "
+        "tightened or re-approved",
+    )
+
+
 def compare_family_file(
     root: Path, family: str, measured: dict[str, Number]
 ) -> tuple[list[Finding], dict[str, Number] | None]:
@@ -683,6 +761,7 @@ def compare_family_file(
 
     findings: list[Finding] = []
     values: dict[str, Number] = {}
+    dates: dict[str, str] = {}
     for spec in specs_for(family):
         if spec.key not in raw:
             findings.append(Finding("STALE", spec.name, "missing from file; run make ratchet-bump"))
@@ -691,15 +770,24 @@ def compare_family_file(
             values[spec.key] = spec.parse(raw[spec.key])
         except ValueError:
             findings.append(Finding("STALE", spec.name, f"unparseable value {raw[spec.key]!r}"))
+        if date_key(spec.key) in raw:
+            raw_date = raw[date_key(spec.key)]
+            if parse_date(raw_date) is None:
+                findings.append(
+                    Finding("RED", f"{spec.name}.{HARD_AFTER}", f"{raw_date!r} is not YYYY-MM-DD")
+                )
+            else:
+                dates[spec.key] = raw_date
+    known = {spec.key for spec in specs_for(family)}
     for key in raw:
-        if key not in values and spec_by_name(f"{family}.{key}") is None:
+        if key not in known and key not in {date_key(k) for k in known}:
             findings.append(
                 Finding("STALE", f"{family}.{key}", "unknown key; run make ratchet-bump")
             )
     if findings:
         return findings, None
 
-    if text != render_family(family, values):
+    if text != render_family(family, values, dates):
         findings.append(
             Finding(
                 "STALE",
@@ -709,6 +797,9 @@ def compare_family_file(
         )
     findings.extend(
         _compare_values(spec, values[spec.key], measured[spec.key]) for spec in specs_for(family)
+    )
+    findings.extend(
+        _compare_expiry(spec, dates[spec.key]) for spec in specs_for(family) if spec.key in dates
     )
     return findings, values
 
@@ -752,7 +843,7 @@ def compare(root: Path, measurement: Measurement, main_ref: str | None) -> list[
 
 def exit_code(findings: Iterable[Finding]) -> int:
     statuses = {finding.status for finding in findings}
-    if statuses & {"RED", "STALE"}:
+    if statuses & {"RED", "STALE", "EXPIRED"}:
         return EXIT_RED
     if "LOOSENING" in statuses:
         return EXIT_LOOSENING
@@ -766,6 +857,7 @@ def bump(root: Path, measurement: Measurement) -> int:
     rc = EXIT_OK
     for family in FAMILIES:
         current = read_family_values(root, family)
+        dates = read_family_dates(root, family)
         new: dict[str, Number] = {}
         for spec in specs_for(family):
             measured = measurement.values[family][spec.key]
@@ -784,7 +876,9 @@ def bump(root: Path, measurement: Measurement) -> int:
                 new[spec.key] = measured
                 was = f" (was {spec.fmt(old)})" if old is not None else ""
                 print(f"SET       {spec.name:<34} {spec.fmt(measured)}{was}")
-        write_family(root, family, new)
+            if spec.key in dates:
+                print(f"RELAXED   {spec.name:<34} hard_after={dates[spec.key]} (kept)")
+        write_family(root, family, new, dates)
     return rc
 
 
@@ -820,9 +914,18 @@ def append_ledger_row(path: Path, cells: list[str]) -> None:
         handle.write("\n".join(lines) + "\n")
 
 
-def parse_loosen_args(tokens: list[str]) -> tuple[str, str | None, str]:
-    """Parse ``KEY=family.key[=value]`` and ``REASON=...`` (any order) to (name, value, reason)."""
+@dataclass(frozen=True)
+class LoosenRequest:
+    name: str
+    raw_value: str | None
+    reason: str
+    hard_after: str | None = None
+
+
+def parse_loosen_args(tokens: list[str]) -> LoosenRequest:
+    """Parse ``KEY=family.key[=value]``, ``REASON=...`` and ``HARD_AFTER=...`` (any order)."""
     assignment = reason = None
+    hard_after = None
     for token in tokens:
         head, sep, rest = token.partition("=")
         if not sep:
@@ -831,6 +934,8 @@ def parse_loosen_args(tokens: list[str]) -> tuple[str, str | None, str]:
             assignment = rest
         elif head.upper() == "REASON":
             reason = rest
+        elif head.upper() == HARD_AFTER.upper():
+            hard_after = rest.strip()
         elif "." in head:
             assignment = token
         else:
@@ -840,50 +945,68 @@ def parse_loosen_args(tokens: list[str]) -> tuple[str, str | None, str]:
     if reason is None or not reason.strip():
         fail('ratchet: loosen needs REASON="<why>"')
     name, sep, value = assignment.partition("=")
-    return name.strip(), value.strip() if sep else None, reason.strip()
+    return LoosenRequest(name.strip(), value.strip() if sep else None, reason.strip(), hard_after)
 
 
-def loosen(
-    root: Path, measurement: Measurement, name: str, raw_value: str | None, reason: str
-) -> int:
-    spec = spec_by_name(name)
-    if spec is None:
-        known = ", ".join(s.name for s in SPECS)
-        fail(f"ratchet: unknown key {name!r}; known keys: {known}")
-    measured = measurement.values[spec.family][spec.key]
+def _loosen_value(spec: Spec, raw_value: str | None, measured: Number) -> Number:
     try:
-        value = spec.parse(raw_value) if raw_value is not None else measured
+        return spec.parse(raw_value) if raw_value is not None else measured
     except ValueError as exc:
-        msg = f"ratchet: {name}: cannot parse value {raw_value!r}"
+        msg = f"ratchet: {spec.name}: cannot parse value {raw_value!r}"
         raise SystemExit(msg) from exc
 
-    current = read_family_values(root, spec.family)
-    if spec.key not in current:
-        fail(f"ratchet: {name} has no committed value yet; run make ratchet-bump first")
-    old = current[spec.key]
+
+def _check_loosening(spec: Spec, value: Number, old: Number, measured: Number) -> None:
+    """A loosening moves against direction and never past the measurement."""
     if not spec.against(value, old):
         fail(
-            f"ratchet: {name}={spec.fmt(value)} is not a loosening of the {spec.bound} "
+            f"ratchet: {spec.name}={spec.fmt(value)} is not a loosening of the {spec.bound} "
             f"{spec.fmt(old)}; use make ratchet-bump for tightenings"
         )
     tol = spec.tolerance(value)
     if abs(value - measured) > tol + EPS:
         relation = "looser" if spec.against(value, measured) else "still red"
         fail(
-            f"ratchet: {name}={spec.fmt(value)} is {relation} against the measured "
+            f"ratchet: {spec.name}={spec.fmt(value)} is {relation} against the measured "
             f"{spec.fmt(measured)} (slack {tol:g}); floors track measurement, so the "
             f"value must be {spec.fmt(measured)} (omit the value to use it)"
         )
 
+
+def loosen(root: Path, measurement: Measurement, request: LoosenRequest) -> int:
+    spec = spec_by_name(request.name)
+    if spec is None:
+        known = ", ".join(s.name for s in SPECS)
+        fail(f"ratchet: unknown key {request.name!r}; known keys: {known}")
+    if request.hard_after is not None and parse_date(request.hard_after) is None:
+        fail(f"ratchet: HARD_AFTER={request.hard_after!r} is not a YYYY-MM-DD date")
+    measured = measurement.values[spec.family][spec.key]
+    value = _loosen_value(spec, request.raw_value, measured)
+
+    current = read_family_values(root, spec.family)
+    if spec.key not in current:
+        fail(f"ratchet: {request.name} has no committed value yet; run make ratchet-bump first")
+    old = current[spec.key]
+    # A HARD_AFTER on the value the file already holds only stamps an expiry on a relaxation
+    # that is already committed; anything that moves the number is a loosening as before.
+    stamp_only = request.hard_after is not None and value == old
+    if not stamp_only:
+        _check_loosening(spec, value, old, measured)
+
+    dates = read_family_dates(root, spec.family)
+    if request.hard_after is not None:
+        dates[spec.key] = request.hard_after
     current[spec.key] = value
-    write_family(root, spec.family, current)
-    safe_reason = " ".join(reason.replace("|", "\\|").split())
+    write_family(root, spec.family, current, dates)
+    expiry = f" hard_after={request.hard_after}" if request.hard_after else ""
+    safe_reason = " ".join(request.reason.replace("|", "\\|").split()) + expiry
     append_ledger_row(
         root / LEDGER_PATH,
         [dt.date.today().isoformat(), spec.name, spec.fmt(old), spec.fmt(value), safe_reason, ""],
     )
+    verb = "STAMPED " if stamp_only else "LOOSENED"
     print(
-        f"LOOSENED  {spec.name:<34} {spec.fmt(old)} -> {spec.fmt(value)}; "
+        f"{verb}  {spec.name:<34} {spec.fmt(old)} -> {spec.fmt(value)}{expiry}; "
         f"row appended to {LEDGER_PATH}"
     )
     return EXIT_OK
@@ -920,7 +1043,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--main-ref", default=None, help="git ref with the committed floors, or 'none'"
     )
     sub.add_parser("bump", help="write measured values, never moving against direction")
-    loosen_p = sub.add_parser("loosen", help='KEY=<family>.<key>[=<value>] REASON="<why>"')
+    loosen_p = sub.add_parser(
+        "loosen", help='KEY=<family>.<key>[=<value>] REASON="<why>" [HARD_AFTER=YYYY-MM-DD]'
+    )
     loosen_p.add_argument("assignments", nargs="+")
     return parser
 
@@ -948,17 +1073,17 @@ def main(argv: list[str] | None = None) -> int:
         rc = exit_code(findings)
         counts = {
             s: sum(1 for f in findings if f.status == s)
-            for s in ("OK", "RED", "STALE", "LOOSENING")
+            for s in ("OK", "RED", "STALE", "LOOSENING", "RELAXED", "EXPIRED")
         }
         print(
             f"ratchet: {counts['OK']} ok, {counts['RED']} red, {counts['STALE']} stale, "
-            f"{counts['LOOSENING']} loosening -> exit {rc}"
+            f"{counts['LOOSENING']} loosening, {counts['RELAXED']} relaxed, "
+            f"{counts['EXPIRED']} expired -> exit {rc}"
         )
         return rc
     if args.command == "bump":
         return bump(root, measurement)
-    name, value, reason = parse_loosen_args(args.assignments)
-    return loosen(root, measurement, name, value, reason)
+    return loosen(root, measurement, parse_loosen_args(args.assignments))
 
 
 if __name__ == "__main__":

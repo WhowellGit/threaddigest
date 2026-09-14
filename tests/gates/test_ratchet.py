@@ -3,10 +3,15 @@
 Every control runs ``tools/ratchet.py`` the way ``make check`` does (a subprocess with the
 same interpreter) against a throwaway project tree, and a fake ``main`` built with a real
 ``git`` repo so the committed-floor comparison is exercised, not stubbed.
+
+The last group covers expiry dates on relaxed lines (Wes, 2026-09-13): a relaxation carries a
+``hard_after`` date, is printed on every run while it is live, and turns the tree red the day
+after it passes unless it is tightened or re-approved.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import subprocess
@@ -372,6 +377,76 @@ def test_loosen_refuses_a_ceiling_above_the_measured_count(project: Path) -> Non
 
     assert proc.returncode == 1
     assert read(project, "skips") == "count=1\n"
+
+
+def relax_skips(project: Path, date: str) -> None:
+    """Commit a relaxed skips ceiling carrying an expiry date, through the tool."""
+    proc = ratchet(
+        project, "loosen", "KEY=skips.count", f"HARD_AFTER={date}", "REASON=one skip while #4 lands"
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_compare_is_red_the_day_after_a_hard_after_date(project: Path) -> None:
+    ratchet(project, "bump")
+    relax_skips(project, str(dt.date.today() - dt.timedelta(days=1)))
+
+    proc = ratchet(project, "compare", "--main-ref", "none")
+
+    assert proc.returncode == 1, proc.stdout
+    assert "EXPIRED   skips.count" in proc.stdout
+    assert "make ratchet-loosen KEY=skips.count" in proc.stdout
+    assert "1 expired -> exit 1" in proc.stdout
+
+
+def test_compare_prints_a_live_relaxation_and_stays_green(project: Path) -> None:
+    ratchet(project, "bump")
+    future = str(dt.date.today() + dt.timedelta(days=30))
+    relax_skips(project, future)
+
+    proc = ratchet(project, "compare", "--main-ref", "none")
+
+    assert proc.returncode == 0, proc.stdout
+    assert "RELAXED   skips.count" in proc.stdout
+    assert f"relaxed ceiling, hard_after={future}" in proc.stdout
+    assert "EXPIRED" not in proc.stdout
+    assert read(project, "skips") == f"count=1\ncount.hard_after={future}\n"
+
+
+def test_a_line_without_hard_after_is_unchanged_and_bump_keeps_the_date(project: Path) -> None:
+    ratchet(project, "bump")
+    future = str(dt.date.today() + dt.timedelta(days=30))
+    relax_skips(project, future)
+
+    proc = ratchet(project, "bump")
+
+    assert proc.returncode == 0, proc.stdout
+    assert "RELAXED   skips.count" in proc.stdout
+    assert f"hard_after={future} (kept)" in proc.stdout
+    assert read(project, "skips") == f"count=1\ncount.hard_after={future}\n"
+    assert read(project, "coverage") == "line_percent=80.00\n"
+    assert "RELAXED   coverage" not in proc.stdout
+    assert ratchet(project, "compare", "--main-ref", "none").returncode == 0
+
+
+def test_a_hard_after_that_is_not_a_date_is_refused_and_a_hand_edited_one_is_red(
+    project: Path,
+) -> None:
+    ratchet(project, "bump")
+
+    proc = ratchet(project, "loosen", "KEY=skips.count", "HARD_AFTER=next quarter", "REASON=x")
+
+    assert proc.returncode == 1
+    assert "HARD_AFTER" in proc.stderr
+    assert read(project, "skips") == "count=1\n"
+
+    # The reader validates too, so a hand-edited date cannot become an open-ended relaxation.
+    (project / ".ratchets" / "skips.txt").write_text(
+        "count=1\ncount.hard_after=when we get to it\n", encoding="utf-8"
+    )
+    proc = ratchet(project, "compare", "--main-ref", "none")
+    assert proc.returncode == 1
+    assert "RED       skips.count.hard_after" in proc.stdout
 
 
 def test_loosen_refuses_a_tightening_and_an_empty_reason(project: Path) -> None:

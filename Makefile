@@ -25,7 +25,8 @@ help:
 	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
 	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
-	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\"  loosen one floor (lands a GUARDS.md row)"
+	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
+	@echo "                      (lands a GUARDS.md row; HARD_AFTER turns it red again on that date)"
 
 setup:
 	@if ! command -v $(UV) >/dev/null 2>&1; then \
@@ -69,7 +70,7 @@ ratchet-bump:
 ratchet-loosen:
 	@if [ -z "$(KEY)" ] || [ -z "$(REASON)" ]; then \
 	  echo 'usage: make ratchet-loosen KEY=<key> REASON="<why>"' >&2; exit 2; fi
-	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)"
+	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)" $(if $(HARD_AFTER),HARD_AFTER=$(HARD_AFTER),)
 
 schema:
 	$(UV) run python -m insightminer.db.schema_dump
