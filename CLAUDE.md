@@ -103,7 +103,8 @@ that only goes down.
    `make check`, which stamps the tree it passed on, commit, then merge; the hook refuses any
    tree without that stamp (a merge commit on `main` is refused); never push to `main` directly once a remote exists; a push runs `make check` through the
    pre-push hook, because a remote is a backup and never the gate. A change on a review-required
-   surface (migrations, scrub, deletion, the upsert repository, gates, ratchets, hooks, this file)
+   surface (migrations, scrub, deletion, the upsert repository, gates, hooks, this file; the ratchet files left the list on 2026-09-14, being gated already by
+   their writer tool, the hook, and the three-way compare)
    lands with a row in `docs/reference/reviews/REGISTER.md`, or the register gate is red. Every fixed bug lands a
    `KNOWN_ISSUES.md` row and every settled choice a `DECISIONS.md` entry.
 

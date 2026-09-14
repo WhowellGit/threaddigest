@@ -14,7 +14,7 @@
 | Change the web UI | `PLAN.md` § Web UI | `reference/reviews/2026-09-12-ui-design-review.md`; `.claude/rules/web.md` |
 | Add or change a gate, ratchet, invariant, or test policy | `PLAN.md` § Robustness → Guard design rules | `runbook/GUARDS.md` (birth incident, positive control, verdict) |
 | Write a brief for a sub-agent | `reference/AGENT_BRIEF.md` | the rows above for the task |
-| Land a change on a migration, scrub, deletion, the upsert repository, a gate, a ratchet, a hook, or the working agreement | `reference/reviews/REGISTER.md` (a review row is required) | `PLAN.md` § Review harness |
+| Land a change on a migration, scrub, deletion, the upsert repository, a gate, a hook, or the working agreement | `reference/reviews/REGISTER.md` (a review row is required) | `PLAN.md` § Review harness |
 | Decide whether to adopt a practice from the earlier project | `reference/earlier-project/EARLIER_PROJECT_REFERENCE.md` (the entry point) | `reference/reviews/2026-09-13-documentation-practices-assessment.md`; `reference/reviews/2026-09-13-harness-assessment.md` § 7 |
 | Run a retrospective or score a prediction | `learnings/LEARNINGS_TRANSFER.md` §5 | `learnings/DOC_DRIFT_FINDINGS_2026-09-13.md` |
 | Wonder why something was decided | `insights/INSIGHTS_2026-09-12.md` | `decisions/DECISIONS.md` (settled negatives first) |

@@ -10,8 +10,8 @@
 
 ## Next
 1. QNAP bare remote when the server is fixed: add the remote, first push runs `make check` through the pre-push hook, nightly `git bundle` to the same share as a second copy.
-2. Tranche B when credentials arrive: the real Reddit adapter probe-first (`probe --save-fixture`), cassettes, the `doctor` auth ping.
-3. M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week): brief → bounded design rounds → build on a branch → panel.
+2. Tranche B when credentials arrive: the real Reddit adapter probe-first (`probe --save-fixture`), cassettes, the `doctor` auth ping; one credentialed probe day, capturing the shapes the deletion predicates and the fake's summary assume, precedes M1b (Wes, 2026-09-14).
+3. M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week; the dead-man ping, scheduled backups with a restore command, and retention pruning are M1d blockers, Wes 2026-09-14): brief → bounded design rounds → build on a branch → panel.
 4. Milestone MB when the new QNAP arrives: bare repository over SSH, first push through the pre-push hook, nightly bundle, restore drill from the NAS copy.
 5. The review runner and the first external review at tranche B's design freeze; the last two days' enforcement changes are that review's first job.
 6. Code-health layer two: the CodeScene trial at the end of the first milestone after M1d (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)); layer one is built and gated.
@@ -30,4 +30,4 @@
 - The code-health ceilings move only through `make ratchet-bump` and `make ratchet-loosen`; a relaxation past its date is red until tightened or re-approved with a reason, never hand-edited.
 
 ## Waiting on Wes
-Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); the go for the one-live-session-per-checkout guard; the harness document's name; the data-controls opt-out on each consumer plan before the first external packet is uploaded; running the three deep-research jobs from the Desktop copy; five rulings from the second panel (narrow the register surface; a probe day before M1b; the between-run controls as M1d blockers; the memory audit's place in `make check`; guard deletion deferred a quarter); moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); the go for the one-live-session-per-checkout guard; the harness document's name; the data-controls opt-out on each consumer plan before the first external packet is uploaded; running the three deep-research jobs from the Desktop copy; moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.

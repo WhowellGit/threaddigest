@@ -28,13 +28,15 @@ from tools.ratchet import is_separator_row, split_row
 ROOT = Path(__file__).resolve().parents[2]
 REGISTER = Path("docs") / "reference" / "reviews" / "REGISTER.md"
 BASELINE = "2026-09-15"
+#: The ratchet files left this list on 2026-09-14 (Wes's ruling on the principal-engineer seat's
+#: finding): they are already gated by their writer tool, the hook, and the three-way compare,
+#: and keeping them here would have put a register row on most routine commits.
 SURFACES: tuple[str, ...] = (
     "src/insightminer/db/migrations",
     "src/insightminer/services/scrub.py",
     "src/insightminer/core/deletion.py",
     "src/insightminer/db/repo.py",
     "tests/gates",
-    ".ratchets",
     "tools/hooks",
     "CLAUDE.md",
     ".claude/settings.json",
