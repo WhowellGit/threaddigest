@@ -130,6 +130,117 @@ def snapshot_tables(engine: Engine) -> SnapshotTables:
     return _snapshot
 
 
+AddSource = Callable[..., repo.SubredditRow]
+
+
+@pytest.fixture
+def add_source(engine: Engine) -> AddSource:
+    """Seed one subreddit into the default workspace and return its row (§5.1).
+
+    Built from ``repo.seed_subreddits`` / ``repo.enabled_subreddits`` -- the same functions
+    the production seed path uses -- never a raw ``INSERT`` (§2.3). Optional keyword
+    overrides are applied afterwards through the same repo functions the sweep itself
+    calls, so a test can arrange prior state (a watermark, a gap latch, a failure streak,
+    an adopted identity) without ever building SQL.
+    """
+
+    def _add(
+        name: str,
+        *,
+        watermark_created_utc: int | None = None,
+        gap_suspected_at: int | None = None,
+        subreddit_id: str | None = None,
+        last_complete_poll_at: int | None = None,
+    ) -> repo.SubredditRow:
+        with engine.connect() as conn:
+            workspace_pk = repo.default_workspace_pk(conn)
+        with engine.begin() as conn:
+            repo.seed_subreddits(conn, workspace_pk=workspace_pk, names=[name], now=NOW)
+        with engine.connect() as conn:
+            row = next(
+                r
+                for r in repo.enabled_subreddits(conn, workspace_pk)
+                if r.name_lower == name.lower()
+            )
+        if watermark_created_utc is not None:
+            with engine.begin() as conn:
+                repo.advance_watermark(
+                    conn, subreddit_pk=row.pk, seen_max_created_utc=watermark_created_utc
+                )
+        if gap_suspected_at is not None:
+            with engine.begin() as conn:
+                repo.set_gap_suspected(conn, subreddit_pk=row.pk, at=gap_suspected_at)
+        if subreddit_id is not None:
+            with engine.begin() as conn:
+                repo.set_subreddit_identity(conn, subreddit_pk=row.pk, subreddit_id=subreddit_id)
+        if last_complete_poll_at is not None:
+            with engine.begin() as conn:
+                repo.stamp_complete_poll(conn, subreddit_pk=row.pk, at=last_complete_poll_at)
+        if any(
+            v is not None
+            for v in (watermark_created_utc, gap_suspected_at, subreddit_id, last_complete_poll_at)
+        ):
+            with engine.connect() as conn:
+                row = next(
+                    r
+                    for r in repo.enabled_subreddits(conn, workspace_pk)
+                    if r.name_lower == name.lower()
+                )
+        return row
+
+    return _add
+
+
+SubredditRowByPk = Callable[[int], repo.SubredditRow]
+
+
+@pytest.fixture
+def subreddit_row(engine: Engine) -> SubredditRowByPk:
+    """Re-read one ``subreddits`` row by pk after a sweep, through ``repo`` reads only.
+
+    ``all_sources_for_freshness`` (not ``enabled_subreddits``) so a source this test just
+    watched get auto-disabled is still found (§5.3, ingest B8).
+    """
+
+    def _row(pk: int) -> repo.SubredditRow:
+        with engine.connect() as conn:
+            workspace_pk = repo.default_workspace_pk(conn)
+            rows = repo.all_sources_for_freshness(conn, workspace_pk)
+        return next(r for r in rows if r.pk == pk)
+
+    return _row
+
+
+RunSubredditRows = Callable[[int, int], list[dict[str, object]]]
+
+
+@pytest.fixture
+def run_subreddit_rows(engine: Engine) -> RunSubredditRows:
+    """Every ``run_subreddits`` row for one ``(run_pk, subreddit_pk)`` pair, oldest first.
+
+    Plain Core ``select`` over ``Base.metadata.tables[...]`` (§2.3) -- the per-page (T5) and
+    terminal (T6) rows for one subreddit share a pk via ``upsert_run_subreddit``'s
+    ``ON CONFLICT(run_pk, subreddit_pk)``, so this is always zero or one row; the helper
+    still returns a list so a test can assert the count itself rather than trust a scalar.
+    """
+
+    def _rows(run_pk: int, subreddit_pk: int) -> list[dict[str, object]]:
+        table = Base.metadata.tables["run_subreddits"]
+        with engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(table)
+                    .where(table.c.run_pk == run_pk, table.c.subreddit_pk == subreddit_pk)
+                    .order_by(table.c.pk)
+                )
+                .mappings()
+                .all()
+            )
+        return [dict(r) for r in rows]
+
+    return _rows
+
+
 @pytest.fixture
 def run_context(engine: Engine, clock: FakeClock, settings: Settings):
     """A persisted ``RunContext`` built the production way: ``runs.start_run`` (T2 + T3).

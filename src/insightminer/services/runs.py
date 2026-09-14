@@ -38,6 +38,7 @@ __all__ = [
     "TRACKED_TABLES",
     "Counters",
     "RunContext",
+    "RunTerminalError",
     "RunWarning",
     "SeverityCarrier",
     "StaleSweep",
@@ -146,6 +147,27 @@ class RunWarning:
 
     name: str
     detail: str
+
+
+class RunTerminalError(Exception):
+    """The whole run must end now with ``status`` (design-round5 §3.4).
+
+    Raised by ``sweep.fetch_page`` and ``sweep.preflight``; caught in exactly one place,
+    ``sweep.sweep_all`` (§6.8), which turns it into a ``SweepResult`` rather than letting it
+    escape -- work already committed by earlier subreddits stays committed.
+
+    Named with the ``Error`` suffix because ruff's N818 requires it and this tranche's
+    suppression budget (one, spent on ``check_all``) is not spent on a name. It lives here
+    rather than in ``services/sweep.py`` because ``collect`` and ``cli`` read ``status`` and
+    ``exit_code`` from it without importing the sweep.
+    """
+
+    def __init__(self, status: RunStatus, *, detail: str, exit_code: int | None = None) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+        #: None means ``core.retry.exit_code(status)`` applies; 78 is the one override (§9).
+        self.exit_code = exit_code
 
 
 @dataclass(frozen=True, slots=True)
