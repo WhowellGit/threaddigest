@@ -30,7 +30,8 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy import Engine, select
+import yaml
+from sqlalchemy import Connection, Engine, select
 from sqlalchemy.exc import OperationalError
 
 from insightminer.adapters.clock import FakeClock
@@ -254,46 +255,129 @@ def test_a_failed_integrity_check_also_restores(
         engine.dispose()
 
 
-def test_prune_pre_migrate_backups_keeps_only_the_newest_three(
+def _plant_backup(conn: Connection, path: Path, *, created_at: int) -> Path:
+    """One ``pre-migrate`` file on disk and its ``backups`` row, through ``repo`` only."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"not a real sqlite file")
+    repo.insert_backup(
+        conn,
+        repo.BackupInsert(
+            path=str(path),
+            sha256=f"sha-{path.name}",
+            size_bytes=1,
+            integrity="ok",
+            kind="pre-migrate",
+            created_at=created_at,
+            schema_rev="0001",
+            table_counts_json=None,
+        ),
+    )
+    return path
+
+
+def _backup_paths(engine: Engine) -> set[str]:
+    with engine.connect() as conn:
+        return {path for _pk, path, _created_at in repo.backups_of_kind(conn, "pre-migrate")}
+
+
+def test_prune_pre_migrate_backups_deletes_the_rows_and_returns_the_files(
     db_path: Path, settings: Settings, now: int
 ) -> None:
+    """§10.3 step 12, with the row/file order the panel's P2-7b and finding 12 require.
+
+    The call deletes the two oldest **rows** and hands their paths back; the files are still
+    on disk when it returns, because ``unlink`` cannot be rolled back and the caller has not
+    committed yet. Unlinking them is the caller's step, asserted here in the order
+    ``_upgrade_with_backup`` performs it.
+    """
     engine = engine_for(db_path)
     try:
         migrate_to_head(engine)
-        backups_dir = settings.data_dir / "backups"
-        backups_dir.mkdir(parents=True, exist_ok=True)
-        paths = []
+        home = migrate_service.backups_dir(settings)
         with engine.begin() as conn:
-            for i in range(5):
-                path = backups_dir / f"pre-migrate-000{i}.db"
-                path.write_bytes(b"not a real sqlite file")
-                paths.append(path)
-                repo.insert_backup(
-                    conn,
-                    repo.BackupInsert(
-                        path=str(path),
-                        sha256=f"sha{i}",
-                        size_bytes=1,
-                        integrity="ok",
-                        kind="pre-migrate",
-                        created_at=now + i,
-                        schema_rev="0001",
-                        table_counts_json=None,
-                    ),
-                )
+            paths = [
+                _plant_backup(conn, home / f"pre-migrate-000{i}.db", created_at=now + i)
+                for i in range(5)
+            ]
 
         with engine.begin() as conn:
-            removed = migrate_service.prune_pre_migrate_backups(conn, keep=3)
+            pruned = migrate_service.prune_pre_migrate_backups(conn, home=home, keep=3)
 
-        assert sorted(removed) == sorted(paths[:2])
-        for path in paths[:2]:
-            assert not path.exists()
-        for path in paths[2:]:
-            assert path.exists()
+        assert sorted(pruned.unlink) == sorted(paths[:2])
+        assert pruned.skipped == ()
+        assert all(path.exists() for path in paths), "prune must not unlink inside the transaction"
+        assert _backup_paths(engine) == {str(p) for p in paths[2:]}
+
+        for path in pruned.unlink:  # the caller's post-commit half
+            path.unlink()
+        assert [path.exists() for path in paths] == [False, False, True, True, True]
+    finally:
+        engine.dispose()
+
+
+def test_prune_leaves_a_backup_row_pointing_outside_the_backups_directory_alone(
+    db_path: Path, settings: Settings, tmp_path: Path, now: int
+) -> None:
+    """Panel P2-7a: the pruner must never unlink whatever a row happens to name.
+
+    A ``backups`` row is an untrusted string -- hand-edited, restored from another machine's
+    absolute paths, or pointing through a symlink out of the tree. Before this, the oldest
+    such row's file was unlinked wherever it was. Now the row is left alone *entirely* (the
+    row too, so the operator can still see it) and reported on ``skipped``.
+    """
+    engine = engine_for(db_path)
+    try:
+        migrate_to_head(engine)
+        home = migrate_service.backups_dir(settings)
+        outsider = tmp_path / "elsewhere" / "precious.db"
+        with engine.begin() as conn:
+            _plant_backup(conn, outsider, created_at=now)  # oldest => first to be pruned
+            inside = [
+                _plant_backup(conn, home / f"pre-migrate-000{i}.db", created_at=now + 1 + i)
+                for i in range(3)
+            ]
+
+        with engine.begin() as conn:
+            pruned = migrate_service.prune_pre_migrate_backups(conn, home=home, keep=3)
+
+        assert pruned.unlink == ()
+        assert pruned.skipped == (outsider,)
+        assert outsider.exists(), "a file outside the backups directory was unlinked"
+        assert _backup_paths(engine) == {str(outsider), *(str(p) for p in inside)}
+    finally:
+        engine.dispose()
+
+
+def test_a_rolled_back_prune_leaves_no_dangling_backup_rows(
+    db_path: Path, settings: Settings, now: int
+) -> None:
+    """Panel P2-7b / finding 12, the failure the ordering is about.
+
+    ``unlink`` is not transactional. With the files deleted first, a transaction that rolled
+    back afterwards -- a locked database, a crash between the two statements -- restored the
+    ``backups`` rows and left them pointing at restore targets that no longer existed. With
+    the order reversed the worst case is a file with no row, which ``doctor`` can see and an
+    operator can delete. Here: roll back after the prune and every row and every file is
+    still there.
+    """
+    engine = engine_for(db_path)
+    try:
+        migrate_to_head(engine)
+        home = migrate_service.backups_dir(settings)
+        with engine.begin() as conn:
+            paths = [
+                _plant_backup(conn, home / f"pre-migrate-000{i}.db", created_at=now + i)
+                for i in range(5)
+            ]
+
         with engine.connect() as conn:
-            remaining = repo.backups_of_kind(conn, "pre-migrate")
-        assert len(remaining) == 3
-        assert {p for _, p, _ in remaining} == {str(p) for p in paths[2:]}
+            transaction = conn.begin()
+            pruned = migrate_service.prune_pre_migrate_backups(conn, home=home, keep=3)
+            transaction.rollback()
+
+        assert sorted(pruned.unlink) == sorted(paths[:2])
+        assert _backup_paths(engine) == {str(p) for p in paths}, "the rollback left rows deleted"
+        assert all(path.exists() for path in paths), "a rolled-back prune destroyed a file"
     finally:
         engine.dispose()
 
@@ -614,20 +698,54 @@ def test_failed_restore_bookkeeping_still_reports_restored_and_leaves_a_recovera
     assert upgrade_rows[0]["status"] == "running"
 
 
+def _inject_operational(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> type[Exception]:
+    """The database half: the seed's write itself fails."""
+    del tmp_path
+    monkeypatch.setattr(seed, "apply_seed", _raise_operational)
+    return OperationalError
+
+
+def _inject_malformed_seed_yaml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> type[Exception]:
+    """The file half: a real ``config/seed.yaml`` with a syntax error, parsed for real.
+
+    Nothing is stubbed -- ``seed.read_seed_names`` opens this file and ``yaml.safe_load``
+    raises its own ``ScannerError``. That is the ordinary way a hand-edited seed file fails,
+    and it is what escaped ``_seed``'s handler before ``yaml.YAMLError`` joined the tuple.
+    """
+    broken = tmp_path / "broken-seed.yaml"
+    broken.write_text("subreddits: [premiere, videoediting\nthemes: {\n", encoding="utf-8")
+    monkeypatch.setattr(seed, "DEFAULT_SEED_FILE", broken)
+    return yaml.YAMLError
+
+
+@pytest.mark.parametrize(
+    "inject",
+    [_inject_operational, _inject_malformed_seed_yaml],
+    ids=["database_error", "malformed_seed_yaml"],
+)
 def test_a_seed_failure_finishes_the_db_init_run_row_failed(
+    inject: Callable[[pytest.MonkeyPatch, Path], type[Exception]],
     db_path: Path,
     ctx_factory: CtxFactory,
     settings: Settings,
     clock: FakeClock,
     notifier: FakeNotifier,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """T14: all the seeded sources or none. The run row is closed ``failed`` before the
     exception leaves, so the database is at head with no sources and a repeat ``db init``
-    finishes the job rather than finding a row that reads ``running`` forever."""
-    monkeypatch.setattr(seed, "apply_seed", _raise_operational)
+    finishes the job rather than finding a row that reads ``running`` forever.
 
-    with pytest.raises(OperationalError):
+    Parametrized over both failure classes (panel P2-10). Only the injected
+    ``OperationalError`` was covered, and a malformed seed file -- the failure an operator
+    actually meets -- went straight past ``_seed``'s ``except`` tuple: the run row stayed
+    ``running`` until the next command condemned it as ``crashed``, and the notifier said
+    nothing. Both cases must end the same way, which is what this parametrization pins.
+    """
+    expected = inject(monkeypatch, tmp_path)
+
+    with pytest.raises(expected):
         migrate_service.db_init(ctx_factory, settings=settings, clock=clock, notifier=notifier)
 
     init_rows = [row for row in _read_runs(db_path) if row["kind"] == "db_init"]

@@ -43,6 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+import yaml
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import DatabaseError
 
@@ -61,7 +62,9 @@ __all__ = [
     "KEEP_PRE_MIGRATE_BACKUPS",
     "DatabaseMissingError",
     "MigrationOutcome",
+    "PruneOutcome",
     "RunContextFactory",
+    "backups_dir",
     "create_data_tree",
     "database_missing_message",
     "db_current",
@@ -106,6 +109,19 @@ class DatabaseMissingError(RuntimeError):
     def __init__(self, db_path: Path) -> None:
         super().__init__(database_missing_message(db_path))
         self.db_path = db_path
+
+
+@dataclass(frozen=True, slots=True)
+class PruneOutcome:
+    """What :func:`prune_pre_migrate_backups` decided, for a caller that has committed.
+
+    ``unlink`` are the files whose ``backups`` rows this call deleted -- the caller removes
+    them **after** its transaction commits. ``skipped`` are rows whose recorded path does not
+    resolve under the backups directory: left entirely alone, row and file, and reported.
+    """
+
+    unlink: tuple[Path, ...]
+    skipped: tuple[Path, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,9 +193,18 @@ def _table_counts_json(engine: Engine) -> str:
     return json.dumps(counts, sort_keys=True, separators=(",", ":"))
 
 
+def backups_dir(settings: Settings) -> Path:
+    """``<data_dir>/backups``: where every backup this build writes lives, spelled once.
+
+    Public because it is also the containment test :func:`prune_pre_migrate_backups` applies
+    to a recorded path before unlinking it, and the two must not be able to disagree.
+    """
+    return settings.data_dir / "backups"
+
+
 def _backup_destination(settings: Settings, *, frm: str | None, to: str, now: int) -> Path:
     stamp = datetime.fromtimestamp(now, UTC).strftime(TIMESTAMP_FORMAT)
-    return settings.data_dir / "backups" / f"{_PRE_MIGRATE}-{frm or 'none'}-{to}-{stamp}.db"
+    return backups_dir(settings) / f"{_PRE_MIGRATE}-{frm or 'none'}-{to}-{stamp}.db"
 
 
 def _remove_backup_file(path: Path) -> None:
@@ -235,19 +260,37 @@ def _record_skipped_locked(settings: Settings, clock: Clock, notifier: Notifier)
 
 
 def prune_pre_migrate_backups(
-    conn: Connection, *, keep: int = KEEP_PRE_MIGRATE_BACKUPS
-) -> list[Path]:
-    """Delete all but the newest ``keep`` ``pre-migrate`` backups -- files **and** rows.
+    conn: Connection, *, home: Path, keep: int = KEEP_PRE_MIGRATE_BACKUPS
+) -> PruneOutcome:
+    """Delete the ``backups`` rows of all but the newest ``keep`` ``pre-migrate`` copies.
 
-    Both halves, in the caller's transaction: a file with no row is invisible to ``doctor``
-    and a row with no file is a restore target that is not there.
+    **Rows here, files afterwards** (panel P2-7b / finding 12). The rows are deleted in the
+    caller's transaction; the files are *not* touched. Their paths come back on
+    :class:`PruneOutcome` and the caller unlinks them once that transaction has committed,
+    because ``unlink`` is not transactional: the old ordering deleted the file first, so a
+    rollback -- or any failure between the two statements -- left a ``backups`` row pointing
+    at a restore target that no longer existed. The reverse order can only ever leave a file
+    with no row, which is recoverable and visible, rather than a row with no file.
+
+    **Nothing outside ``home`` is ever unlinked** (panel P2-7a). ``home`` is
+    :func:`backups_dir`; a recorded path that does not resolve under it -- a hand-edited row,
+    a restored database carrying another machine's absolute paths, a symlink out of the tree
+    -- is left completely alone, row and file, and returned in ``skipped`` for the caller to
+    report. A pruner that unlinks whatever a row names is a delete primitive pointed at an
+    untrusted string.
     """
     rows = repo.backups_of_kind(conn, _PRE_MIGRATE)  # newest first
-    doomed = rows[keep:]
-    for _pk, path, _created_at in doomed:
-        _remove_backup_file(Path(path))
-    repo.delete_backups(conn, [pk for pk, _path, _created_at in doomed])
-    return [Path(path) for _pk, path, _created_at in doomed]
+    resolved_home = home.resolve()
+    doomed: list[tuple[int, Path]] = []
+    skipped: list[Path] = []
+    for pk, path, _created_at in rows[keep:]:
+        candidate = Path(path)
+        if candidate.resolve().is_relative_to(resolved_home):
+            doomed.append((pk, candidate))
+        else:
+            skipped.append(candidate)
+    repo.delete_backups(conn, [pk for pk, _path in doomed])
+    return PruneOutcome(unlink=tuple(path for _pk, path in doomed), skipped=tuple(skipped))
 
 
 # --- db upgrade (§10.3) ------------------------------------------------------------------------
@@ -394,7 +437,16 @@ def _upgrade_with_backup(
     # and the ordinary `finish_run` happen here (see `_sweep_stale`'s docstring).
     _sweep_stale(engine, settings=settings, clock=clock, this_run_pk=ctx.run_pk)
     with engine.begin() as conn:
-        prune_pre_migrate_backups(conn)
+        pruned = prune_pre_migrate_backups(conn, home=backups_dir(settings))
+    # Outside the `with`: the rows are committed, so an unlink can no longer be rolled back
+    # out from under a deleted file (panel P2-7b).
+    for stale_backup in pruned.unlink:
+        _remove_backup_file(stale_backup)
+    for outsider in pruned.skipped:
+        notifier.notify(
+            "warning",
+            f"backups row points outside {backups_dir(settings)}: {outsider} was not pruned",
+        )
     runs.finish_run_from(ctx, status=RunStatus.OK, violations_json=None, error=None)
     return MigrationOutcome(
         from_revision=frm,
@@ -570,11 +622,19 @@ def _init_locked(
 def _seed(ctx: runs.RunContext, *, clock: Clock, notifier: Notifier) -> None:
     """T14: every seeded source, or none. A failure closes the run row ``failed`` and
     re-raises, so the database is at head with no sources and the next ``db init`` finishes
-    the job."""
+    the job.
+
+    ``yaml.YAMLError`` is in the tuple because ``seed.apply_seed`` parses ``config/seed.yaml``
+    (panel P2-10): a seed file with a syntax error -- the ordinary way a hand-edited YAML
+    fails -- raised straight past this handler, so ``db init`` left its run row ``running``
+    forever and the next one condemned it as ``crashed``. ``TypeError`` already covered the
+    *structural* half (a file that parses but is not a mapping of strings); this is the half
+    that never parses at all. Still four named classes, never ``except Exception`` (§8).
+    """
     try:
         with ctx.engine.begin() as conn:
             seed.apply_seed(conn, workspace_pk=ctx.workspace_pk, now=clock.now())
-    except (DatabaseError, OSError, TypeError) as exc:
+    except (DatabaseError, OSError, TypeError, yaml.YAMLError) as exc:
         error = f"seed failed: {exc.__class__.__name__}: {exc}"
         runs.finish_run_from(ctx, status=RunStatus.FAILED, violations_json=None, error=error)
         notifier.notify("error", error)
