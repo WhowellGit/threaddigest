@@ -18,6 +18,8 @@ Target: under 10 minutes from clone to first run; the weekly portability CI job 
 
 Start every agent session in `~/repos/insightminer` (the repo root): the project's hard-block hooks are in `.claude/settings.json`, and project settings load only from the session's starting directory, never from a parent directory or a worktree (2026-09-13).
 
+**Human-only edits arrive as generated scripts (Wes, 2026-09-14).** The enforcement hook refuses any agent write to `.claude/settings.json`, and that stays. When a hook entry must be added or changed, the agent generates a complete Terminal script by default and the human runs it, rather than hand-editing JSON: a subshell with `set -e` that makes a branch, applies the edit idempotently through a JSON round trip (refusing to apply twice), prints the diff, runs `make check`, commits, fast-forwards `main`, deletes the branch, and prints `tools/hooks_status.py`. The agent then verifies from its side with two positive controls: a write to the protected file (expected `BLOCKED`) and an edit the new hook governs (expected to fire). Why: the process stays deliberate, a human still runs the change, and the human is spared the syntax.
+
 ## 2. Daily operation from the UI
 
 Recurring human duties are held to three: read the digest, acknowledge alerts in the UI, label theme tags while browsing.

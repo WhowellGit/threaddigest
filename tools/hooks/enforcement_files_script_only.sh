@@ -2,7 +2,8 @@
 # PreToolUse hook (matcher: Bash|Edit|Write|MultiEdit). The enforcement files are written
 # only by the enforcement tooling: .ratchets/* changes only through tools/ratchet.py
 # (make ratchet-bump, make ratchet-loosen), and .claude/settings.json (the hook
-# registration) only by a human. Reads the tool-call JSON on stdin; exit 2 blocks the
+# registration) only by a human, who runs a Terminal script the agent generates
+# (docs/runbook/RUNBOOK.md section 1; Wes, 2026-09-14). Reads the tool-call JSON on stdin; exit 2 blocks the
 # call with the one-line reason on stderr, exit 0 allows it. Any internal error also
 # exits 2, so the hook fails closed. Registered in .claude/settings.json; documented in
 # docs/runbook/GUARDS.md (external controls).
@@ -120,7 +121,8 @@ def check_bash_segment(segment):
         return
     block(
         "%s may write %s; use make ratchet-bump / make ratchet-loosen (tools/ratchet.py), "
-        "or ask a human for .claude/settings.json" % (cmd, target)
+        "or, for .claude/settings.json, generate a Terminal script for the human to run "
+        "(docs/runbook/RUNBOOK.md section 1)" % (cmd, target)
     )
 
 
@@ -140,7 +142,8 @@ def main():
         if is_protected_path(path, cwd):
             block(
                 "%s on %s: .ratchets/ changes only through make ratchet-bump / "
-                "make ratchet-loosen (tools/ratchet.py); .claude/settings.json only by a human"
+                "make ratchet-loosen (tools/ratchet.py); .claude/settings.json only by a human: "
+                "generate a Terminal script for them to run (docs/runbook/RUNBOOK.md section 1)"
                 % (tool, path)
             )
         return
