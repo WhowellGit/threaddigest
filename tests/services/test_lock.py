@@ -101,7 +101,7 @@ def test_pid_alive_is_true_for_pid_1() -> None:
 
 
 # --- round5-findings.json P0 #2: the lock directory does not exist before the first command
-# creates it, so acquire/is_held must create it themselves rather than raising FileNotFoundError.
+# creates it, so ``acquire`` must create it itself rather than raising ``FileNotFoundError``.
 
 
 def test_acquire_creates_the_locks_directory_when_missing(lock_path: Path) -> None:
@@ -111,7 +111,33 @@ def test_acquire_creates_the_locks_directory_when_missing(lock_path: Path) -> No
     assert lock_path.parent.is_dir()
 
 
-def test_is_held_creates_the_locks_directory_when_missing(lock_path: Path) -> None:
+# --- round5 doctor-panel finding: ``is_held`` is read-only and must never create the thing
+# it is diagnosing -- unlike ``acquire``, a missing parent or missing lock file both mean
+# "not held," answered without touching the filesystem to find out.
+
+
+def test_is_held_on_a_missing_parent_returns_false_without_creating_anything(
+    lock_path: Path,
+) -> None:
+    """``doctor``'s ``lock_not_stale`` check calls ``is_held`` on every ``--no-network`` run;
+    an hourly, read-only ``doctor`` must not conjure ``data/locks/`` into existence merely by
+    asking whether anyone holds it (round5 doctor-panel finding)."""
     assert not lock_path.parent.exists()
+
     assert lock.is_held(lock_path) is False
-    assert lock_path.parent.is_dir()
+
+    assert not lock_path.parent.exists()
+    assert not lock_path.exists()
+
+
+def test_is_held_with_an_existing_parent_but_no_lock_file_does_not_create_the_file(
+    lock_path: Path,
+) -> None:
+    """The other half of the same fix: even when ``data/locks/`` already exists (say, a
+    prior run's ``acquire`` created it and then released), a probe against a lock file that
+    was never written must not write it into existence either."""
+    lock_path.parent.mkdir(parents=True)
+
+    assert lock.is_held(lock_path) is False
+
+    assert not lock_path.exists()

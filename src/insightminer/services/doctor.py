@@ -187,10 +187,24 @@ def check_settings_valid() -> Check:
 
 
 def check_data_dir_writable(data_dir: Path) -> Check:
-    """The data directory exists (or can be created) and a temporary file lands in it."""
+    """The data directory exists and a temporary file lands in it, then is removed.
+
+    **Diagnostic-only** (round5 doctor-panel finding): the old implementation called
+    ``data_dir.mkdir(parents=True, exist_ok=True)`` before probing, which means ``doctor``
+    -- a command RL-04 lists as writing nothing -- was creating an operator's entire data
+    directory tree just to report on it. A missing directory is reported as not writable,
+    never created on the operator's behalf; the probe file itself is created and removed
+    inside the same ``with`` block, so a passing check leaves no residue either.
+    """
     name = "data_dir_writable"
+    if not data_dir.is_dir():
+        return Check(
+            name=name,
+            ok=False,
+            detail=f"{data_dir} does not exist",
+            severity=CheckSeverity.ERROR,
+        )
     try:
-        data_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=data_dir, prefix=".doctor-", suffix=".probe"):
             pass
     except OSError as exc:

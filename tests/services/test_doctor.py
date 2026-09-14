@@ -181,13 +181,54 @@ def test_check_data_dir_writable_is_ok_for_the_isolated_data_dir(settings: Setti
 
 
 def test_check_data_dir_writable_is_not_ok_when_it_cannot_be_created(tmp_path: Path) -> None:
-    """A file where a directory needs to be: ``mkdir`` fails regardless of permission bits,
-    which keeps this test meaningful even when tests run as root."""
+    """A file where a directory needs to be: this path can never be a directory regardless
+    of permission bits, which keeps this test meaningful even when tests run as root.
+    ``check_data_dir_writable`` no longer creates ``data_dir`` before probing it (see the
+    "does not exist" test below), so this exercises the same not-a-directory branch as a
+    path that was simply never created -- both are answered without any filesystem mutation.
+    """
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory", encoding="utf-8")
     unwritable = blocker / "data"
 
     check = doctor.check_data_dir_writable(unwritable)
+
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+
+
+def test_check_data_dir_writable_is_not_ok_for_a_missing_directory_and_does_not_create_it(
+    tmp_path: Path,
+) -> None:
+    """Round5 doctor-panel finding: the old implementation called ``data_dir.mkdir(parents=
+    True, exist_ok=True)`` before probing, so a diagnostic command RL-04 lists as writing
+    nothing was creating an operator's entire data directory tree just to report on it. A
+    missing directory is now reported as not writable, never created."""
+    missing = tmp_path / "does-not-exist-yet"
+
+    check = doctor.check_data_dir_writable(missing)
+
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert not missing.exists()
+
+
+def test_check_data_dir_writable_is_not_ok_when_the_probe_itself_fails(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The directory exists (unlike the two tests above), so this is the other not-ok
+    branch: the probe file itself fails to write -- a full disk, a read-only bind mount, an
+    ACL a permission bit can't express. Monkeypatched rather than ``chmod``'d, following
+    ``test_check_free_disk_is_not_ok_when_free_space_cannot_be_read``'s own convention: a
+    permission-bit test is not meaningful when tests run as root.
+    """
+
+    def _refuse(*_args: object, **_kwargs: object) -> object:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(doctor.tempfile, "NamedTemporaryFile", _refuse)
+
+    check = doctor.check_data_dir_writable(settings.data_dir)
 
     assert check.ok is False
     assert check.severity == doctor.CheckSeverity.ERROR
@@ -610,6 +651,57 @@ def test_run_checks_is_ok_for_a_freshly_initialized_data_dir(
     assert failing_error_checks == []
     assert report.ok is True
     assert report.exit_code == 0
+
+
+# --- RL-04: doctor writes nothing to the filesystem either (round5 doctor-panel finding) ------
+#
+# The RL-04 gate (tests/gates/test_mutating_commands.py) only diffs database *table* digests,
+# so ``check_lock_not_stale -> lock.is_held`` conjuring ``data/locks/collector.lock`` into
+# existence, and ``check_data_dir_writable`` creating the whole data directory tree before
+# probing it, both went unnoticed: neither touches a table. These tests diff the filesystem
+# itself instead.
+
+
+def _tree_snapshot(root: Path) -> dict[str, bytes]:
+    """Every file under ``root``, keyed by its path relative to ``root``, with its exact
+    bytes -- so a diagnostic run that creates or touches so much as one file is caught."""
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_run_checks_on_a_fresh_database_less_data_dir_leaves_it_byte_for_byte_unchanged(
+    settings: Settings, clock: FakeClock
+) -> None:
+    """A freshly created, still-empty data directory (no database, no locks dir, nothing):
+    ``doctor --no-network`` is a read-only diagnostic (RL-04's own claim), so it must leave
+    every byte of it exactly as found, not merely leave the (nonexistent) database alone."""
+    before = _tree_snapshot(settings.data_dir)
+    assert before == {}, "the isolated data dir fixture should start genuinely empty"
+
+    doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=True)
+
+    assert _tree_snapshot(settings.data_dir) == before
+
+
+def test_run_checks_with_a_database_never_creates_the_locks_directory(
+    engine: Engine, settings: Settings, clock: FakeClock, lock_path: Path
+) -> None:
+    """The exact round5 doctor-panel repro: a data dir with a real, migrated database and no
+    collector run yet has no ``locks/`` directory. ``check_lock_not_stale -> lock.is_held``
+    must report the lock free without creating one just to check (a full byte-for-byte diff
+    of this data dir is not meaningful here -- SQLite's WAL/SHM files legitimately change
+    bytes on every connection this report opens, so the directed assertion below is the
+    thing that would actually have caught the original bug).
+    """
+    assert not lock_path.parent.exists()
+
+    doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=True)
+
+    assert not lock_path.parent.exists()
+    assert not lock_path.exists()
 
 
 # --- free_disk's other not-ok branch: a filesystem that will not answer ----------------------

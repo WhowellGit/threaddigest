@@ -16,10 +16,14 @@ facts, measured rather than assumed (§12.2), shape everything below:
 the ``runs`` row is the liveness record. :class:`LockInfo` describes *this* holder in memory so
 a caller can log who took the lock, and is never read back from disk.
 
-Both entry points create ``path.parent`` before opening the file (round5-findings.json P0
-"lock acquisition versus directory creation", and §12.5): every command takes this lock before
-anything has created ``data/locks/``, so ``db init`` on a fresh data directory would otherwise
-die with ``FileNotFoundError`` at step 1.
+:func:`acquire` creates ``path.parent`` before opening the file (round5-findings.json P0
+"lock acquisition versus directory creation", and §12.5): every mutating command takes this
+lock before anything has created ``data/locks/``, so ``db init`` on a fresh data directory
+would otherwise die with ``FileNotFoundError`` at step 1. :func:`is_held` does the opposite
+on purpose -- it is a read-only probe (``doctor``'s ``lock_not_stale`` check is its only
+caller outside a lock holder), and a diagnostic that creates the thing it is diagnosing is
+not read-only: a missing parent or missing lock file both mean "not held," reported without
+creating either.
 """
 
 from __future__ import annotations
@@ -92,9 +96,16 @@ def is_held(path: Path) -> bool:
     A **shared** probe, released immediately, so two probes never collide with each other and
     an hourly ``doctor`` cannot make a scheduled collector report ``skipped_locked`` (§12.2,
     §15.2). Valid inside the exclusive holder, which is what §11.3's dry-run probe needs.
+
+    **Read-only, unlike** :func:`acquire`: this never creates ``path.parent`` or the lock
+    file itself (round5 doctor-panel finding -- an hourly, no-network ``doctor`` run was
+    conjuring ``data/locks/collector.lock`` into existence merely by asking whether anyone
+    held it). Nothing on disk means nothing can hold a lock, so a missing parent or a missing
+    file both answer "not held" without touching the filesystem to find out.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+", encoding="utf-8") as handle:
+    if not path.exists():
+        return False
+    with path.open("r", encoding="utf-8") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
