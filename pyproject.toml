@@ -89,7 +89,7 @@ target-version = "py313"
 src = ["src", "tests"]
 # docs/ holds immutable reference copies; ruff formats fenced Python inside Markdown,
 # so it must not see them.
-extend-exclude = ["docs"]
+extend-exclude = ["docs", ".claude"]
 
 [tool.ruff.lint]
 # PLW1514 is still a preview rule in ruff 0.16. explicit-preview-rules means only rules

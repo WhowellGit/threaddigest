@@ -20,3 +20,4 @@ htmlcov/
 docs/PLAN.html
 # mypy daemon state (per machine, per tree)
 .dmypy.json
+.claude/worktrees/
