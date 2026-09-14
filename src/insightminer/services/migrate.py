@@ -377,6 +377,11 @@ def _upgrade_with_backup(
     dest = _backup_destination(settings, frm=frm, to=to, now=clock.now())
     backup = db_backup.online_backup(db_path, dest)
     verdict = db_backup.quick_check(dest)
+    # The verification opens the copy read-only (panel P2-9), and a read-only connection to a
+    # WAL-mode database creates the empty `-wal`/`-shm` pair it needs to read one and cannot
+    # delete them on close. A sidecar beside a backup file is what `db_backup.restore` treats
+    # as a corrupt database, so the copy -- which nothing else has open -- is tidied here.
+    db_backup.remove_sidecars(dest)
     if verdict != "ok":
         # Step 7: abort BEFORE migrating, and take the unusable copy with us so nothing on
         # disk looks like a backup that could be restored from.

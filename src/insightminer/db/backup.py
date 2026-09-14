@@ -19,6 +19,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
+from urllib.parse import quote
 
 __all__ = [
     "BACKUP_SUFFIXES",
@@ -27,6 +28,7 @@ __all__ = [
     "integrity_check",
     "online_backup",
     "quick_check",
+    "remove_sidecars",
     "restore",
     "sha256_of",
 ]
@@ -53,16 +55,70 @@ def _sidecars(path: Path) -> tuple[Path, ...]:
     return tuple(path.with_name(path.name + suffix) for suffix in BACKUP_SUFFIXES)
 
 
+def remove_sidecars(path: Path) -> None:
+    """Delete ``path``'s ``-wal`` / ``-shm`` companions, keeping ``path`` itself.
+
+    For a file **nothing else has open**: a backup copy, never a live database. Its one
+    caller is ``services/migrate.py`` tidying the pre-migration copy after
+    :func:`quick_check`, whose read-only connection can leave an empty pair behind -- a
+    read-only connection is not allowed to delete them when it closes, and a stale sidecar
+    beside a database file is precisely what :func:`restore` treats as dangerous.
+    """
+    for sidecar in _sidecars(path):
+        sidecar.unlink(missing_ok=True)
+
+
 def _remove_file_and_sidecars(path: Path) -> None:
     for candidate in (path, *_sidecars(path)):
         candidate.unlink(missing_ok=True)
 
 
-def _pragma(path: Path, pragma: str) -> list[tuple[object, ...]]:
+def _fsync(path: Path) -> None:
+    """``fsync`` one file or directory, by path.
+
+    A directory is opened ``O_RDONLY`` and synced the same way, which is how a rename is made
+    durable: ``os.replace`` only reaches the filesystem's own buffers.
+    """
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _durable_replace(staged: Path, destination: Path) -> None:
+    """``os.replace`` bracketed by the two syncs that make it survive a power loss.
+
+    ``os.replace`` is atomic with respect to *readers* -- no reader ever sees a half file --
+    but atomicity is not durability: after it returns, both the staged file's contents and
+    the rename itself can still be sitting in the filesystem's buffers, so a crash can leave
+    a ``backups`` row and a ``sha256`` pointing at a file that is empty, truncated, or absent.
+    Both callers here are the last line of defence for a database, so both pay two syncs.
+
+    **The directory sync goes after the rename, not before it** (panel P2-9, which asked for
+    both "before ``os.replace``"). Syncing the parent beforehand cannot make a rename durable
+    that has not happened yet; the recipe that works -- and the one every database uses -- is
+    sync the file, rename, sync the directory. The finding's intent (neither the bytes nor the
+    link may be lost to a crash) is what this implements.
+    """
+    _fsync(staged)
+    os.replace(staged, destination)
+    _fsync(destination.parent)
+
+
+def _connect(path: Path, *, read_only: bool) -> sqlite3.Connection:
+    """A driver connection to ``path``, read-only through a ``file:`` URI when asked."""
+    if not read_only:
+        return sqlite3.connect(path)
+    return sqlite3.connect(f"file:{quote(str(path))}?mode=ro", uri=True)
+
+
+def _pragma(path: Path, pragma: str, *, read_only: bool = False) -> list[tuple[object, ...]]:
     """Run one PRAGMA against ``path`` and return its rows.
 
-    The connection is read-write on purpose: opening a WAL database read-only can fail when
-    no ``-shm`` file exists yet, and a clean close removes any sidecar this created.
+    ``read_only=False`` connects read-write, which is what the two checks that run against a
+    *live* database need: opening a WAL database read-only fails while its ``-shm`` file is
+    missing, and a clean close removes any sidecar this created.
 
     A ``sqlite3.DatabaseError`` is **reported, not raised**. When the corruption reaches the
     schema page -- the ordinary shape of a damaged SQLite file -- the driver refuses to run
@@ -74,7 +130,7 @@ def _pragma(path: Path, pragma: str) -> list[tuple[object, ...]]:
     already promise to return.
     """
     try:
-        connection = sqlite3.connect(path)
+        connection = _connect(path, read_only=read_only)
     except sqlite3.DatabaseError as exc:
         return [(str(exc),)]
     try:
@@ -92,6 +148,9 @@ def online_backup(source: Path, destination: Path, *, pages: int = 0) -> BackupR
     failed copy never leaves a plausible-looking backup file. ``pages=0`` copies the whole
     database in one step. The returned ``integrity`` is ``PRAGMA integrity_check`` on the
     copy -- the caller decides what a non-``"ok"`` result means.
+
+    The rename goes through :func:`_durable_replace`, so the bytes and the link are both
+    flushed to stable storage rather than left in the filesystem's buffers (panel P2-9).
     """
     partial = destination.with_name(destination.name + ".partial")
     _remove_file_and_sidecars(partial)
@@ -109,7 +168,7 @@ def online_backup(source: Path, destination: Path, *, pages: int = 0) -> BackupR
         integrity = integrity_check(partial)
         for sidecar in _sidecars(partial):
             sidecar.unlink(missing_ok=True)
-        os.replace(partial, destination)
+        _durable_replace(partial, destination)
         replaced = True
     finally:
         if not replaced:
@@ -132,8 +191,25 @@ def sha256_of(path: Path) -> str:
 
 
 def quick_check(path: Path) -> str:
-    """``PRAGMA quick_check``: ``"ok"`` or SQLite's description of what is wrong."""
-    rows = _pragma(path, "quick_check")
+    """``PRAGMA quick_check``: ``"ok"`` or SQLite's description of what is wrong.
+
+    **Read-only**, unlike the other two (panel P2-9). Its caller of record is ``db upgrade``
+    verifying the pre-migration *copy* immediately after :func:`online_backup` hashed it: a
+    read-write connection can create sidecars, replay a WAL, and otherwise change the bytes
+    of the very file whose ``sha256`` has already been written into the ``backups`` row, so
+    the recorded hash would stop matching the file it describes. A verification must not be
+    able to modify what it verifies. It also means a missing file is reported rather than
+    created -- read-write ``sqlite3.connect`` would have made an empty database out of a
+    typo'd path.
+
+    A read-only connection to a WAL-mode database still creates the empty ``-wal`` / ``-shm``
+    pair it needs to read one, and cannot delete them again on close. The main file's bytes
+    are untouched (which is what the recorded ``sha256`` is about); tidying the pair belongs
+    to whoever owns the file, which for the pre-migration copy is
+    ``services/migrate.py`` calling :func:`remove_sidecars`. Nothing here deletes a sidecar
+    of a database it did not create, because a live ``-wal`` holds committed transactions.
+    """
+    rows = _pragma(path, "quick_check", read_only=True)
     return "\n".join(str(row[0]) for row in rows)
 
 
@@ -158,8 +234,10 @@ def restore(backup: Path, destination: Path) -> None:
     a restored main file is a silently corrupt database. The backup file itself survives the
     restore: the ``backups`` row the post-restore bookkeeping writes points at it, and a
     restore that consumed the only copy would leave a second failure with nothing to fall
-    back on. The swap goes through a temporary sibling and ``os.replace`` so ``destination``
-    is never a half-written file.
+    back on. The swap goes through a temporary sibling and :func:`_durable_replace`, so
+    ``destination`` is never a half-written file **and** never a half-flushed one: a restore
+    is the recovery path, so a crash during it is exactly the crash that matters
+    (panel P2-9).
     """
     for sidecar in _sidecars(destination):
         sidecar.unlink(missing_ok=True)
@@ -167,7 +245,7 @@ def restore(backup: Path, destination: Path) -> None:
     staging.unlink(missing_ok=True)
     try:
         shutil.copyfile(backup, staging)
-        os.replace(staging, destination)
+        _durable_replace(staging, destination)
     finally:
         staging.unlink(missing_ok=True)
     for sidecar in _sidecars(destination):

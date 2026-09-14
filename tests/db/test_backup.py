@@ -10,6 +10,7 @@ only through its public functions.
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from insightminer.db.backup import (
     integrity_check,
     online_backup,
     quick_check,
+    remove_sidecars,
     restore,
     sha256_of,
 )
@@ -131,6 +133,117 @@ def test_restore_swaps_the_file_and_removes_wal_sidecars(tmp_path: Path) -> None
 
 def test_backup_suffixes_are_the_wal_and_shm_sidecars() -> None:
     assert BACKUP_SUFFIXES == ("-wal", "-shm")
+
+
+# --- panel P2-9: the atomic rename is not a durable one on its own ----------------------------
+
+Ident = tuple[int, int]
+
+
+def _ident(path: Path) -> Ident:
+    """``(device, inode)``: what identifies a file or directory across a rename.
+
+    The staged file keeps its inode when ``os.replace`` moves it to the destination, so an
+    ``fsync`` recorded before the rename and the destination afterwards are the same object.
+    """
+    info = path.stat()
+    return (info.st_dev, info.st_ino)
+
+
+def _fsync_spy(monkeypatch: pytest.MonkeyPatch) -> list[Ident]:
+    """Record every ``fsync``ed object by identity, then perform the real sync.
+
+    ``monkeypatch.setattr`` on the ``os`` module attribute, never ``mock.patch``, which the
+    working agreement confines to ``tests/adapters/``. A descriptor tells us nothing by
+    itself, so the spy resolves it with ``os.fstat`` while it is still open -- which is also
+    what makes "the file AND its directory" assertable rather than just a call count.
+    """
+    seen: list[Ident] = []
+    real_fsync = os.fsync
+
+    def spy(fd: int) -> None:
+        info = os.fstat(fd)
+        seen.append((info.st_dev, info.st_ino))
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    return seen
+
+
+def test_online_backup_fsyncs_the_copy_and_its_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``os.replace`` is atomic for readers but says nothing about durability: without these
+    two syncs a power loss can leave the ``backups`` row and its recorded ``sha256`` pointing
+    at a file that is empty, truncated or absent.
+    """
+    source = tmp_path / "source.db"
+    dest_dir = tmp_path / "backups"
+    dest_dir.mkdir()
+    dest = dest_dir / "backup.db"
+    _seed_db(source)
+    seen = _fsync_spy(monkeypatch)
+
+    online_backup(source, dest)
+
+    assert _ident(dest) in seen, "the copy's bytes were never flushed"
+    assert _ident(dest_dir) in seen, "the rename was never flushed"
+
+
+def test_restore_fsyncs_the_restored_file_and_its_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restore is the recovery path, so the crash during it is the one that matters."""
+    live_dir = tmp_path / "live"  # not "data": the autouse isolation fixture owns that name
+    live_dir.mkdir()
+    backup_path = tmp_path / "backup.db"
+    destination = live_dir / "live.db"
+    _seed_db(backup_path)
+    _seed_db(destination)
+    seen = _fsync_spy(monkeypatch)
+
+    restore(backup_path, destination)
+
+    assert _ident(destination) in seen, "the restored bytes were never flushed"
+    assert _ident(live_dir) in seen, "the rename was never flushed"
+
+
+def test_quick_check_opens_the_file_read_only(tmp_path: Path) -> None:
+    """The copy is verified *after* its ``sha256`` was recorded, so the verification must not
+    be able to change the bytes that hash describes. A read-write ``sqlite3.connect`` can
+    replay a WAL into the main file and -- given a path that is not there -- invents an empty
+    database; a read-only one leaves the file alone and reports the missing one.
+
+    The empty ``-wal`` / ``-shm`` pair a read-only connection needs in order to read a
+    WAL-mode database at all is not part of that promise, which is why ``remove_sidecars``
+    exists and why ``services/migrate.py`` calls it on the copy.
+    """
+    path = tmp_path / "healthy.db"
+    _seed_db(path)
+    before = sha256_of(path)
+
+    assert quick_check(path) == "ok"
+
+    assert sha256_of(path) == before, "quick_check changed the bytes it was verifying"
+    remove_sidecars(path)
+    assert sha256_of(path) == before
+
+    missing = tmp_path / "not-there.db"
+    assert quick_check(missing) != "ok"
+    assert not missing.exists(), "quick_check created a database out of a typo'd path"
+
+
+def test_remove_sidecars_keeps_the_file_and_removes_the_pair(tmp_path: Path) -> None:
+    """The tidy-up ``services/migrate.py`` performs on a pre-migration copy."""
+    path = tmp_path / "copy.db"
+    _seed_db(path)
+    for suffix in BACKUP_SUFFIXES:
+        path.with_name(path.name + suffix).write_bytes(b"left behind")
+
+    remove_sidecars(path)
+
+    assert path.is_file()
+    assert [path.with_name(path.name + s).exists() for s in BACKUP_SUFFIXES] == [False, False]
 
 
 def test_foreign_key_check_reports_an_orphan_row(tmp_path: Path) -> None:

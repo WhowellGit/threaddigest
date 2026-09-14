@@ -136,6 +136,14 @@ def test_backup_precedes_migration_and_records_a_row(
     assert outcome.backup_path is not None
     assert outcome.backup_path.is_file()
     assert outcome.backup_sha256 == db_backup.sha256_of(outcome.backup_path)
+    # Asserted before this test runs its own `quick_check`, which re-creates the pair: the
+    # command's verification opens the copy read-only (panel P2-9) and cannot delete the
+    # empty `-wal`/`-shm` it needs, so `db upgrade` tidies them. A sidecar beside a backup
+    # file is what `db_backup.restore` treats as a corrupt database.
+    assert not any(
+        outcome.backup_path.with_name(outcome.backup_path.name + suffix).exists()
+        for suffix in db_backup.BACKUP_SUFFIXES
+    ), "db upgrade left a WAL sidecar beside the pre-migration backup"
     assert db_backup.quick_check(outcome.backup_path) == "ok"
 
     engine = engine_for(db_path)
