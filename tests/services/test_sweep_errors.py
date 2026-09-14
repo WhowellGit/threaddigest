@@ -121,6 +121,11 @@ def test_second_rate_limit_ends_the_run_rate_limited(
     The 429 is planted on the page rather than on "the next request of any kind", because the
     preflight ping (§6.7) is the first request of the run and would otherwise consume it --
     which proves §8's preflight row, not this one.
+
+    The second 429 aborts **without sleeping first** (panel P2-1). The old code waited out the
+    second window -- up to 300 s of the wall-clock ceiling -- before raising the abort it had
+    already decided on, which is the opposite of what "rather than burning the ceiling" means.
+    ``clock.sleeps == [10.0]`` is that fix asserted exactly: one wait, the first 429's.
     """
     fake.add_subreddit("premiere")
     fake.add_post("premiere", title="one", created_utc=BASE)
@@ -131,7 +136,7 @@ def test_second_rate_limit_ends_the_run_rate_limited(
 
     assert result.terminal_status is RunStatus.RATE_LIMITED
     assert result.exit_code_override is None  # `core.retry.exit_code` supplies 4
-    assert clock.sleeps == [10.0, 10.0]  # it really waited the first time, and once more
+    assert clock.sleeps == [10.0]  # the first 429's wait, and nothing for the second
 
 
 def test_wait_beyond_the_ceiling_ends_the_run(

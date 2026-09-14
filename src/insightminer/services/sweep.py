@@ -900,13 +900,16 @@ def fetch_page(
         try:
             return next(iter(gateway.iter_new_pages(name, max_pages=PAGES_PER_CALL, after=after)))
         except RateLimited as exc:
+            # The abort comes FIRST: the run is over the moment the second 429 arrives, so
+            # waiting out its window before saying so would burn up to 300 s of the ceiling
+            # for a decision already made (§8's error table, panel P2-1).
+            if rate_limited_once_already:
+                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
             wait = plan_rate_limit_wait(exc.retry_after, ctx.remaining_ceiling_seconds)
             if not wait.should_wait:
                 raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
             runs.heartbeat(ctx, stage=wait.stage)  # written BEFORE the sleep (§12.4)
             ctx.clock.sleep(wait.seconds)
-            if rate_limited_once_already:
-                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
             rate_limited_once_already = True
         except HtmlBlocked as exc:
             raise RunTerminalError(RunStatus.FAILED, detail=f"html 403: {exc}") from exc
