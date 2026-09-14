@@ -3,6 +3,21 @@
 > Purpose: one line per document and *when to read it*. Keep this file short. The corpus lives in the repo at `docs/` since M0 (2026-09-13) and travels with the code.
 > Update policy: add a line when a document is added; remove it when the document is retired. The doc-currency test checks INDEX ↔ `docs/**/*.md` in both directions, so every file under `docs/` must appear below exactly once.
 
+## Start here: which of these are you about to do?
+
+| I am about to… | Read | Then |
+|---|---|---|
+| Start a session | `recent/STATUS.md` | `CLAUDE.md` § The irreversible few |
+| Touch the schema, migrations, upserts, search index, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2 | `runbook/RUNBOOK.md` § migrations; `.claude/rules/db.md` loads automatically |
+| Change the collector (fetch, budget, revisit, reconcile, invariants) | `PLAN.md` § Collector algorithm | `decisions/DECISIONS.md` 2026-09-13 entries; `.claude/rules/services.md` |
+| Touch deletion, scrubbing, or anything compliance-related | `PLAN.md` § Data model (state machine) | `runbook/KNOWN_ISSUES.md` |
+| Change the web UI | `PLAN.md` § Web UI | `reference/reviews/2026-09-12-ui-design-review.md`; `.claude/rules/web.md` |
+| Add or change a gate, ratchet, invariant, or test policy | `PLAN.md` § Robustness → Guard design rules | `runbook/GUARDS.md` (birth incident, positive control, verdict) |
+| Write a brief for a sub-agent | `reference/AGENT_BRIEF.md` | the rows above for the task |
+| Decide whether to adopt a practice from the earlier project | `reference/reviews/2026-09-13-documentation-practices-assessment.md` | `reference/reviews/2026-09-13-harness-assessment.md` § 7 |
+| Run a retrospective or score a prediction | `learnings/LEARNINGS_TRANSFER.md` §5 | `learnings/DOC_DRIFT_FINDINGS_2026-09-13.md` |
+| Wonder why something was decided | `insights/INSIGHTS_2026-09-12.md` | `decisions/DECISIONS.md` (settled negatives first) |
+
 ## How the corpus is organized
 
 | Folder | What lives here | Update policy | Read when |
@@ -63,11 +78,11 @@
 ### `recent/`
 
 - `recent/STATUS.md` — what is in flight on the stated date, what is deferred, what waits on Wes, next steps. Read when: every session start.
-- `recent/M1A_TRANCHE_A.md` — execution brief for the network-independent half of M1a (repository, lock, run lifecycle, sweep, invariants, doctor, migrate, CLI against the fake gateway); prune-stale, deleted when M1a closes. Read when: working on M1a.
 
 ### `reference/`
 
 - `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit miner: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
+- `reference/AGENT_BRIEF.md` — the template every sub-agent brief follows (purpose, tier, read-first rows, rules that bite, scope, contract, verification, don'ts). Read when: writing or reviewing a brief.
 
 `reference/earlier-project-retrospectives/` — three of the earlier database project's eight retrospective documents, kept redacted as narrative source material (the other five live only in the archive at `~/repos/insightminer-desktop-archive/Reddit/Database_Key_Learnings/`, readable by agents on this machine; disposition decided 2026-09-13, see `REDACTION_NOTE.md` there and `learnings/LEARNINGS_TRANSFER.md` §7):
 
@@ -88,3 +103,4 @@
 - `reference/reviews/2026-09-13-panel-ui.md` — UI panel: 55 specs (UI-01…55), operator-complete checklist, setup-wizard threat model, plan judgements, owner questions. Read when: touching `web/`.
 - `reference/reviews/2026-09-13-adversarial-review.md` — the adversarial pass: unfalsifiable gates, gaps against the failure catalogue, over-engineering cut list, contradictions, unverified claims, disagreements with the ranked learnings, risks, top 10 changes. Read when: tempted to add a gate, or when a plan claim needs a second opinion.
 - `reference/reviews/2026-09-13-harness-assessment.md` — the evidence-first assessment of the earlier project's personal harness (memory and context model, documentation system, enforcement, agent discipline): a mechanism catalogue with birth incident, evidence, cost, and a transfer call each; what to keep and what to simplify with high confidence; what only Wes can settle; revised after a steelman pass that defended the original harness. Read when: deciding whether to adopt a practice from the earlier project, or pruning the reference material.
+- `reference/reviews/2026-09-13-documentation-practices-assessment.md` — which of the earlier project's documentation and memory practices to adopt, adapt, or leave, from a usage census of 1,127 transcripts and a reading of its documentation system: the day-one set for any new project, the skip list with the measured costs, and eight decisions. Read when: adding a document class, a register, or a memory mechanism.

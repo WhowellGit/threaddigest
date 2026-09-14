@@ -4,6 +4,29 @@ Personal, rules-compliant Reddit harvester. Plan: `docs/PLAN.md`. Doc router: `d
 Everything runs through `uv`: `make setup` once, then `make check` before every PR.
 This file applies to every agent and human working in the repo.
 
+## The irreversible few
+
+Rules whose late arrival is unrecoverable, so they sit here at the top and in every agent's path:
+
+1. Never write outside the resolved data directory; tests and the fake gateway never touch the default one (`tests/gates/test_data_dir_isolation.py`, `tests/gates/test_no_bypass.py`).
+2. Never commit a secret, another system's identifier, or an attribution trailer: history keeps them (gitleaks in pre-commit; `tests/gates/test_no_imported_identifiers.py`; `tools/hooks/no_bypass_git.sh`).
+3. Never run an unbounded fetch: every run has a budget and the hard cap holds (`tests/gates/test_no_bypass.py`).
+4. Never hand-edit the enforcement surfaces (`.ratchets/`, the hooks, the hook settings) or bypass a gate (`tools/hooks/enforcement_files_script_only.sh`, `tools/hooks/no_bypass_git.sh`).
+
+## How this project uses its agents
+
+The main session plans, synthesizes, and decides; sub-agents do bounded work under the model tiers
+below and return evidence, not conclusions. Work lands as small green commits on a branch that is
+fast-forwarded into `main` (one commit per module, tests and implementation together, about 800
+hand-written lines before a commit needs a stated reason; generated data comes from a script and
+is never committed). Every rule names what enforces it or is labelled review-only, and the number
+of review-only rules can only go down. Documents derive their state from tools and tests, never
+from a claim in a message. Reviews are refute-framed, weighed by evidence rather than tallied, and
+aimed at the previous round's conclusion. Lessons from other systems arrive abstracted; their
+identifiers and mechanisms do not. The reasoning behind these choices is in
+`docs/learnings/LEARNINGS_TRANSFER.md` and
+`docs/reference/reviews/2026-09-13-documentation-practices-assessment.md`.
+
 ## Rules and what enforces them
 
 Enforcement is mechanical wherever possible. "Review" is the PR body plus a human or an
@@ -29,6 +52,9 @@ that only goes down.
 | No new abstraction without two concrete uses | review |
 | Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |
 | `create_engine`, `text()`, `sqlite3.connect` only inside `db/`; `mock.patch` only in `tests/adapters/`; `encoding=` on every text open | ruff `TID251`, `PLW1514` |
+| Never import another system's identifiers, attribution trailers, or model names into tracked text | `tests/gates/test_no_imported_identifiers.py`; `tools/hooks/no_bypass_git.sh` refuses a commit whose message carries a trailer |
+| Every rule in this table names an enforcer that exists, or says review; review-only rules are a ceiling that only goes down | `tests/gates/test_rules_name_their_enforcer.py`; `.ratchets/review_only_rules.txt` |
+| Generated data is produced by a script and never committed; one green commit per module | `tools/make_demo_fixture.py`; `.pre-commit-config.yaml` (large-file check); review for commit size |
 | Tests never touch the network; warnings are errors | pytest `--block-network -W error` in `pyproject.toml`; `tests/gates/test_pytest_config.py` |
 
 ## Routing: read before you touch
@@ -43,12 +69,15 @@ that only goes down.
 | Change the web UI | `docs/PLAN.md` § Web UI, `docs/reference/reviews/2026-09-12-ui-design-review.md` |
 | Wonder why something was decided the way it was | `docs/insights/INSIGHTS_2026-09-12.md`, then `docs/decisions/DECISIONS.md` |
 | Evaluate a new approach or library | `docs/decisions/DECISIONS.md` § settled negatives first (do not rebuild a killed lever) |
+| Write a brief for a sub-agent | `docs/reference/AGENT_BRIEF.md` (the template), then the routing rows the task touches |
+| Decide whether to adopt a practice from the earlier project | `docs/reference/reviews/2026-09-13-documentation-practices-assessment.md`, `docs/reference/reviews/2026-09-13-harness-assessment.md` § 7 |
 | Run a retrospective, or judge whether a lesson from the earlier project held | `docs/learnings/LEARNINGS_TRANSFER.md` (§5 predictions; §6 how to evolve it) |
 
 ## PR protocol
 
-1. Branch from `main`. Write the failing test first (`core/` is strict TDD; `services/` test
-   against the fake gateway and a temp DB created by `alembic upgrade head`).
+1. Branch from `main` (the pre-commit hook refuses commits on `main`). Write the failing test
+   first (`core/` is strict TDD; `services/` test against the fake gateway and a temp DB created by
+   `alembic upgrade head`). One green commit per module, tests and implementation together.
 2. `make check` is green locally. Pre-commit runs on every commit: ruff, dmypy on the whole
    `src` tree, gitleaks, no files over 1 MB, no commits on `main`.
 3. Open the PR with `.github/pull_request_template.md`: **What**; **Tests changed** (every file
@@ -58,7 +87,8 @@ that only goes down.
 4. Ratchets move only through `make ratchet-bump` (tighter) or
    `make ratchet-loosen KEY=… REASON="…"` (a loosening pauses for approval and lands a
    `GUARDS.md` row).
-5. Merge only when CI is green; never push to `main` directly. Every fixed bug lands a
+5. Land with `git merge --ff-only` into `main` once the gate is green (a merge commit on `main`
+   is refused); never push to `main` directly once a remote exists. Every fixed bug lands a
    `KNOWN_ISSUES.md` row and every settled choice a `DECISIONS.md` entry.
 
 ## Operator surface
@@ -105,7 +135,7 @@ surfaces. **Opus** for judgement-bearing work: reviewers, judges and critics, mi
 `core/deletion`, `services/scrub`, `db/repo`, under-specified services, red-gate debugging.
 **Sonnet** for well-specified mechanical work: inventories, scans, codemods, tests written from a
 spec row, fixture scrubbing, residue sweeps. Unsure → the higher tier, with the reason in the
-workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → "Agent model tiers".
+workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → "Agent model tiers". Every brief follows `docs/reference/AGENT_BRIEF.md`: purpose, the routing rows to read, the rules that bite, the files in scope, the output contract, and the model tier.
 
 ## Commands
 
