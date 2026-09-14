@@ -1,0 +1,121 @@
+"""``doctor --no-network``: exit 0 on a healthy install, the check list rendered, and
+``--alert-if-stale`` flipping ``last_run_age`` between ok and not-ok for the same data
+(design-round5.md section 15, section 16, "Additional tests with no spec id").
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from insightminer import cli
+from insightminer.db import repo
+from insightminer.db.engine import db_path_for, engine_for
+
+#: Every check name ``services.doctor.run_checks`` emits with a database present (section 15.2).
+EXPECTED_CHECKS = {
+    "settings_valid",
+    "data_dir_writable",
+    "data_dir_outside_tcc",
+    "database_present",
+    "alembic_at_head",
+    "quick_check",
+    "schema_fingerprint",
+    "free_disk",
+    "last_run_age",
+    "lock_not_stale",
+    "credentials_present",
+    "no_stale_running_rows",
+}
+
+
+def test_doctor_no_network_exits_0(cli_runner, db_at_head: Path) -> None:
+    """A fresh install with no run yet: ``last_run_age`` is a WARNING (Wes's Q5), which
+    does not flip the exit code, so ``doctor`` is still 0.
+    """
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network"])
+    assert result.exit_code == 0, result.output
+
+
+def test_doctor_renders_the_check_list(cli_runner, db_at_head: Path) -> None:
+    """``--json`` renders every check ``run_checks`` produces, by name (section 15.1)."""
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    names = {check["name"] for check in payload["checks"]}
+    assert EXPECTED_CHECKS <= names
+
+
+def _plant_successful_run(db_path: Path, *, finished_at: int) -> None:
+    engine = engine_for(db_path)
+    try:
+        with engine.begin() as conn:
+            pk = repo.insert_run(
+                conn,
+                repo.RunInsert(
+                    kind="run",
+                    trigger="cli",
+                    status="running",
+                    created_at=finished_at,
+                    started_at=finished_at,
+                    pid=os.getpid(),
+                    stage=None,
+                    options_json=None,
+                    app_version=None,
+                    praw_version=None,
+                    schema_rev=None,
+                    settings_fingerprint=None,
+                    log_path=None,
+                ),
+            )
+            repo.finish_run(
+                conn,
+                run_pk=pk,
+                status="ok",
+                finished_at=finished_at,
+                counters_json="{}",
+                api_requests=0,
+                error=None,
+                violations_json="[]",
+            )
+    finally:
+        engine.dispose()
+
+
+def test_doctor_alert_if_stale_flips(cli_runner, db_at_head: Path) -> None:
+    """The same successful run reads as fresh under a generous threshold and stale under a
+    tight one: ``--alert-if-stale`` genuinely controls ``last_run_age``, not a hard-coded
+    36h (section 15.1's contract, Q5's default).
+    """
+    import time
+
+    finished_at = int(time.time()) - 10_000  # ~2h45m ago
+    _plant_successful_run(db_path_for(db_at_head), finished_at=finished_at)
+
+    fresh = cli_runner.invoke(
+        cli.app, ["doctor", "--no-network", "--json", "--alert-if-stale", "1d"]
+    )
+    assert fresh.exit_code == 0, fresh.output
+    fresh_checks = json.loads(fresh.output)["checks"]
+    fresh_check = next(c for c in fresh_checks if c["name"] == "last_run_age")
+    assert fresh_check["ok"] is True
+
+    stale = cli_runner.invoke(
+        cli.app, ["doctor", "--no-network", "--json", "--alert-if-stale", "1h"]
+    )
+    stale_checks = json.loads(stale.output)["checks"]
+    stale_check = next(c for c in stale_checks if c["name"] == "last_run_age")
+    assert stale_check["ok"] is False
+    assert stale.exit_code == 1
+
+
+def test_doctor_rejects_an_unparseable_alert_window_with_78(cli_runner, db_at_head: Path) -> None:
+    """``--alert-if-stale nonsense`` is a configuration error, not a traceback: the duration
+    is parsed by ``services.doctor.parse_duration``, whose ``ValueError`` the CLI maps to
+    ``ExitCode.CONFIG`` like every other precondition (section 11.2).
+    """
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--alert-if-stale", "soon"])
+    # A `typer.Exit` reaches CliRunner as a SystemExit; anything else would be a traceback.
+    assert isinstance(result.exception, SystemExit), result.output
+    assert result.exit_code == 78

@@ -15,11 +15,12 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import Connection, select
 
 from insightminer.db.schema import Base
 
-__all__ = ["read_run", "table_digest"]
+__all__ = ["read_run", "run_pks", "table_digest"]
 
 
 def table_digest(conn: Connection, table: str) -> str:
@@ -44,3 +45,16 @@ def read_run(conn: Connection) -> dict[str, Any] | None:
     runs = Base.metadata.tables["runs"]
     row = conn.execute(select(runs).order_by(runs.c.pk.desc()).limit(1)).mappings().first()
     return dict(row) if row is not None else None
+
+
+def run_pks(conn: Connection) -> list[int]:
+    """Every ``runs.pk``, oldest first, read **revision-independently**.
+
+    Built from ``sa.table(...)`` rather than ``Base.metadata.tables["runs"]`` because the
+    head models name ``violations_json``, which revision 0001 does not have: a test that
+    counts run rows in a database deliberately below head (the 0001 fixture, a downgraded
+    file) would otherwise die with ``no such column: runs.violations_json`` before it could
+    assert anything. Same reason, and same shape, as ``db.migrate``'s T12 statements.
+    """
+    runs = sa.table("runs", sa.column("pk"))
+    return [int(row.pk) for row in conn.execute(sa.select(runs).order_by(runs.c.pk)).all()]

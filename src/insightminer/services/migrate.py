@@ -55,6 +55,7 @@ __all__ = [
     "KEEP_PRE_MIGRATE_BACKUPS",
     "MigrationOutcome",
     "RunContextFactory",
+    "create_data_tree",
     "db_current",
     "db_init",
     "db_upgrade",
@@ -93,8 +94,12 @@ def _lock_path(settings: Settings) -> Path:
     return settings.data_dir / "locks" / "collector.lock"
 
 
-def _create_tree(data_dir: Path) -> None:
-    """Create ``data/`` and its three subdirectories. Runs **before** the lock decision."""
+def create_data_tree(data_dir: Path) -> None:
+    """Create ``data/`` and its three subdirectories. Runs **before** the lock decision.
+
+    Public because ``cli.run`` needs the same tree before ITS lock decision (§11.3's step
+    between 4 and 5, round5-findings.json P0 "lock acquisition versus directory creation"):
+    two concrete callers, one function, and no second spelling of the subdirectory list."""
     data_dir.mkdir(parents=True, exist_ok=True)
     for name in DATA_SUBDIRECTORIES:
         (data_dir / name).mkdir(parents=True, exist_ok=True)
@@ -217,7 +222,7 @@ def db_upgrade(
     The directory tree is created **before** the lock decision (round5-findings.json P0): the
     lock file lives inside the tree, so the old ordering could not reach its own step 1.
     """
-    _create_tree(settings.data_dir)
+    create_data_tree(settings.data_dir)
     try:
         with lock.acquire(_lock_path(settings)):
             return _upgrade_locked(ctx_factory, settings=settings, clock=clock, notifier=notifier)
@@ -447,7 +452,7 @@ def db_init(
     and a command whose lock behaviour depends on whether a file exists is worse than one
     that always prints the reason. The exit code is unchanged.
     """
-    _create_tree(settings.data_dir)  # before the lock: the lock file lives inside the tree
+    create_data_tree(settings.data_dir)  # before the lock: the lock file lives inside the tree
     with lock.acquire(_lock_path(settings)):
         return _init_locked(ctx_factory, settings=settings, clock=clock, notifier=notifier)
 

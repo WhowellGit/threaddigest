@@ -24,7 +24,8 @@ from insightminer.core.models import NORMALIZER_VERSION
 from insightminer.core.retry import ExitCode, RunStatus, exit_code
 from insightminer.db import repo
 from insightminer.db.schema import RUN_STATUSES, Base
-from insightminer.services import invariants, runs
+from insightminer.services import collect, invariants, runs
+from insightminer.settings import Settings
 
 # --- small local builders (§2.3: Core only, no text()) -----------------------------------
 
@@ -618,3 +619,46 @@ def test_a_failure_violation_outranks_a_rate_limited_terminal_status(
             "detail": violations[0].detail,
         }
     ]
+
+
+# --- the round-5 P1: collect's ordering, at the seam the invariant reads ---------------------
+
+
+def test_unknown_enum_counter_is_final_before_the_invariants_run(
+    engine: Engine,
+    settings: Settings,
+    clock: Any,
+    notifier: Any,
+    fake: Any,
+    add_source: Any,
+    now: int,
+) -> None:
+    """round5-findings.json ``P1-collect-ordering-unknown-enum``, closed at the seam it is
+    about (§11.10's ordered body, §13.1, §14.2).
+
+    ``collect`` materializes ``counters.unknown_enum_values = len(ctx.unknown_enum_keys)``
+    **before** it builds the ``InvariantContext``. Written the other way round -- alongside
+    ``api_requests`` in the finish block, which is how §6.6 reads -- the counter would still
+    be 0 when ``unknown_enum_values_are_counted`` compares it against the database, so a
+    single unknown ``post_hint`` (the demo fixture ships exactly one) would turn every
+    healthy run ``partial``. Driven through ``collect`` rather than by calling the invariant,
+    because the ordering IS the thing under test.
+    """
+    add_source("premiere")
+    fake.add_subreddit("premiere")
+    fake.add_post(
+        "premiere",
+        title="a poll about rendering",
+        selftext="which one do you use?",
+        author="u1",
+        created_utc=now - 3600,
+        post_hint="hologram",
+    )
+    outcome = collect.collect(
+        engine, settings=settings, clock=clock, gateway=fake, notifier=notifier
+    )
+    assert outcome.counters.posts_new == 1
+    assert outcome.counters.unknown_enum_values == 1
+    assert [v.invariant for v in outcome.violations] == []
+    assert outcome.status is RunStatus.OK
+    assert outcome.exit_code == 0

@@ -1,0 +1,153 @@
+"""Fixtures for the end-to-end suite: a real ``CliRunner``, a temp data directory brought
+to head by an actual ``db init`` invocation, the demo fixture, the ``GATEWAY_FACTORY``
+install/restore seam, and a small ``run_cli`` helper (design-round5.md section 11.6,
+section 11.7, section 2.2).
+
+Nothing here builds SQL directly except through ``tests/db/sqlhelp.py`` (section 2.3):
+every other read goes through ``db/repo.py`` or a plain ``Base.metadata.tables[...]``
+select via that helper module.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+from sqlalchemy import Connection, select
+from tests.db.sqlhelp import read_run
+from typer.testing import CliRunner
+
+from insightminer import cli
+from insightminer.adapters.reddit_fake import FakeRedditGateway
+from insightminer.db.engine import db_path_for, engine_for
+from insightminer.db.schema import Base
+
+#: Every seeded subreddit, ~240 posts, one sticky, one crosspost, one unknown post_hint,
+#: one deleted post (section 11.7); must match config/seed.yaml's subreddit list.
+DEMO_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "json" / "demo.json"
+
+
+@pytest.fixture
+def cli_runner() -> CliRunner:
+    """A real Typer ``CliRunner``, invoked in-process (section 11.6, section 11.8)."""
+    return CliRunner()
+
+
+@pytest.fixture
+def demo_fixture_path() -> Path:
+    return DEMO_FIXTURE
+
+
+@pytest.fixture
+def cli_gateway(fake: FakeRedditGateway, monkeypatch: pytest.MonkeyPatch) -> FakeRedditGateway:
+    """Hand the CLI the *same* gateway object this test is configuring (section 11.6).
+
+    ``monkeypatch.setattr`` on ``cli.GATEWAY_FACTORY`` -- the seam production code declares
+    and never assigns to itself -- restores automatically at teardown, so the default
+    factory is honest for the next test even if this one never reaches it.
+    """
+    calls: list[Any] = []
+
+    def factory(spec: Any) -> FakeRedditGateway:
+        calls.append(spec)
+        return fake
+
+    monkeypatch.setattr(cli, "GATEWAY_FACTORY", factory)
+    # A plain attribute for RL-02's "the gateway was never even constructed" assertion.
+    fake.factory_calls = calls
+    return fake
+
+
+@pytest.fixture
+def db_at_head(cli_runner: CliRunner, isolated_data_dir: Path) -> Path:
+    """Bring the isolated data directory to head through the documented first-run sequence:
+    an actual ``db init`` invocation through the same ``CliRunner`` (section 19.10).
+
+    Returns the data directory, already at head with the three seeded subreddits, so a
+    test that only needs ``run`` to work can depend on this fixture instead of repeating
+    the sequence.
+    """
+    result = cli_runner.invoke(cli.app, ["db", "init"])
+    assert result.exit_code == 0, (
+        f"db init failed (this is expected to fail until services/collect.py and "
+        f"cli.py's db group exist): exit {result.exit_code}\n{result.output}"
+    )
+    return isolated_data_dir
+
+
+RunCliResult = tuple[Any, dict[str, Any] | None]
+
+
+@pytest.fixture
+def run_cli(cli_runner: CliRunner, isolated_data_dir: Path) -> Callable[..., RunCliResult]:
+    """Invoke ``cli.app`` and return ``(result, runs_row)`` -- the most recently inserted
+    ``runs`` row, or ``None`` when the database does not exist or has no rows yet
+    (section 2.2).
+    """
+
+    def _invoke(args: list[str], **kwargs: Any) -> RunCliResult:
+        result = cli_runner.invoke(cli.app, args, **kwargs)
+        db_path = db_path_for(isolated_data_dir)
+        if not db_path.is_file():
+            return result, None
+        engine = engine_for(db_path)
+        try:
+            with engine.connect() as conn:
+                row = read_run(conn)
+        finally:
+            engine.dispose()
+        return result, row
+
+    return _invoke
+
+
+@pytest.fixture
+def loaded_gateway(cli_gateway: FakeRedditGateway, demo_fixture_path: Path) -> FakeRedditGateway:
+    """``cli_gateway`` with the demo fixture already loaded onto the object the CLI
+    will actually use, regardless of what ``--fixture`` names on the command line
+    (the seam hands the CLI this exact object -- section 11.6).
+    """
+    cli_gateway.load_fixture(str(demo_fixture_path))
+    return cli_gateway
+
+
+TableRows = Callable[[str, int | None], list[dict[str, Any]]]
+
+
+@pytest.fixture
+def table_rows(isolated_data_dir: Path) -> TableRows:
+    """Every row of ``table_name`` (optionally filtered to one ``run_pk``), oldest first.
+
+    Plain Core ``select`` over ``Base.metadata.tables[...]`` (section 2.3) -- no ``text()``.
+    """
+
+    def _rows(table_name: str, run_pk: int | None = None) -> list[dict[str, Any]]:
+        table = Base.metadata.tables[table_name]
+        stmt = select(table)
+        if run_pk is not None:
+            stmt = stmt.where(table.c.run_pk == run_pk)
+        pk_columns = list(table.primary_key.columns) or [table.c[list(table.columns.keys())[0]]]
+        stmt = stmt.order_by(*pk_columns)
+        engine = engine_for(db_path_for(isolated_data_dir))
+        try:
+            with engine.connect() as conn:
+                return [dict(row) for row in conn.execute(stmt).mappings().all()]
+        finally:
+            engine.dispose()
+
+    return _rows
+
+
+@pytest.fixture
+def head_engine(isolated_data_dir: Path) -> Iterator[Connection]:
+    """A read connection on the data dir's database, for a test that wants to read tables
+    directly after a CLI invocation rather than through ``run_cli``'s single-row helper.
+    """
+    engine = engine_for(db_path_for(isolated_data_dir))
+    try:
+        with engine.connect() as conn:
+            yield conn
+    finally:
+        engine.dispose()

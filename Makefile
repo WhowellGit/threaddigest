@@ -20,7 +20,7 @@ help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
 	@echo "make check            ruff format, ruff check, mypy strict, import-linter, pytest+coverage, ratchets"
 	@echo "make test             uv run pytest"
-	@echo "make run              uv run insightminer run   (the run command ships in M1a)"
+	@echo "make run              db init, then run --gateway fake against .build/run-data"
 	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\"  loosen one floor (lands a GUARDS.md row)"
@@ -68,8 +68,16 @@ schema:
 test:
 	$(UV) run pytest -m "$(MARKEXPR)"
 
-run:
-	@echo "make run: the 'insightminer run' command ships in M1a; nothing to run yet."; exit 2
+# `run` is the documented first-run sequence (design-round5 §19.10, Wes's Q9): `db init`
+# creates the schema, `run` refuses a database that does not exist. INSIGHTMINER_DATA_DIR is
+# explicit and NOT the default ./data, because `--gateway fake` is refused against the real
+# data directory (D-10 / CF-02) and a developer smoke run must never touch collected data.
+RUN_DATA_DIR ?= $(BUILD_DIR)/run-data
+RUN_FIXTURE ?= tests/fixtures/json/demo.json
+
+run: | $(BUILD_DIR)
+	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer db init
+	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer run --gateway fake --fixture $(RUN_FIXTURE)
 
 plan-html: ## render docs/PLAN.md to docs/PLAN.html for browser review
 	$(UV) run python tools/render_plan.py
