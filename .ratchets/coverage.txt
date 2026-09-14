@@ -1,1 +1,1 @@
-line_percent=98.17
+line_percent=98.22
