@@ -95,7 +95,7 @@ One Python package, two entry points: a FastAPI app (`insightminer serve`) that 
 ├── src/insightminer/
 │   ├── __init__.py  cli.py  settings.py  ua.py  ports.py          # ports = Protocols + domain exceptions
 │   ├── core/       models.py normalize.py paging.py deletion.py milestones.py themes.py budget.py retry.py digest.py   # pure, no I/O
-│   ├── adapters/   reddit_praw.py reddit_fake.py clock.py notify.py
+│   ├── adapters/   reddit_praw.py reddit_fake/ clock.py notify.py
 │   ├── db/         engine.py schema.py repo.py fts.py backup.py migrations/{env.py, versions/}
 │   ├── services/   lock.py runs.py fetch_new.py harvest_comments.py revisit.py reconcile.py scrub.py tag_themes.py search_run.py report.py export.py config_io.py doctor.py
 │   └── web/        app.py deps.py filters.py routes/ templates/ static/{app.css, app.js, vendor/htmx.min.js}
@@ -346,7 +346,7 @@ Wireframe (post page):
 | Re-tagging removes a manual tag or re-adds a manually removed one | Manual origins survive every retag | change the rule so the post no longer matches; retag |
 | A watched thread falls off the revisit ladder | `watch_until` keeps it due until it expires | post older than 30 d with a future watch; advance the clock |
 
-Gates: `make check` = ruff + mypy + pytest with coverage ≥ 90% on `core/`, `services/`, `adapters/reddit_fake.py`; pre-commit runs ruff. Optional but recommended: a personal restricted test subreddit (readable by anyone, only you post) seeded by hand with a normal post, a self-deleted post, a mod-removed post, a deleted comment with children, a leaf deleted comment, a deep chain, and a crosspost, so cassettes contain no third-party content. If you later share separate testing reference documents, this section will be adapted.
+Gates: `make check` = ruff + mypy + pytest with coverage ≥ 90% on `core/`, `services/`, `adapters/reddit_fake/` (a package since 2026-09-14); pre-commit runs ruff. Optional but recommended: a personal restricted test subreddit (readable by anyone, only you post) seeded by hand with a normal post, a self-deleted post, a mod-removed post, a deleted comment with children, a leaf deleted comment, a deep chain, and a crosspost, so cassettes contain no third-party content. If you later share separate testing reference documents, this section will be adapted.
 
 ---
 

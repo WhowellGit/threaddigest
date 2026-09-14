@@ -3,7 +3,7 @@
 **As of 2026-09-14.** M0 and M1a tranche A are built and green on `main`; the three hooks are registered and the code-health gate is live; the enforcement tranche, the separation pass (the earlier project's residue abstracted or removed from the tree), and the routing, status-page, and ledger-completeness gates have landed. No remote yet: Wes intends a bare git remote on his QNAP as the first backup, GitHub later. Numbers live in the `make check` output, never here.
 
 ## In flight
-- The third hook (read before touch) is built, tested, and registered, log-first; the ledger review is on 2026-09-28. The code-health ratchet family (G51) is built; its three birth relaxations expire 2026-09-27 unless the counts reach zero or Wes re-approves. The fake gateway split lands separately. Nothing on the collector; the next code is tranche B (needs credentials).
+- The third hook (read before touch) is built, tested, and registered, log-first; the ledger review is on 2026-09-28. The code-health ratchet family (G51) is built; its three birth relaxations expire 2026-09-27 unless the counts reach zero or Wes re-approves. The fake gateway split landed as a package of eleven rank-A modules. Nothing on the collector; the next code is tranche B (needs credentials).
 - Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
 
 ## Next

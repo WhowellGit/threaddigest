@@ -5,6 +5,5 @@ cyclomatic_over_15.hard_after=2026-09-27
 dead_code=0
 dead_code_whitelisted=3
 duplicate_blocks=0
-mi_below_a=1
-mi_below_a.hard_after=2026-09-27
+mi_below_a=0
 size_rule_violations=18
