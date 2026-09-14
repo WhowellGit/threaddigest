@@ -100,7 +100,7 @@ EXCLUDED_PREFIXES = (
     # (split strings that defeat the scan, not a reader); the ledger row G35 describes it.
     "tests/gates/test_no_imported_identifiers.py",
 )
-UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "0-INDEX.md", "MANIFEST.json")
+UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "MANIFEST.json")
 #: A bundle larger than this is written in numbered parts, so no single upload is beyond what
 #: a retrieval-based research tool handles in one pass (about 110k tokens at four bytes each).
 PART_BYTES = 450_000
@@ -258,7 +258,7 @@ def render_index(packet: Packet, placement: dict[str, str]) -> str:
         f"| `{rel}` | `{placement[rel]}` | {len(packet.files[rel]):,} |" for rel in packet.files
     ]
     return (
-        f"# {PROJECT} review packet: file index (commit `{packet.commit[:12]}`)\n\n"
+        "## File index\n\n"
         "Every file in the packet, the upload part that holds it, and its size in bytes. Inside a\n"
         "part, each file is one section headed by its path in backticks. The gate tests\n"
         "(`tests/gates/`) sit in the harness part, not the tests part.\n\n"
@@ -285,9 +285,9 @@ def render_readme(
 
 This packet is the committed tree of a small personal system at one commit, assembled by
 `tools/review_packet.py`. `MANIFEST.json` carries a sha256 for every file and one packet hash,
-`{packet.packet_hash[:16]}…`, which the project's review register cites. `0-INDEX.md` maps
-every path to the upload part that holds it; use it before searching, because the parts are
-large and a retrieval tool will not read them in order.
+`{packet.packet_hash[:16]}…`, which the project's review register cites. The file index at
+the end of this README maps every path to the upload part that holds it; use it before
+searching, because the parts are large and a retrieval tool will not read them in order.
 {dirty}
 ## What is and is not here, stated plainly
 
@@ -322,7 +322,7 @@ backs each; try to falsify them.
 
 ## Reading order
 
-1. `01-QUERY.md`, then `02-CLAIMS.md`, then `0-INDEX.md` to see where everything is.
+1. `01-QUERY.md`, then `02-CLAIMS.md`, then the file index at the end of this README.
 2. The documents part(s): the working agreement (`CLAUDE.md`), the plan (its intent block
    first), the decisions log (settled negatives before proposing a lever), the status page,
    the test strategy, the runbook, the guards ledger, known issues, the review register, the
@@ -345,8 +345,9 @@ claim under review, not as settled.
 |---|---|---|---|
 {rows}
 
-If your tool caps an upload at ten files, leave out `MANIFEST.json`: it is the hash record for
-the project's register, not review material.
+The upload set is this README, the brief, the claims list, the parts, and `MANIFEST.json`. If
+your tool caps an upload at ten files, leave out `MANIFEST.json`: it is the hash record for the
+project's register, not review material.
 
 Skipped because binary:
 
@@ -399,14 +400,14 @@ def write_packet(
             part_files[part_name] = members
             for rel in members:
                 placement[rel] = part_name
-    (out / "0-INDEX.md").write_text(render_index(packet, placement), encoding="utf-8")
     query = render_query(packet, head_text(packet.root, TEMPLATE, "query template"))
     (out / "01-QUERY.md").write_text(query, encoding="utf-8")
     (out / "02-CLAIMS.md").write_text(
         head_text(packet.root, CLAIMS, "claims list"), encoding="utf-8"
     )
     (out / "00-README.md").write_text(
-        render_readme(packet, part_sizes, part_files), encoding="utf-8"
+        render_readme(packet, part_sizes, part_files) + "\n" + render_index(packet, placement),
+        encoding="utf-8",
     )
     if with_tree:
         for rel, content in packet.files.items():

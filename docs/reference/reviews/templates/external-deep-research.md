@@ -5,7 +5,7 @@ harvests Reddit discussion about a video-editing product every day, stores it lo
 deletions, and helps its one operator see what people are struggling with. The packet holds the
 committed tree at one commit: the plan, the decisions log, the working agreement and everything
 that enforces it, the source, and the tests. `00-README.md` gives the reading order and
-`0-INDEX.md` maps every file to the upload part that holds it; use the index before searching.
+the file index at its end maps every file to the upload part that holds it; use it before searching.
 `02-CLAIMS.md` lists the claims the project stakes its correctness on.
 
 Three facts about the packet that change how you read it:

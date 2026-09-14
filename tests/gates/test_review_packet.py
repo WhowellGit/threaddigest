@@ -163,7 +163,6 @@ def test_copy_to_places_the_upload_set_only(repo: Path, tmp_path: Path) -> None:
     proc = run_tool(repo, "--out", str(tmp_path / "packet"), "--copy-to", str(dest))
     assert proc.returncode == 0, proc.stderr
     assert sorted(p.name for p in dest.iterdir()) == [
-        "0-INDEX.md",
         "00-README.md",
         "01-QUERY.md",
         "02-CLAIMS.md",
@@ -208,7 +207,7 @@ def test_the_index_maps_every_file_to_its_part_and_large_bundles_split(
     out = tmp_path / "packet"
     proc = run_tool(repo, "--out", str(out), "--part-bytes", "40")
     assert proc.returncode == 0, proc.stderr
-    index = (out / "0-INDEX.md").read_text(encoding="utf-8")
+    index = (out / "00-README.md").read_text(encoding="utf-8")
     manifest = json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))
     parts = {bundle["name"]: bundle["files"] for bundle in manifest["bundles"]}
     assert "2-harness-1.md" in parts and "2-harness-2.md" in parts, sorted(parts)
@@ -218,4 +217,4 @@ def test_the_index_maps_every_file_to_its_part_and_large_bundles_split(
             assert f"| `{rel}` | `{part_name}` |" in index, rel
     assert sum(len(files) for files in parts.values()) == len(manifest["files"])
     readme = (out / "00-README.md").read_text(encoding="utf-8")
-    assert "2-harness-1.md" in readme and "0-INDEX.md" in readme
+    assert "2-harness-1.md" in readme and "## File index" in readme
