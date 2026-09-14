@@ -132,9 +132,15 @@ def acquire(
 
     Creates ``path.parent`` first (round5-findings.json P0 #2). The flock is released by
     closing the description, which the ``finally`` does on every path, so an exception inside
-    the body never leaves the lock behind. Re-locking the *same* description is idempotent, so
-    a double ``acquire`` inside one command is a no-op rather than a deadlock -- but it is
-    still a context manager used once per command (§12.2).
+    the body never leaves the lock behind.
+
+    **Nesting is refused, not idempotent.** Each call opens its own file description, and
+    ``flock`` conflicts across descriptions -- including two inside one process (the module
+    docstring's first measured fact) -- so a second ``acquire`` on a path this process already
+    holds raises :class:`LockHeldError` like any other contention, after the bounded retry.
+    Re-locking would be a no-op only if the same *description* were re-locked, which nothing
+    here does. One context manager per command (§12.2); a nested one is a bug the refusal
+    surfaces rather than a deadlock or a silent pass (panel P2-4).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = path.open("a+", encoding="utf-8")

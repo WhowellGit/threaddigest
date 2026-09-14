@@ -45,6 +45,27 @@ def test_acquire_against_a_genuinely_held_lock_still_raises(lock_path: Path) -> 
                 pytest.fail("a genuinely held lock must never be granted")
 
 
+def test_a_nested_acquire_is_refused_and_leaves_the_outer_holder_alone(lock_path: Path) -> None:
+    """``acquire``'s docstring used to claim a nested acquire was "a no-op rather than a
+    deadlock" (panel P2-4). It is neither: each call opens a NEW file description, ``flock``
+    conflicts across descriptions, and the inner call raises :class:`LockHeldError`.
+
+    The full default ``attempts`` budget is spent (only ``retry_delay_seconds`` is zeroed, as
+    in the sibling test above, so the suite does not sleep for real): the claim was about an
+    ordinary second ``acquire`` inside one command, not about a caller who disabled the
+    retry. The outer holder surviving is the other half -- a refusal that closed the inner
+    description must not release the outer flock, which shares the same file.
+    """
+    with lock.acquire(lock_path):
+        with pytest.raises(lock.LockHeldError) as caught:
+            with lock.acquire(lock_path, retry_delay_seconds=0.0):
+                pytest.fail("a nested acquire must not enter its body")
+        assert caught.value.path == lock_path
+        assert lock.is_held(lock_path) is True  # the outer holder still has it
+
+    assert lock.is_held(lock_path) is False
+
+
 def test_acquire_on_a_free_lock_does_not_pay_the_retry(lock_path: Path) -> None:
     """The retry is paid only by a held lock; a free one is instant (§12.2)."""
     started = time.monotonic()
