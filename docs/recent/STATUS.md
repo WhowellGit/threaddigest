@@ -12,7 +12,8 @@
 3. M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week): brief → bounded design rounds → build on a branch → panel.
 4. Milestone MB when the new QNAP arrives: bare repository over SSH, first push through the pre-push hook, nightly bundle, restore drill from the NAS copy.
 5. The review runner and the first external review at tranche B's design freeze; the last two days' enforcement changes are that review's first job.
-6. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
+6. Code-health gate, layer one (a `code_health` ratchet family in `make check`), as the first build of the next session on Wes's go; the CodeScene trial at the end of the first milestone after that.
+7. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
 
 ## Do not undo
 - Local history has been rewritten three times (retrospectives, trailers, identifiers; Wes ran the third on 2026-09-14 and the whole-history scan is clean outside the redacted retrospectives); never restore a bundle into `main` without re-running that scan, and never push a bundle's history anywhere.
@@ -22,4 +23,4 @@
 - The read-before-touch hook stays in `log` mode until its ledger is reviewed on 2026-09-28; flipping the mode is a reviewed commit, never a hand edit.
 
 ## Waiting on Wes
-Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); registering the third hook in the hook settings (snippet in `docs/decisions/DECISIONS.md` § 2026-09-14 (later)); the harness document's name; the ChatGPT data-controls opt-out before the first external packet; moving this session's transcript to the archive after it ends (command in the archive folder's README). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); registering the third hook in the hook settings (snippet in `docs/decisions/DECISIONS.md` § 2026-09-14 (later)); the harness document's name; the ChatGPT data-controls opt-out before the first external packet; moving this session's transcript to the archive after it ends (command in the archive folder's README); the go for the code-health gate's two layers (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
