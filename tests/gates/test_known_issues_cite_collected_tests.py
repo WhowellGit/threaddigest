@@ -29,8 +29,10 @@ from tools.ratchet import is_separator_row, split_row
 ROOT = Path(__file__).resolve().parents[2]
 KNOWN_ISSUES = Path("docs") / "runbook" / "KNOWN_ISSUES.md"
 GUARDS = Path("docs") / "runbook" / "GUARDS.md"
+CLAIMS = Path("docs") / "reference" / "reviews" / "templates" / "claims.md"
 ISSUES_COLUMN = "Regression test (node id)"
 GUARDS_COLUMN = "Positive control node"
+CLAIMS_COLUMN = "Backed by (node id)"
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 NODE = re.compile(r"tests/[\w./-]+\.py(?:::[\w.\[\]-]+)*|::[\w.\[\]-]+")
 
@@ -112,12 +114,21 @@ def test_every_guards_positive_control_node_exists() -> None:
     assert not problems, "GUARDS.md cites controls that do not exist:\n" + "\n".join(problems)
 
 
+def test_every_claim_cites_a_test_that_exists() -> None:
+    """The claims list travels in every external review packet (2026-09-14); a claim backed by
+    a test that does not exist would send a reviewer chasing a ghost."""
+    problems = unresolved(ROOT, CLAIMS, CLAIMS_COLUMN)
+    assert not problems, "claims.md cites tests that do not exist:\n" + "\n".join(problems)
+
+
 def test_the_registers_cite_at_least_one_node_each() -> None:
-    """A parser that silently found no rows would pass both checks above forever."""
+    """A parser that silently found no rows would pass the checks above forever."""
     issues = cells_under((ROOT / KNOWN_ISSUES).read_text(encoding="utf-8"), ISSUES_COLUMN)
     guards = cells_under((ROOT / GUARDS).read_text(encoding="utf-8"), GUARDS_COLUMN)
+    claims = cells_under((ROOT / CLAIMS).read_text(encoding="utf-8"), CLAIMS_COLUMN)
     assert [cell for _, cell in issues if "::" in cell], "no node id parsed from KNOWN_ISSUES.md"
     assert [cell for _, cell in guards if "::" in cell], "no node id parsed from GUARDS.md"
+    assert [cell for _, cell in claims if "::" in cell], "no node id parsed from claims.md"
 
 
 def _register(tmp_path: Path, rows: Iterable[str]) -> Path:

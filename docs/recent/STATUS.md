@@ -5,6 +5,7 @@
 ## In flight
 - The third hook (read before touch) is built, tested, and registered, log-first; the ledger review is on 2026-09-28. The code-health ratchet family (G51) is built; its three birth relaxations expire 2026-09-27 unless the counts reach zero or Wes re-approves. The fake gateway split landed as a package of eleven rank-A modules. Nothing on the collector; the next code is tranche B (needs credentials).
 - Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
+- External review round one: the packet builder (`tools/review_packet.py`, G52) and the refute-framed brief are built; an internal panel refines the brief, then Wes runs the three deep-research jobs from the Desktop copy and the findings are triaged one check at a time (`docs/runbook/RUNBOOK.md` § 7).
 
 ## Next
 1. QNAP bare remote when the server is fixed: add the remote, first push runs `make check` through the pre-push hook, nightly `git bundle` to the same share as a second copy.
@@ -27,4 +28,4 @@
 - The code-health ceilings move only through `make ratchet-bump` and `make ratchet-loosen`; a relaxation past its date is red until tightened or re-approved with a reason, never hand-edited.
 
 ## Waiting on Wes
-Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); pasting the third-hook registration snippet into the hook settings and committing it on a branch, which turns `main` green; the go for the one-live-session-per-checkout guard; the harness document's name; the ChatGPT data-controls opt-out before the first external packet; moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README); the go for the code-health gate's two layers (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); the go for the one-live-session-per-checkout guard; the harness document's name; the data-controls opt-out on each consumer plan before the first external packet is uploaded; running the three deep-research jobs from the Desktop copy once the brief panel has returned; moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
