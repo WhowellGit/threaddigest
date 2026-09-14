@@ -63,6 +63,8 @@ that only goes down.
 | Every gate file and every `gate` marker id has a `docs/runbook/GUARDS.md` row; every commit hash cited in a document resolves; Active rows without a positive control are a ceiling | `tests/gates/test_known_issues_cite_collected_tests.py`; `.ratchets/review_only_rules.txt` |
 | One memory home; the committed snapshot is never behind live memory | `tools/memory_snapshot.py` `check` and `diff` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
+| Never edit a file a rule file governs without reading the documents it names first | `tools/hooks/read_before_touch.sh` (log-first; ledger `.build/hooks/read_before_touch.jsonl`, reviewed 2026-09-28; mode in `tools/hooks/read_before_touch.mode`); `tests/gates/test_hooks.py` |
+| Every commit on a review-required surface since 2026-09-15 has a review register row with a record | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md` |
 
 ## Routing: read before you touch
 
@@ -97,7 +99,9 @@ that only goes down.
    `GUARDS.md` row).
 5. Land with `git merge --ff-only` into `main` once the gate is green (a merge commit on `main`
    is refused); never push to `main` directly once a remote exists; a push runs `make check` through the
-   pre-push hook, because a remote is a backup and never the gate. Every fixed bug lands a
+   pre-push hook, because a remote is a backup and never the gate. A change on a review-required
+   surface (migrations, scrub, deletion, the upsert repository, gates, ratchets, hooks, this file)
+   lands with a row in `docs/reference/reviews/REGISTER.md`, or the register gate is red. Every fixed bug lands a
    `KNOWN_ISSUES.md` row and every settled choice a `DECISIONS.md` entry.
 
 ## Operator surface

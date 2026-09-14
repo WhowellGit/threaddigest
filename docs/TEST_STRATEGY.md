@@ -173,8 +173,8 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G20 | TCC path and interpreter | gate/runtime | M0, M1d | P1 | planned | |
 | G21 | Size caps | gate | M0 | P1 | changed | `C901` and `PLR0915` only (plan); the file-length test and `PLR0913` not adopted |
 | G22 | Cross-platform | gate | M0, M1 | P1 | planned | |
-| G23 | Hard-block hooks | hook | M0 | P1 | changed | two hooks, not three: H1 `no_bypass_git`, H3 `enforcement_files_script_only`; H2 `no_prod_db_writes` cut (command-text list-policing, A6); fail closed on internal error |
-| G24 | Hook wiring currency | gate | M0 | P1 | changed | exactly two `PreToolUse` entries |
+| G23 | Hard-block hooks | hook | M0 | P1 | shipped | three hooks since 2026-09-14: H1 `no_bypass_git`, H3 `enforcement_files_script_only`, and `read_before_touch` (log-first; N-16 amended); H2 `no_prod_db_writes` cut (command-text list-policing, A6); the two hard blocks fail closed on internal error |
+| G24 | Hook wiring currency | gate | M0 | P1 | shipped | every registered command names an executable script (`tests/gates/test_hooks.py`); `tools/hooks_status.py` prints which scripts are not registered, because registration is a human edit |
 | G25 | `make check` summary | gate | M0 | P1 | planned | |
 | G26 | PR-body gate | CI | M0 | P2 | planned | deferrable to M1 if the two-day box overruns |
 | G27 | Changed-tests sticky comment | CI | M0 | P2 | planned | |
@@ -192,6 +192,8 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G46 | No sleeping under pytest | gate | M1a | P2 | shipped | `tests/gates/test_no_sleep_under_pytest.py` (id assigned 2026-09-14) |
 | G47 | Memory snapshot and one memory home | gate | M1a | P1 | shipped | `tools/memory_snapshot.py` check + diff in `make check`; `tests/gates/test_memory_snapshot.py` |
 | G48 | No tracked daemon state | gate | M1a | P2 | shipped | `tests/gates/test_no_tracked_daemon_state.py` (KI-001; id assigned 2026-09-14) |
+| G49 | Read before touch (third hook) | hook | M1a | P1 | shipped (registration pending Wes) | `tools/hooks/read_before_touch.sh`, log-first with a ledger; controls in `tests/gates/test_hooks.py` |
+| G50 | Review register | gate | M1a | P1 | shipped | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md`; baseline 2026-09-15 |
 | G37 | Weekly stress | CI | M1d | P3 | changed | 50k/500k corpus cut; the `EXPLAIN QUERY PLAN` assertions live in DB-08 |
 | G38 | Mutation (informational) | CI | M3 | P3 | cut | optional tool, never a ratchet; no `.ratchets/mutation.txt` (plan) |
 | G34 | Retired claims not stated as live | gate | M1a | P1 | shipped | the panel proposal formerly numbered G34 is now G41 |
