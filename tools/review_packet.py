@@ -52,6 +52,7 @@ BUNDLES: dict[str, tuple[str, ...]] = {
         "CLAUDE.md",
         "docs/PLAN.md",
         "docs/decisions/DECISIONS.md",
+        "docs/recent/STATUS.md",
         "docs/TEST_STRATEGY.md",
         "docs/INDEX.md",
         "docs/runbook/RUNBOOK.md",
@@ -61,6 +62,11 @@ BUNDLES: dict[str, tuple[str, ...]] = {
         "docs/reference/AGENT_BRIEF.md",
         "docs/learnings",
         "docs/insights",
+        # inputs to the design, not verdicts on it: the research report the collector's
+        # Reddit facts come from, and the design review the deletion predicates cite
+        "docs/reference/2026-09-11-compass-research-report.md",
+        "docs/reference/reviews/2026-09-12-collector-design-review.md",
+        "config",
         "src/insightminer/db/schema.sql",
     ),
     "2-harness": (
@@ -81,7 +87,7 @@ BUNDLES: dict[str, tuple[str, ...]] = {
     "3-source": ("src",),
     "4-tests": ("tests",),
 }
-#: Never included, whatever the allowlist says. Prefix match on the tracked path.
+#: Never included unless the allowlist names the exact file. Prefix match on the tracked path.
 EXCLUDED_PREFIXES = (
     ".env",
     "data/",
@@ -90,8 +96,14 @@ EXCLUDED_PREFIXES = (
     "memory-snapshot/",
     "tests/fixtures/",
     "docs/PLAN.html",
+    # The identifier gate's own test spells out the banned identifiers as its positive controls
+    # (split strings that defeat the scan, not a reader); the ledger row G35 describes it.
+    "tests/gates/test_no_imported_identifiers.py",
 )
-UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "MANIFEST.json")
+UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "0-INDEX.md", "MANIFEST.json")
+#: A bundle larger than this is written in numbered parts, so no single upload is beyond what
+#: a retrieval-based research tool handles in one pass (about 110k tokens at four bytes each).
+PART_BYTES = 450_000
 LANG = {
     ".py": "python",
     ".md": "markdown",
@@ -157,7 +169,7 @@ class Packet:
             members: list[str] = []
             for spec in specs:
                 for rel in tracked_under(self.root, spec):
-                    if rel in seen or excluded(rel):
+                    if rel in seen or (excluded(rel) and rel != spec):
                         continue
                     seen.add(rel)
                     content = git_bytes(self.root, "show", f"HEAD:{rel}")
@@ -182,21 +194,45 @@ def sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def render_bundle(name: str, packet: Packet) -> str:
-    members = packet.bundle_files[name]
+def split_parts(packet: Packet, members: list[str], part_bytes: int) -> list[list[str]]:
+    """Greedy split of a bundle's files into parts of at most ``part_bytes`` of content; a
+    single file larger than the budget gets a part of its own."""
+    parts: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for rel in members:
+        length = len(packet.files[rel])
+        if current and size + length > part_bytes:
+            parts.append(current)
+            current, size = [], 0
+        current.append(rel)
+        size += length
+    if current:
+        parts.append(current)
+    return parts
+
+
+def part_names(name: str, count: int) -> list[str]:
+    return [f"{name}.md"] if count == 1 else [f"{name}-{i}.md" for i in range(1, count + 1)]
+
+
+def render_bundle(name: str, packet: Packet, members: list[str], label: str) -> str:
     parts = [
-        f"# {PROJECT} review packet, bundle {name}\n",
+        f"# {PROJECT} review packet, {label}\n",
         f"Commit `{packet.commit}`, built {packet.date}. Every file below is the committed "
-        f"text at that commit, verbatim, one section per file; fences use five backticks so "
-        f"the files' own fences stay intact.\n",
-        "## Files in this bundle\n",
+        f"text at that commit, one section per file, every line prefixed with its line number; "
+        f"fences use five backticks so the files' own fences stay intact.\n",
+        "## Files in this part\n",
         *(f"- `{rel}`" for rel in members),
         "",
     ]
     for rel in members:
         lang = LANG.get(Path(rel).suffix, "text")
         text = packet.files[rel].decode("utf-8")
-        parts.append(f"\n---\n\n## `{rel}`\n\n{FENCE}{lang}\n{text.rstrip()}\n{FENCE}\n")
+        numbered = "\n".join(
+            f"{number:>5}  {line}" for number, line in enumerate(text.rstrip().splitlines(), 1)
+        )
+        parts.append(f"\n---\n\n## `{rel}`\n\n{FENCE}{lang}\n{numbered}\n{FENCE}\n")
     return "\n".join(parts)
 
 
@@ -216,7 +252,23 @@ def intent_paragraph(packet: Packet) -> str:
     return " ".join(body)
 
 
-def render_readme(packet: Packet, bundle_sizes: dict[str, int]) -> str:
+def render_index(packet: Packet, placement: dict[str, str]) -> str:
+    """Every packed path with the part that holds it: the retrieval index the README points at."""
+    rows = [
+        f"| `{rel}` | `{placement[rel]}` | {len(packet.files[rel]):,} |" for rel in packet.files
+    ]
+    return (
+        f"# {PROJECT} review packet: file index (commit `{packet.commit[:12]}`)\n\n"
+        "Every file in the packet, the upload part that holds it, and its size in bytes. Inside a\n"
+        "part, each file is one section headed by its path in backticks. The gate tests\n"
+        "(`tests/gates/`) sit in the harness part, not the tests part.\n\n"
+        "| Path | Part | Bytes |\n|---|---|---|\n" + "\n".join(rows) + "\n"
+    )
+
+
+def render_readme(
+    packet: Packet, part_sizes: dict[str, int], part_files: dict[str, list[str]]
+) -> str:
     dirty = (
         "\n> **Built from a dirty working tree** with `--allow-dirty`: the contents are the "
         "commit above, not the uncommitted edits.\n"
@@ -224,8 +276,8 @@ def render_readme(packet: Packet, bundle_sizes: dict[str, int]) -> str:
         else ""
     )
     rows = "\n".join(
-        f"| `{name}.md` | {size:,} | {len(packet.bundle_files[name])} |"
-        for name, size in bundle_sizes.items()
+        f"| `{name}` | {size:,} | {size // 4:,} | {len(part_files[name])} |"
+        for name, size in part_sizes.items()
     )
     skipped = "\n".join(f"- `{rel}`" for rel in packet.skipped_binary) or "- (none)"
     excluded_rules = "\n".join(f"- `{prefix}`" for prefix in EXCLUDED_PREFIXES)
@@ -233,9 +285,30 @@ def render_readme(packet: Packet, bundle_sizes: dict[str, int]) -> str:
 
 This packet is the committed tree of a small personal system at one commit, assembled by
 `tools/review_packet.py`. `MANIFEST.json` carries a sha256 for every file and one packet hash,
-`{packet.packet_hash[:16]}…`, which the project's review register cites. Nothing here comes
-from any other system.
+`{packet.packet_hash[:16]}…`, which the project's review register cites. `0-INDEX.md` maps
+every path to the upload part that holds it; use it before searching, because the parts are
+large and a retrieval tool will not read them in order.
 {dirty}
+## What is and is not here, stated plainly
+
+- The earlier project's own material (an unrelated system this project took lessons from) is
+  excluded. Where these documents describe those lessons they do so in abstract terms, and
+  they refer to a folder of redacted retrospectives and an archive under `~/` that are not in
+  the packet; treat every such pointer as a dead link, not as missing context you must recover.
+- One gate test, `tests/gates/test_no_imported_identifiers.py`, is withheld because its
+  positive controls spell out the very identifiers it bans. The guards ledger row G35
+  describes what it scans; `tests/gates/test_review_packet.py` imports it, which is why that
+  import has no target here.
+- Earlier reviews are recorded, not withheld: the dated reports are excluded, but the plan and
+  the decisions log restate what was adopted from them and the authors' rulings, the register
+  carries a verdict column, and about sixty test docstrings cite `round5-findings.json`, a
+  panel file that is not tracked and not here. Treat every recorded conclusion as a claim
+  under review.
+- The owner's name and contact details appear in the git-identity rows of the plan, the
+  decisions log, and the runbook; nothing else personal is here, and there are no secrets:
+  the packet is built from tracked files only, and the tree's own gates refuse a committed
+  secret.
+
 ## What the system is
 
 {intent_paragraph(packet)}
@@ -249,26 +322,42 @@ backs each; try to falsify them.
 
 ## Reading order
 
-1. `01-QUERY.md`, then `02-CLAIMS.md`.
-2. `1-documents.md`: the working agreement (`CLAUDE.md`), the plan (its intent block first),
-   the decisions log (settled negatives before proposing a lever), the runbook, the guards
-   ledger, known issues, learnings, and the database schema.
-3. `2-harness.md`: what enforces the working agreement (hooks, ratchets, gate tests, configs).
-4. `3-source.md`, then `4-tests.md`.
+1. `01-QUERY.md`, then `02-CLAIMS.md`, then `0-INDEX.md` to see where everything is.
+2. The documents part(s): the working agreement (`CLAUDE.md`), the plan (its intent block
+   first), the decisions log (settled negatives before proposing a lever), the status page,
+   the test strategy, the runbook, the guards ledger, known issues, the review register, the
+   sub-agent brief template, the learnings and insights, and the database schema.
+3. The harness part(s): what enforces the working agreement: the hooks, the ratchet and
+   code-health tools, the configs, and the gate tests under `tests/gates/`, which live here and
+   not in the tests part.
+4. The source part(s), then the tests part(s) (unit, database, services, end-to-end).
+
+Two things a reader should know. Every line inside a file section carries its line number
+in the left margin, the same number the file has in the repository: cite a finding by part,
+path, that number, and the quoted line, so the owner can check it in seconds. And the dated
+review reports are excluded, but the plan and the decisions log record what was adopted from
+earlier reviews and the authors' rulings on them: treat every such recorded conclusion as a
+claim under review, not as settled.
 
 ## Contents
 
-| Bundle | Bytes | Files |
-|---|---|---|
+| Part | Bytes | Tokens (about) | Files |
+|---|---|---|---|
 {rows}
+
+If your tool caps an upload at ten files, leave out `MANIFEST.json`: it is the hash record for
+the project's register, not review material.
 
 Skipped because binary:
 
 {skipped}
 
 Excluded by rule (never part of a packet): secrets, data, fixtures, the earlier project's
-material, the memory snapshot, and the dated review reports, which hold prior verdicts and are
-withheld so that this review is independent of them:
+material, the memory snapshot, and the dated review reports (the plan and the decisions log
+still record what was adopted from them; see above). Two dated documents are included on
+purpose because they are inputs to the design rather than verdicts on it: the research report
+the collector's Reddit facts come from, and the collector design review that the deletion
+predicates cite. The live configuration under `config/` is included; the secrets file is not.
 
 {excluded_rules}
 """
@@ -290,21 +379,35 @@ def head_text(root: Path, rel: Path, what: str) -> str:
     return git_bytes(root, "show", f"HEAD:{rel.as_posix()}").decode("utf-8")
 
 
-def write_packet(packet: Packet, out: Path, with_tree: bool = True) -> dict[str, object]:
+def write_packet(
+    packet: Packet, out: Path, with_tree: bool = True, part_bytes: int = PART_BYTES
+) -> dict[str, object]:
     out.mkdir(parents=True, exist_ok=True)
-    bundle_sizes: dict[str, int] = {}
-    bundle_hashes: dict[str, str] = {}
+    part_sizes: dict[str, int] = {}
+    part_hashes: dict[str, str] = {}
+    part_files: dict[str, list[str]] = {}
+    placement: dict[str, str] = {}
     for name in BUNDLES:
-        text = render_bundle(name, packet).encode("utf-8")
-        (out / f"{name}.md").write_bytes(text)
-        bundle_sizes[name] = len(text)
-        bundle_hashes[name] = sha256(text)
+        parts = split_parts(packet, packet.bundle_files[name], part_bytes)
+        names = part_names(name, len(parts))
+        for part_name, members in zip(names, parts, strict=True):
+            label = f"bundle {name}" + (f", part {part_name}" if len(parts) > 1 else "")
+            text = render_bundle(name, packet, members, label).encode("utf-8")
+            (out / part_name).write_bytes(text)
+            part_sizes[part_name] = len(text)
+            part_hashes[part_name] = sha256(text)
+            part_files[part_name] = members
+            for rel in members:
+                placement[rel] = part_name
+    (out / "0-INDEX.md").write_text(render_index(packet, placement), encoding="utf-8")
     query = render_query(packet, head_text(packet.root, TEMPLATE, "query template"))
     (out / "01-QUERY.md").write_text(query, encoding="utf-8")
     (out / "02-CLAIMS.md").write_text(
         head_text(packet.root, CLAIMS, "claims list"), encoding="utf-8"
     )
-    (out / "00-README.md").write_text(render_readme(packet, bundle_sizes), encoding="utf-8")
+    (out / "00-README.md").write_text(
+        render_readme(packet, part_sizes, part_files), encoding="utf-8"
+    )
     if with_tree:
         for rel, content in packet.files.items():
             target = out / "tree" / rel
@@ -322,12 +425,12 @@ def write_packet(packet: Packet, out: Path, with_tree: bool = True) -> dict[str,
         ],
         "bundles": [
             {
-                "name": f"{name}.md",
-                "bytes": bundle_sizes[name],
-                "sha256": bundle_hashes[name],
-                "files": packet.bundle_files[name],
+                "name": part_name,
+                "bytes": part_sizes[part_name],
+                "sha256": part_hashes[part_name],
+                "files": part_files[part_name],
             }
-            for name in BUNDLES
+            for part_name in part_sizes
         ],
         "skipped_binary": packet.skipped_binary,
         "excluded_prefixes": list(EXCLUDED_PREFIXES),
@@ -336,16 +439,18 @@ def write_packet(packet: Packet, out: Path, with_tree: bool = True) -> dict[str,
     return manifest
 
 
-def copy_upload_set(out: Path, dest: Path) -> list[str]:
+def copy_upload_set(out: Path, dest: Path, manifest: dict[str, object]) -> list[str]:
     dest.mkdir(parents=True, exist_ok=True)
-    names = [*UPLOAD_SET, *(f"{name}.md" for name in BUNDLES)]
+    bundles = manifest["bundles"]
+    assert isinstance(bundles, list)
+    names = [*UPLOAD_SET, *(str(bundle["name"]) for bundle in bundles)]
     for name in names:
         shutil.copy2(out / name, dest / name)
     return names
 
 
 def build(
-    root: Path, out: Path, *, allow_dirty: bool, with_tree: bool
+    root: Path, out: Path, *, allow_dirty: bool, with_tree: bool, part_bytes: int = PART_BYTES
 ) -> tuple[Packet, dict[str, object]]:
     status = git(root, "status", "--porcelain")
     dirty = bool(status.strip())
@@ -359,7 +464,7 @@ def build(
     packet.collect()
     if not packet.files:
         fail("nothing to pack: no tracked files matched the allowlist")
-    manifest = write_packet(packet, out, with_tree=with_tree)
+    manifest = write_packet(packet, out, with_tree=with_tree, part_bytes=part_bytes)
     return packet, manifest
 
 
@@ -384,6 +489,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-dirty", action="store_true", help="build from HEAD despite a dirty tree"
     )
     parser.add_argument(
+        "--part-bytes",
+        type=int,
+        default=PART_BYTES,
+        help="split a bundle into numbered parts above this many bytes of content",
+    )
+    parser.add_argument(
         "--with-tree",
         action="store_true",
         help="also copy the tree/ folder of originals into the copy destination",
@@ -397,7 +508,9 @@ def main(argv: list[str] | None = None) -> int:
     commit_short = git(root, "rev-parse", "--short", "HEAD").strip()
     stamp = f"{dt.date.today().isoformat()}-{commit_short}"
     out: Path = args.out or root / DEFAULT_OUT / stamp
-    packet, manifest = build(root, out, allow_dirty=args.allow_dirty, with_tree=True)
+    packet, manifest = build(
+        root, out, allow_dirty=args.allow_dirty, with_tree=True, part_bytes=args.part_bytes
+    )
     print(f"packet: {out}")
     print(f"commit: {packet.commit} ({'dirty tree' if packet.dirty else 'clean tree'})")
     print(f"packet sha256: {packet.packet_hash}")
@@ -411,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.desktop:
         dest = Path.home() / "Desktop" / f"insightminer-review-packet-{stamp}"
     if dest is not None:
-        names = copy_upload_set(out, dest)
+        names = copy_upload_set(out, dest, manifest)
         if args.with_tree:
             shutil.copytree(out / "tree", dest / "tree", dirs_exist_ok=True)
             names.append("tree/")

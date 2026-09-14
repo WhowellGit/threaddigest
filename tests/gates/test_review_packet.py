@@ -122,7 +122,8 @@ def test_a_packet_holds_only_the_allowlist_from_head(repo: Path, tmp_path: Path)
     )
     for leak in ("never-in-a-packet", "must never be packed", "keep out"):
         assert leak not in everything, leak
-    assert "def thing() -> int:" in (out / "3-source.md").read_text(encoding="utf-8")
+    source_part = (out / "3-source.md").read_text(encoding="utf-8")
+    assert "    1  def thing() -> int:" in source_part  # line numbers in the margin
     # hashes are real: every manifest entry matches the bytes written under tree/
     import hashlib
 
@@ -162,6 +163,7 @@ def test_copy_to_places_the_upload_set_only(repo: Path, tmp_path: Path) -> None:
     proc = run_tool(repo, "--out", str(tmp_path / "packet"), "--copy-to", str(dest))
     assert proc.returncode == 0, proc.stderr
     assert sorted(p.name for p in dest.iterdir()) == [
+        "0-INDEX.md",
         "00-README.md",
         "01-QUERY.md",
         "02-CLAIMS.md",
@@ -192,4 +194,28 @@ def test_this_repositorys_packet_carries_no_imported_identifier(tmp_path: Path) 
     assert "Load-bearing claims" in (out / "02-CLAIMS.md").read_text(encoding="utf-8")
     packed = [entry["path"] for entry in manifest["files"]]
     assert not any(p.startswith("docs/reference/earlier-project") for p in packed)
+    # the identifier gate's own test spells out what it bans; it never ships
+    assert "tests/gates/test_no_imported_identifiers.py" not in packed
+    assert "test_no_imported_identifiers.py" in (out / "00-README.md").read_text(encoding="utf-8")
     assert violations(out / "tree", packed) == []
+
+
+def test_the_index_maps_every_file_to_its_part_and_large_bundles_split(
+    repo: Path, tmp_path: Path
+) -> None:
+    """A retrieval tool reads the index, not the parts in order; and a bundle over the part
+    budget is written in numbered parts so no single upload is oversized."""
+    out = tmp_path / "packet"
+    proc = run_tool(repo, "--out", str(out), "--part-bytes", "40")
+    assert proc.returncode == 0, proc.stderr
+    index = (out / "0-INDEX.md").read_text(encoding="utf-8")
+    manifest = json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))
+    parts = {bundle["name"]: bundle["files"] for bundle in manifest["bundles"]}
+    assert "2-harness-1.md" in parts and "2-harness-2.md" in parts, sorted(parts)
+    for part_name, files in parts.items():
+        assert (out / part_name).is_file()
+        for rel in files:
+            assert f"| `{rel}` | `{part_name}` |" in index, rel
+    assert sum(len(files) for files in parts.values()) == len(manifest["files"])
+    readme = (out / "00-README.md").read_text(encoding="utf-8")
+    assert "2-harness-1.md" in readme and "0-INDEX.md" in readme

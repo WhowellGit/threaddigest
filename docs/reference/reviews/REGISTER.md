@@ -10,3 +10,4 @@
 |---|---|---|---|---|---|
 | 2026-09-13 | plan lock-down: five test-strategy panels and one adversarial pass | pre-baseline | in-family, Opus, fresh context | adopted per `docs/PLAN.md` § Adversarial review | `2026-09-13-adversarial-review.md` |
 | 2026-09-13 | the earlier project's harness and documentation practices | pre-baseline | in-family, Opus, fresh context | adopted per `docs/decisions/DECISIONS.md` | `2026-09-13-documentation-practices-assessment.md` |
+| 2026-09-14 | the external review packet and its brief before the first send (a prompt template is a gate artifact) | fe0f9d8 | in-family, three seats (top tier dry run; Opus critic; Opus separation auditor), fresh context, packet-only | seventeen packet findings applied, two auditor verdicts held for Wes, eight system findings recorded (two reproduced) | `2026-09-14-packet-brief-panel.md` |
