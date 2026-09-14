@@ -79,7 +79,7 @@ that only goes down.
 | Wonder why something was decided the way it was | `docs/insights/INSIGHTS_2026-09-12.md`, then `docs/decisions/DECISIONS.md` |
 | Evaluate a new approach or library | `docs/decisions/DECISIONS.md` § settled negatives first (do not rebuild a killed lever) |
 | Write a brief for a sub-agent | `docs/reference/AGENT_BRIEF.md` (the template), then the routing rows the task touches |
-| Decide whether to adopt a practice from the earlier project | `docs/reference/reviews/2026-09-13-documentation-practices-assessment.md`, `docs/reference/reviews/2026-09-13-harness-assessment.md` § 7 |
+| Decide whether to adopt a practice from the earlier project | `docs/reference/earlier-project/EARLIER_PROJECT_REFERENCE.md` first (the self-contained entry point), then `docs/reference/reviews/2026-09-13-documentation-practices-assessment.md` and `docs/reference/reviews/2026-09-13-harness-assessment.md` § 7 |
 | Run a retrospective, or judge whether a lesson from the earlier project held | `docs/learnings/LEARNINGS_TRANSFER.md` (§5 predictions; §6 how to evolve it) |
 | Fix a bug, or harden a resolution so it cannot regress | `.claude/skills/harden/SKILL.md` (the checklist), then `docs/runbook/KNOWN_ISSUES.md` and `docs/runbook/GUARDS.md` |
 

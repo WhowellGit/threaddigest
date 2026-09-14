@@ -13,7 +13,7 @@
 4. Milestone MB when the new QNAP arrives: bare repository over SSH, first push through the pre-push hook, nightly bundle, restore drill from the NAS copy.
 5. The review runner and the first external review at tranche B's design freeze; the last two days' enforcement changes are that review's first job.
 6. Code-health gate, layer one (a `code_health` ratchet family in `make check`), as the first build of the next session on Wes's go; the CodeScene trial at the end of the first milestone after that.
-7. The self-contained earlier-project reference document (shape in `docs/decisions/DECISIONS.md` § 2026-09-14 (later)); no harness page for this project exists yet, only its proposed name.
+7. The harness page for this project (proposed name only so far; it will link to `docs/reference/earlier-project/EARLIER_PROJECT_REFERENCE.md`, built 2026-09-14) and moving the assessments beside that reference as appendices.
 8. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
 
 ## Do not undo
