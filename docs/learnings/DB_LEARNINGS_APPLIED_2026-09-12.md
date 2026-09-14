@@ -86,7 +86,7 @@ The earlier system, for transfer judgement: a solo-operator-plus-agents bug-inte
 | "Top issue" ranking | **Decided 2026-09-13:** distinct authors, then comments, then score; never raw post count |
 | "Zero new posts" alarm threshold | Per subreddit; start at 3 consecutive runs and tune |
 | Windows in scope? | No, unless a coworker needs it |
-| Additional source documents | its issue register, its database integrity reference, its breakage-pattern catalogue, and its update-semantics note would sharpen the database side further |
+| Additional source documents | the earlier project's issue register, database integrity reference, breakage-pattern catalogue, and update-semantics note would sharpen the database side further |
 
 ## 6. Lessons that did not transfer (and why)
 

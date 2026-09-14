@@ -25,5 +25,5 @@ A suspicion investigated and found not to be a bug is recorded here with how it 
 
 | Date | Question | How verified | Answer |
 |---|---|---|---|
-| 2026-09-13 | Does any code reference the per-run JSONL sidecar that was cut? | `grep -rn -i jsonl src/ tests/ tools/` | No; only documents did, and they were swept in commit `589ba5f` |
+| 2026-09-13 | Does any code reference the per-run JSONL sidecar that was cut? | `grep -rn -i jsonl src/ tests/ tools/` | No; only documents did, and they were swept in commit `4e94584` |
 | 2026-09-13 | one `make check` run measured coverage 98.12 instead of 98.16 (66/42 missed vs 65/41); five later runs stable | re-ran `make check` five times | no reproducible cause found; the 0.5 slack absorbed it; watch for recurrence |

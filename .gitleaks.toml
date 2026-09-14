@@ -1,0 +1,15 @@
+# gitleaks configuration: the default rule set, plus one allowlist entry.
+#
+# The ratchet CLI addresses a floor as KEY=family.key=value (for example
+# `make ratchet-loosen KEY=skips.count=1 REASON="..."`). gitleaks' generic-api-key rule matches
+# that shape; it is a ratchet address, never a secret. Seen 2026-09-14 on tests/gates/test_hooks.py
+# and tests/gates/test_ratchet.py, where the pre-commit hook would have refused the next commit
+# touching either file. Nothing else is allowlisted; a real key still fails.
+title = "insightminer gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "ratchet KEY=family.key=value addresses are not API keys"
+regexes = ['''KEY=[a-z_]+\.[a-z_]+=\d+''']

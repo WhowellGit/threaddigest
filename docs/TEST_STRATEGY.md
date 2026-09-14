@@ -317,7 +317,7 @@ UI and LAN (UI §E, adversarial B11):
 Fixtures and probes (ingest §E, DB §F, plan "Things only Wes can do"):
 23. Create the personal restricted test subreddit (account-age rules permitting); P-01, P-02, P-04–P-06, P-09–P-12 and every cassette depend on it. Is probing public examples acceptable for Reddit-removed posts (P-03) and account-deleted authors (P-13), given the saved payload is already `[removed]` or body-blanked?
 24. Fixture scrubbing on `probe --save-fixture`: automatic username replacement (recommended) or manual review before commit?
-25. Can the earlier project's its issue register, its database integrity reference, its breakage-pattern catalogue, and its update-semantics note be shared? They would settle purge semantics and the field-ownership sets from precedent.
+25. Can the earlier project's issue register, database integrity reference, breakage-pattern catalogue, and update-semantics note be shared? They would settle purge semantics and the field-ownership sets from precedent.
 
 Deferred to a milestone, not to Wes: fetch trees via `reddit.request()` and delete the second wire shape, the parity test, and the ownership table (decide at M1b after the probes); Docker CI matrix at M4; trailing-median alarms at M3.
 

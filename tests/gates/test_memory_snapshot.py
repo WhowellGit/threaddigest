@@ -4,8 +4,8 @@ Birth incidents, all from the earlier project and all about the same asset -- Cl
 auto-memory, which lives outside git at a path-keyed location and cannot be regenerated from
 the tree:
 
-* **KI-226**: an export mirrored deletions, so deleting a memory file upstream deleted it from
-  the backup as well and the only surviving copy went with it ("the memory system ate the
+* **An export that mirrored deletions.** Deleting a memory file upstream deleted it from the
+  backup as well, and the only surviving copy went with it ("the memory system ate the
   memory"). ``test_a_deletion_in_live_memory_never_deletes_from_the_snapshot`` is that control.
 * **A restore that only counted.** The restore path printed a copy count and never checked the
   result, so an incomplete restore and a complete one printed the same thing. The controls here
@@ -69,7 +69,7 @@ def corrupting_copy(source: Path, destination: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# KI-226: add-or-update only
+# the export that mirrored deletions: add-or-update only
 # --------------------------------------------------------------------------------------
 @pytest.mark.gate
 def test_a_deletion_in_live_memory_never_deletes_from_the_snapshot(

@@ -578,7 +578,7 @@ The documents do not credit the lints. They credit four things, and say so in th
 > produced the decisive 3-axis label schema + the ranked build queue; ... and claudeWin's adversarial review
 > caught a real classifier-lift denominator defect" — value-stage learnings, line 200
 
-> "re-grounding the 120 review comments in their REAL PR threads + the REAL [org] source code ... flipped 34.8%
+> "re-grounding the 120 review comments in their REAL PR threads + the REAL [earlier-project] source code ... flipped 34.8%
 > of previously-banked labels (16/46 ...), cut across panel-unanimous auto-banks + spot-check-ratified +
 > operator-adjudicated labels alike ... A shallower approach would have banked false labels, trained a
 > classifier on noise, and produced false assumptions + silent failures with NO signal anything was wrong."

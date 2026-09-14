@@ -5,8 +5,11 @@ first is that nothing project-specific may be carried in from his earlier data p
 worry is conflation as much as confidentiality, so that project's codenames, register ids,
 script names, machine names, channels, tickets and people must not appear here at all. The
 second is that a commit or document must not carry an attribution trailer or name the model
-that wrote it. A sweep on 2026-09-13 rewrote roughly 640 occurrences across the documents; a
-rule kept by a sweep alone comes back, so it is kept by this test instead.
+that wrote it. A sweep on 2026-09-13 rewrote the documents (its measured count is in
+``docs/runbook/GUARDS.md`` G35); a rule kept by a sweep alone comes back, so it is kept by this
+test instead. Widened 2026-09-14: a lowercase codename had survived inside a quoted transcript
+line, and the company's name had survived inside an imported lint name, so the codename rule is
+case-insensitive and the company name is allowed only in its public-product sense.
 
 What is scanned: every tracked file whose extension is in :data:`TEXT_SUFFIXES`. The one
 exclusion is ``docs/reference/earlier-project-retrospectives/``: those three files plus their
@@ -75,7 +78,26 @@ RULES: tuple[Rule, ...] = (
         re.compile(r"Co-Authored[-]By|Generated with \[Claude Code\]", re.IGNORECASE),
     ),
     ("model name (write “the main session”)", re.compile(r"\b[Ff]abl[e]\b")),
-    ("earlier project's codename", re.compile(r"\b(?:D[P]I|N[F]S|D[Q]S|D[V]A)\b")),
+    (
+        "earlier project's codename",
+        # The org codename is matched in any case and with any suffix, because it also prefixes
+        # that project's service-account names; the other three stay whole-word and upper-case
+        # (their lower-case forms are ordinary technical words).
+        re.compile(r"\b(?:D[P]I|N[F]S|D[Q]S)\b|\b[Dd][Vv][Aa]\w*"),
+    ),
+    (
+        "company name outside its public-product sense",
+        # The product this project monitors is made by a company whose name is also the earlier
+        # project's employer. The name is allowed only when it names a public product, a subreddit
+        # (``r/…``), or a quoted fixture string; "its internal workflow" and imported identifiers
+        # that embed the name are red.
+        re.compile(
+            r"(?<![A-Za-z])(?<!r/)(?<![\"'])ad[o]be"
+            r"(?!(?:'s)?[\s-]*(?:premiere|after\s+effects|media\s+encoder|creative\s+cloud|"
+            r"photoshop|audition|lightroom|firefly|acrobat|fonts|stock))",
+            re.IGNORECASE,
+        ),
+    ),
     ("earlier project's register id", re.compile(r"\bK[I] #\d+|\bS[F] #\d+|\bAD[R]-\d{3}")),
     ("ticket key", re.compile(r"\b[A-Z]{3,8}-\d{4,8}\b")),
     ("Slack channel id", re.compile(r"\bC0[A-Z0-9]{8,}\b")),
@@ -179,6 +201,9 @@ PLANTED: tuple[str, ...] = (
     "Generated with [" + "Claude Code]",
     "the main session runs on " + "Fab" + "le",
     "the collector was called " + "NF" + "S and the store " + "DQ" + "S",
+    "the org was " + "dv" + "a and its bot was " + "dv" + "axbot",
+    "the company's internal workflow at " + "Ado" + "be",
+    "the earlier lint scalar_" + "ado" + "be_lint",
     "see " + "KI" + " #226 and " + "AD" + "R-064",
     "tracked as " + "PROJ" + "-12345",
     "posted in " + "C01" + "ABCDEF23",
@@ -228,6 +253,10 @@ def test_positive_control_the_carve_outs_are_narrow(tmp_path: Path) -> None:
             "GIT_AUTHOR_EMAIL=ratchet-test@example.invalid",
             "INSIGHTMINER_DATA_DIR=/Users/[user]/repos/insightminer/data",
             "/Users/wesmax/repos/insightminer",
+            "the primary Adobe Premiere Pro community; Adobe's After Effects; Adobe Media Encoder",
+            "r/adobe is a public subreddit",
+            'names=["premiere", "adobe"]',
+            "an advance, advanced, and advantage (no codename inside ordinary words)",
         ]
     )
     root, paths = _tree(tmp_path / "edge", f"# s\n\n{allowed}\n")
@@ -238,7 +267,9 @@ def test_positive_control_the_carve_outs_are_narrow(tmp_path: Path) -> None:
             "bind " + "10.0." + "0.5",  # a real host, not loopback
             "mail " + "someone@" + "weshowell.com",  # right domain, not the recorded identity
             "/Users/" + "other/repos",  # neither the operator nor the placeholder
+            "the " + "Ado" + "be data sources of the earlier project",  # the company, not a product
+            "the org codename in lower case: " + "dv" + "a",
         ]
     )
     other, other_paths = _tree(tmp_path / "near", f"# s\n\n{near}\n")
-    assert len(violations(other, other_paths)) == 3
+    assert len(violations(other, other_paths)) == 5

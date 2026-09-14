@@ -20,7 +20,7 @@
 - The 26 harness answers and the recommendations for the earlier repository (synthesis running); the harness catalogue re-scored from them.
 
 ## Waiting on Wes
-Reddit credentials; the GitHub repository and its plan; the agent token scope; the pruning pass-one ruling and its three judgement calls (`.build/prune/removal-list.md`); the day-zero items from the harness assessment (suppression statuses now ride with the expiry-date change). Full lists: `docs/decisions/DECISIONS.md` § "Moved from STATUS.md".
+Reddit credentials; the GitHub repository and its plan; the agent token scope; the pruning pass-one ruling and its three judgement calls (`~/repos/insightminer-desktop-archive/earlier-project/findings/from-build-2026-09-14/prune/removal-list.md` (moved out of the repo folder 2026-09-14 because it quotes the earlier project)); the day-zero items from the harness assessment (suppression statuses now ride with the expiry-date change). Full lists: `docs/decisions/DECISIONS.md` § "Moved from STATUS.md".
 
 ## Session hygiene
 Sessions start in `~/repos/insightminer`; the single memory home is the repo-keyed directory; the old Desktop-keyed one is a pointer.
