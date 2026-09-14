@@ -44,8 +44,8 @@ setup:
 # Standalone so an existing checkout can install the hooks without a full `make setup`, and
 # so `make check`'s closing line has something to name. `make setup` calls this target
 # rather than repeating the command: one installer, one place to fix it.
-hooks:
-	$(UV) run pre-commit install
+hooks: ## install the git hooks and pre-build their environments (network on first run)
+	$(UV) run pre-commit install --install-hooks
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
