@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-pytestmark = pytest.mark.gate("hooks")
+pytestmark = pytest.mark.gate("G23")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS_DIR = REPO_ROOT / "tools" / "hooks"
@@ -196,7 +196,7 @@ def test_no_bypass_git_refuses_attribution_trailers(
         assert "BLOCKED" in proc.stderr and proc.stderr.count("\n") == 1
 
 
-@pytest.mark.gate("attribution-trailer")
+@pytest.mark.gate("G36")
 @pytest.mark.parametrize("option", ["-F", "--file", "-F{path}", "--file={path}"])
 def test_positive_control_a_trailer_in_a_message_file_is_red(project: Path, option: str) -> None:
     """The same tree goes red with the trailer in the -F file and green once it is gone."""

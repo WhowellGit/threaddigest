@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -168,3 +169,152 @@ def test_positive_control_a_second_control_from_the_same_file_resolves(tmp_path:
     assert unresolved(root, KNOWN_ISSUES, ISSUES_COLUMN) == [
         "docs/runbook/KNOWN_ISSUES.md:5: tests/test_real.py defines no nope"
     ]
+
+
+# ------------------------------------------------- the reverse direction and hashes (2026-09-14)
+#
+# Widened after a fresh-context audit found seven gate files carrying ``@pytest.mark.gate(...)``
+# with no ledger row -- G40 proved ledger -> test and nothing proved test -> ledger, so the
+# quarterly review read a ledger describing a subset of the guards -- and one cited commit hash
+# that no longer resolved, in the § Swept table, one commit after the commit that remapped
+# hashes. Both are the same failure as the original: a register that reads as complete.
+
+GATE_MARKER = re.compile(r"pytest\.mark\.gate\(\s*\"([^\"]+)\"\s*\)")
+ID_COLUMN = "ID"
+GATES_DIR = Path("tests") / "gates"
+#: ``commit abc1234`` or a backticked hash; at least one letter, so a date is not a hash.
+HASH_IN_PROSE = re.compile(r"(?:\bcommit\s+|`)([0-9a-f]{7,40})(?=`|\b)")
+HASH_SOURCES = ("CLAUDE.md",)
+HASH_GLOBS = ("docs/**/*.md", "memory-snapshot/*.md")
+HASH_EXCLUDED = ("docs/reference/earlier-project-retrospectives/",)
+
+
+def ledger_ids(text: str) -> set[str]:
+    """Every id in an ``ID`` column; a cell such as ``G08/G09`` names two."""
+    ids: set[str] = set()
+    for _, cell in cells_under(text, ID_COLUMN):
+        ids.update(part.strip() for part in re.split(r"[/,]", cell.strip("*` ")) if part.strip())
+    return ids
+
+
+def marker_ids(root: Path) -> list[tuple[str, str]]:
+    """``(gate file, id)`` for every ``gate`` marker that names an id (space-separated ids)."""
+    out: list[tuple[str, str]] = []
+    for path in sorted((root / GATES_DIR).glob("test_*.py")):
+        rel = path.relative_to(root).as_posix()
+        for m in GATE_MARKER.finditer(path.read_text(encoding="utf-8")):
+            out += [(rel, ident) for ident in m.group(1).split()]
+    return out
+
+
+def gate_files_missing_from_ledger(root: Path, ledger: str) -> list[str]:
+    return [
+        rel
+        for path in sorted((root / GATES_DIR).glob("test_*.py"))
+        if (rel := path.relative_to(root).as_posix()) not in ledger
+    ]
+
+
+def marker_ids_missing_from_ledger(root: Path, ledger: str) -> list[str]:
+    ids = ledger_ids(ledger)
+    return sorted({f"{rel}: {ident}" for rel, ident in marker_ids(root) if ident not in ids})
+
+
+def cited_hashes(root: Path) -> list[tuple[str, int, str]]:
+    """``(file, line, hash)`` for every commit hash cited in the curated documents."""
+    files = [root / s for s in HASH_SOURCES] + [p for g in HASH_GLOBS for p in root.glob(g)]
+    out: list[tuple[str, int, str]] = []
+    for path in sorted({p for p in files if p.is_file()}):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(HASH_EXCLUDED):
+            continue
+        text = strip_comments(path.read_text(encoding="utf-8"))
+        for number, line in enumerate(text.splitlines(), start=1):
+            out += [
+                (rel, number, m.group(1))
+                for m in HASH_IN_PROSE.finditer(line)
+                if re.search(r"[a-f]", m.group(1))
+            ]
+    return out
+
+
+def resolves_in_git(root: Path, sha: str) -> bool:
+    proc = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+        capture_output=True,
+        timeout=60,
+    )
+    return proc.returncode == 0
+
+
+def test_every_gate_file_and_marker_id_has_a_ledger_row() -> None:
+    ledger = (ROOT / GUARDS).read_text(encoding="utf-8")
+    missing_files = gate_files_missing_from_ledger(ROOT, ledger)
+    missing_ids = marker_ids_missing_from_ledger(ROOT, ledger)
+    assert not missing_files and not missing_ids, "gates with no row in GUARDS.md:\n" + "\n".join(
+        missing_files + missing_ids
+    )
+
+
+def test_every_cited_commit_hash_resolves() -> None:
+    found = [
+        f"{rel}:{n}: {sha}" for rel, n, sha in cited_hashes(ROOT) if not resolves_in_git(ROOT, sha)
+    ]
+    assert not found, "commit hashes cited in documents that no longer exist:\n" + "\n".join(found)
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_gate_file_or_marker_id_without_a_row_is_red(tmp_path: Path) -> None:
+    gates = tmp_path / GATES_DIR
+    gates.mkdir(parents=True)
+    (gates / "test_a.py").write_text(
+        "import pytest\n\n@pytest.mark." + 'gate("G01 G02")\ndef test_x() -> None:\n    pass\n',
+        encoding="utf-8",
+    )
+    (gates / "test_b.py").write_text("def test_y() -> None:\n    pass\n", encoding="utf-8")
+    ledger = "| ID | Name |\n|---|---|\n| G01 | a (`tests/gates/test_a.py`) |\n| G08/G09 | two |\n"
+    assert gate_files_missing_from_ledger(tmp_path, ledger) == ["tests/gates/test_b.py"]
+    assert marker_ids_missing_from_ledger(tmp_path, ledger) == ["tests/gates/test_a.py: G02"]
+    assert ledger_ids(ledger) == {"G01", "G08", "G09"}
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_dangling_commit_hash_is_red(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "CLAUDE.md").write_text(
+        "see commit 0badc0d, `feedback-plan`, and `20260913`\n", encoding="utf-8"
+    )
+    (tmp_path / "docs" / "x.md").write_text(
+        "<!-- commit abcdef1 inside a comment is documentation -->\n`abcdef2` is a citation\n",
+        encoding="utf-8",
+    )
+    assert cited_hashes(tmp_path) == [("CLAUDE.md", 1, "0badc0d"), ("docs/x.md", 2, "abcdef2")]
+    assert not resolves_in_git(ROOT, "0badc0d")
+    head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout.strip()
+    assert resolves_in_git(ROOT, head)
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_guard_without_a_control_is_counted(tmp_path: Path) -> None:
+    """The ratchet's ``guards_without_control`` ceiling counts Active rows and only those."""
+    from tools.ratchet import measure_guards
+
+    ledger = tmp_path / GUARDS
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        "# g\n\n## Active\n\n| ID | Positive control node |\n|---|---|\n"
+        "| G1 | `tests/gates/test_a.py::test_x` |\n| G2 | none yet |\n"
+        "| G3 | external control: pre-commit, seen red 2026-09-14 |\n\n"
+        "## Retired\n\n| ID | Positive control node |\n|---|---|\n| G9 | none |\n",
+        encoding="utf-8",
+    )
+    hits: list[str] = []
+    notes: list[str] = []
+    assert measure_guards(tmp_path, hits, notes) == 1
+    assert len(hits) == 1 and "G2" in hits[0] and "guard-without-control" in hits[0]

@@ -223,7 +223,7 @@ def _tree(root: Path, body: str) -> tuple[Path, list[str]]:
     return root, ["docs/CLEAN.md", "docs/SUSPECT.md", "notes.bin"]
 
 
-@pytest.mark.gate("imported-identifiers")
+@pytest.mark.gate("G35")
 def test_positive_control_a_planted_identifier_is_red(tmp_path: Path) -> None:
     root, paths = _tree(tmp_path / "dirty", "# s\n\n" + "\n".join(PLANTED) + "\n")
     found = violations(root, paths)
@@ -237,13 +237,13 @@ def test_positive_control_a_planted_identifier_is_red(tmp_path: Path) -> None:
     }, rules
 
 
-@pytest.mark.gate("imported-identifiers")
+@pytest.mark.gate("G35")
 def test_positive_control_the_same_tree_without_the_violation_is_green(tmp_path: Path) -> None:
     root, paths = _tree(tmp_path / "clean", "# s\n\nthe earlier project's fix log.\n")
     assert violations(root, paths) == []
 
 
-@pytest.mark.gate("imported-identifiers")
+@pytest.mark.gate("G35")
 def test_positive_control_the_carve_outs_are_narrow(tmp_path: Path) -> None:
     """The allowed forms stay green and their near neighbours go red."""
     allowed = "\n".join(

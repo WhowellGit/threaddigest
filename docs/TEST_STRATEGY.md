@@ -179,14 +179,19 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G26 | PR-body gate | CI | M0 | P2 | planned | deferrable to M1 if the two-day box overruns |
 | G27 | Changed-tests sticky comment | CI | M0 | P2 | planned | |
 | G28 | Portability | CI | M0 | P1 | planned | external control: "last seen red" line in `GUARDS.md` |
-| G29 | pre-commit hooks | commit | M0 | P1 | planned | |
+| G29 | pre-commit hooks | commit | M0 | P1 | shipped | installed 2026-09-14 (`make hooks`); a pre-push stage runs `make check` |
 | G30 | Guard reachability | gate | M1a | P1 | shipped | the required half of the positive-control split; tests/gates/test_invariants_planted.py::test_every_invariant_has_a_planter |
 | G31 | Connection chokepoint (behavioral) | gate | M0 | P1 | planned | |
 | G32 | No-bypass proof | gate | M1 | P2 | changed | dry-run fetches; zero-HTTP is for `doctor --no-network` and `config validate` (see CF-01) |
-| G33 | Doc currency | gate | M0 | P1 | changed | only the INDEX ↔ `docs/**` bidirectional check remains (plan); `KNOWN_ISSUES` node ids, `GUARDS` ↔ markers, data dictionary, count regex not gates |
+| G33 | Doc currency | gate | M0 | P1 | shipped | only the INDEX ↔ `docs/**` bidirectional check remains (plan); `KNOWN_ISSUES` node ids, `GUARDS` ↔ markers, data dictionary, count regex not gates |
 | G41 | Guard firings ledger | CI | M0 | P2 | planned | |
 | G42 | Weekly enforcement audit | CI | M0–M1 | P2 | planned | deferrable to M1 |
 | G43 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
+| G44 | Routing pointers resolve | gate | M1a | P1 | shipped | `tests/gates/test_routing_rows_resolve.py`; found two dangling pointers on its first run |
+| G45 | Status-page contract | gate | M1a | P1 | shipped | `tests/gates/test_status_page.py`; stamp, cap, headings, no restated counts |
+| G46 | No sleeping under pytest | gate | M1a | P2 | shipped | `tests/gates/test_no_sleep_under_pytest.py` (id assigned 2026-09-14) |
+| G47 | Memory snapshot and one memory home | gate | M1a | P1 | shipped | `tools/memory_snapshot.py` check + diff in `make check`; `tests/gates/test_memory_snapshot.py` |
+| G48 | No tracked daemon state | gate | M1a | P2 | shipped | `tests/gates/test_no_tracked_daemon_state.py` (KI-001; id assigned 2026-09-14) |
 | G37 | Weekly stress | CI | M1d | P3 | changed | 50k/500k corpus cut; the `EXPLAIN QUERY PLAN` assertions live in DB-08 |
 | G38 | Mutation (informational) | CI | M3 | P3 | cut | optional tool, never a ratchet; no `.ratchets/mutation.txt` (plan) |
 | G34 | Retired claims not stated as live | gate | M1a | P1 | shipped | the panel proposal formerly numbered G34 is now G41 |

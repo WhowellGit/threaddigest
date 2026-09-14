@@ -1,1 +1,2 @@
 count=2
+guards_without_control=2

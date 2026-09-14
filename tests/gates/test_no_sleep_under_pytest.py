@@ -10,19 +10,19 @@ from insightminer import cli
 from insightminer.adapters.clock import SystemClock
 
 
-@pytest.mark.gate("no-sleep-rule")
+@pytest.mark.gate("G46")
 def test_cli_builds_a_guard_clock_under_pytest() -> None:
     """This test itself runs under pytest, so ``PYTEST_CURRENT_TEST`` is set."""
     assert isinstance(cli.build_clock(), cli.GuardClock)
 
 
-@pytest.mark.gate("no-sleep-rule")
+@pytest.mark.gate("G46")
 def test_cli_builds_a_system_clock_without_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     assert isinstance(cli.build_clock(), SystemClock)
 
 
-@pytest.mark.gate("no-sleep-rule")
+@pytest.mark.gate("G46")
 def test_guard_clock_sleep_raises() -> None:
     """The positive control: a ``GuardClock`` that silently returned would defeat the
     whole point of the guard.

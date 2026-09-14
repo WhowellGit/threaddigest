@@ -159,6 +159,7 @@ SPECS: tuple[Spec, ...] = (
     Spec("suppressions", "filterwarnings_ignore", DOWN),
     Spec("suppressions", "mypy_overrides", DOWN),
     Spec("review_only_rules", "count", DOWN),
+    Spec("review_only_rules", "guards_without_control", DOWN),
 )
 FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
 
@@ -371,7 +372,10 @@ def measure(root: Path, coverage_json: Path) -> Measurement:
         "tests": {"collected": collected, "asserts": asserts},
         "skips": {"count": skips},
         "suppressions": {**counts, "mypy_overrides": len(override_hits)},
-        "review_only_rules": {"count": measure_rules(root, hits, notes)},
+        "review_only_rules": {
+            "count": measure_rules(root, hits, notes),
+            "guards_without_control": measure_guards(root, hits, notes),
+        },
     }
     return Measurement(values=values, hits=hits, notes=notes)
 
@@ -535,6 +539,52 @@ def measure_rules(root: Path, hits: list[str], notes: list[str]) -> int:
     review_only = rules_with(classify_rules(root), REVIEW_ONLY)
     hits.extend(f"{rule.describe()} [review-only]" for rule in review_only)
     return len(review_only)
+
+
+GUARDS_DOC = "docs/runbook/GUARDS.md"
+GUARDS_ACTIVE_HEADING = "## Active"
+CONTROL_COLUMN = "Positive control node"
+NODE_ID_IN_CELL = re.compile(r"tests/[\w./-]+\.py")
+EXTERNAL_CONTROL = re.compile(r"\bexternal\b", re.IGNORECASE)
+
+
+def measure_guards(root: Path, hits: list[str], notes: list[str]) -> int:
+    """Count the Active guards ledger rows with no positive control (2026-09-14).
+
+    The ledger's own preamble calls a blank control cell a failure, and three rows read
+    ``none yet`` regardless. A row counts unless its control cell names a test file or says the
+    control is external (a hook or a pre-commit stage that cannot be planted from inside the
+    suite and carries a dated "seen red" line instead). Printed like a suppression; the count is
+    a ceiling in ``.ratchets/review_only_rules.txt`` that only goes down.
+    """
+    path = root / GUARDS_DOC
+    if not path.is_file():
+        notes.append(f"{GUARDS_DOC} missing; guards_without_control measured as 0")
+        return 0
+    count = 0
+    index: int | None = None
+    in_active = False
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.startswith("## "):
+            in_active = line.strip() == GUARDS_ACTIVE_HEADING
+            index = None
+            continue
+        if not in_active:
+            continue
+        cells = split_row(line)
+        if not cells:
+            index = None
+        elif CONTROL_COLUMN in cells:
+            index = cells.index(CONTROL_COLUMN)
+        elif index is not None and index < len(cells) and not is_separator_row(cells):
+            cell = cells[index]
+            if not NODE_ID_IN_CELL.search(cell) and not EXTERNAL_CONTROL.search(cell):
+                count += 1
+                hits.append(
+                    f"{GUARDS_DOC}:{number}: {cells[0]} has no positive control "
+                    "[guard-without-control]"
+                )
+    return count
 
 
 # --------------------------------------------------------------------------- files
