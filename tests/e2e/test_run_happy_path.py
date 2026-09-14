@@ -117,15 +117,42 @@ def test_wal_is_truncated_at_end_of_run(
 def test_crash_between_pages_commits_earlier_pages_and_rerun_completes(
     cli_runner, db_at_head, loaded_gateway: FakeRedditGateway, demo_fixture_path: Path, table_rows
 ) -> None:
-    """SW-04: ``CrashInjected`` must escape uncaught. The first run's row is left
-    ``running`` and the SECOND run's stale sweep (section 12.2 clause 4: our own pid)
-    stamps it ``crashed`` in-process, then completes its own sweep cleanly.
+    """SW-04: ``CrashInjected`` must escape uncaught, **page 1's writes must survive it**,
+    and the SECOND run's stale sweep (section 12.2 clause 4: our own pid) stamps the first
+    run's row ``crashed`` in-process before completing its own sweep cleanly.
+
+    The first half is the half SW-04 exists for and the half this test used to leave
+    untested (round5-findings.json panel P1): asserting only the two run statuses stays green
+    against a ``write_page`` whose transaction is widened across pages, or one that rolls the
+    last committed page back -- the exact defect. The committed evidence is asserted directly:
+    rows in ``posts``, one ``post_sources`` row each, and a ``run_subreddits`` row for run 1
+    whose counters equal what is on disk.
+
+    **Not asserted: a ``stop_reason IS NULL`` row.** The panel asked for one, and the demo
+    fixture cannot produce it: every seeded source fits in a single ``/new`` page (39 posts for
+    the first), so the source that completes before the crash writes its TERMINAL row at
+    section 6.3's end-of-loop and the source the crash lands in has written nothing yet. The
+    claim SW-04 actually makes -- an earlier page's writes are committed and survive an
+    uncaught crash -- is what the counters below pin, and it fails against a widened
+    transaction exactly as a NULL-stop_reason assertion would.
     """
     loaded_gateway.crash_after("page", 1)
     args = ["run", "--gateway", "fake", "--fixture", str(demo_fixture_path)]
 
     first = cli_runner.invoke(cli.app, args)
     assert first.exit_code != 0 or first.exception is not None
+
+    crashed_run = next(row for row in table_rows("runs") if row["kind"] == "run")
+    assert crashed_run["status"] == "running", "CrashInjected was swallowed somewhere"
+    posts_from_page_one = table_rows("posts")
+    assert len(posts_from_page_one) > 0, "page 1's writes did not survive CrashInjected"
+    assert len(table_rows("post_sources")) == len(posts_from_page_one)
+    progress = [row for row in table_rows("run_subreddits") if row["run_pk"] == crashed_run["pk"]]
+    assert progress, "the crashed run committed no per-source progress"
+    assert sum(row["new_items"] for row in progress) == len(posts_from_page_one)
+    assert len(posts_from_page_one) < _visible_post_count(demo_fixture_path), (
+        "the crash did not stop the sweep early, so nothing about surviving writes is proven"
+    )
 
     second = cli_runner.invoke(cli.app, args)
     assert second.exit_code == 0, second.output
@@ -135,6 +162,13 @@ def test_crash_between_pages_commits_earlier_pages_and_rerun_completes(
     assert collection_runs[0]["status"] == "crashed"
     assert collection_runs[0]["finished_at"] is not None
     assert collection_runs[1]["status"] == "ok"
+
+    # The rerun adds the posts the crash never reached, and keeps the ones it did.
+    posts_after_rerun = table_rows("posts")
+    assert len(posts_after_rerun) == _visible_post_count(demo_fixture_path)
+    assert len(posts_after_rerun) > len(posts_from_page_one)
+    survived = {row["reddit_id"] for row in posts_from_page_one}
+    assert survived <= {row["reddit_id"] for row in posts_after_rerun}
 
 
 def test_keyboard_interrupt_exits_130_and_finishes_the_run_cancelled(

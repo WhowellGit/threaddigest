@@ -119,3 +119,35 @@ def test_doctor_rejects_an_unparseable_alert_window_with_78(cli_runner, db_at_he
     # A `typer.Exit` reaches CliRunner as a SystemExit; anything else would be a traceback.
     assert isinstance(result.exception, SystemExit), result.output
     assert result.exit_code == 78
+
+
+def test_doctor_on_a_corrupt_database_lists_its_checks_instead_of_a_traceback(
+    cli_runner, db_at_head: Path
+) -> None:
+    """round5-findings.json panel P1, end to end.
+
+    Reproduced on this tree before the fix: ``db init``, zero 4096 bytes at offset 100, then
+    ``doctor --no-network`` exited 1 with an unhandled ``sqlalchemy`` ``DatabaseError`` and NO
+    output at all. ``run_checks`` fell through to ``_checks_with_a_database`` because it
+    branched on "the file exists" rather than on the ``database_present`` check, and neither
+    ``cli.doctor`` (``ConfigError``) nor ``cli._doctor_report`` (``ValueError``) catches a
+    ``DatabaseError``. The definition of done -- "doctor lists its checks" -- failed in the one
+    case the ``database_present`` and ``quick_check`` rows exist for.
+    """
+    db_path = db_path_for(db_at_head)
+    with db_path.open("r+b") as handle:
+        handle.seek(100)
+        handle.write(b"\xff" * 4096)
+
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network"])
+
+    assert result.exception is None or isinstance(result.exception, SystemExit), result.output
+    assert result.exit_code == 1, result.output
+    listed = {
+        line.split("] ", 1)[1].split(":", 1)[0]
+        for line in result.output.splitlines()
+        if "]" in line
+    }
+    assert listed == EXPECTED_CHECKS, result.output
+    assert "database_present" in result.output
+    assert "quick_check" in result.output

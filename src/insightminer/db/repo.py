@@ -77,6 +77,7 @@ __all__ = [
     "recount_authors",
     "record_subreddit_failure",
     "rows_below_normalizer_version",
+    "run_options",
     "running_runs",
     "seed_subreddits",
     "set_gap_suspected",
@@ -997,6 +998,22 @@ def stale_candidates(
         .order_by(runs.c.pk)
     ).scalars()
     return [_run_row(row) for row in running], [int(pk) for pk in orphans]
+
+
+def run_options(conn: Connection, kind: str = "run") -> list[str | None]:
+    """Every run row's ``options_json`` for one ``kind``, oldest first.
+
+    The read behind ``cli``'s content-based ``--gateway fake`` guard (§11.3 step 2): the only
+    record of which gateway wrote a row is the ``gateway`` key ``cli._options_json`` puts in
+    ``options_json``, so the guard needs the raw strings and decides for itself. ``NULL`` is
+    kept rather than filtered: a ``skipped_locked`` row has no options and also wrote no data,
+    and the caller is the layer that knows that.
+    """
+    runs = _table("runs")
+    rows = conn.execute(
+        select(runs.c.options_json).where(runs.c.kind == kind).order_by(runs.c.pk)
+    ).scalars()
+    return [None if row is None else str(row) for row in rows]
 
 
 def last_successful_run(conn: Connection, kind: str = "run") -> RunRow | None:

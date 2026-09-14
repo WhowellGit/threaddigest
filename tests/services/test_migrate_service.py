@@ -29,6 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import Engine, select
 from sqlalchemy.exc import OperationalError
 
@@ -575,7 +576,15 @@ def test_failed_restore_bookkeeping_still_reports_restored_and_leaves_a_recovera
     """§10.3 T12 point 3: ``restored=True`` is reported on **both** paths, because the restore
     is what the operator must know about and the bookkeeping failing on top of it is a second
     sentence, not a different outcome. The run row then reads ``running`` in the restored
-    file, which §12.2 makes the next run stamp ``crashed`` -- recoverable, never silent."""
+    file, which §12.2 makes the next run stamp ``crashed`` -- recoverable, never silent.
+
+    **The outcome must NAME the bookkeeping failure** (round5-findings.json panel P1). It used
+    to say only "migration failed, restored from <path>", which reads as a clean restore: the
+    caller recorded and printed that sentence while the pre-migrate file sat on disk with no
+    ``backups`` row. ``prune_pre_migrate_backups`` reads ``repo.backups_of_kind``, so an
+    unreferenced file is never counted against ``KEEP_PRE_MIGRATE_BACKUPS`` and never deleted,
+    and ``doctor`` cannot see it either. Both sentences now travel on ``MigrationOutcome.error``
+    and therefore into the exit-1 block ``cli._print_migration`` prints."""
     _seed_at_revision_0001(db_path)
     monkeypatch.setattr(
         db_backup, "foreign_key_check", lambda _path: ["('run_subreddits', 1, 'runs', 1)"]
@@ -589,6 +598,17 @@ def test_failed_restore_bookkeeping_still_reports_restored_and_leaves_a_recovera
     assert outcome.restored is True
     assert outcome.error is not None
     assert "restored from" in outcome.error
+    assert "could not be updated" in outcome.error
+    assert "OperationalError" in outcome.error
+    assert "will not be pruned" in outcome.error
+    # The orphan the sentence is about: a backup file on disk with no `backups` row.
+    assert outcome.backup_path is not None and outcome.backup_path.is_file()
+    engine = engine_for(db_path)
+    try:
+        with engine.connect() as conn:
+            assert repo.backups_of_kind(conn, "pre-migrate") == []
+    finally:
+        engine.dispose()
     upgrade_rows = [row for row in _read_runs(db_path) if row["kind"] == "db_upgrade"]
     assert len(upgrade_rows) == 1
     assert upgrade_rows[0]["status"] == "running"
@@ -614,4 +634,110 @@ def test_a_seed_failure_finishes_the_db_init_run_row_failed(
     assert len(init_rows) == 1
     assert init_rows[0]["status"] == "failed"
     assert init_rows[0]["finished_at"] is not None
+    assert [level for level, _message in notifier.sent] == ["error"]
+
+
+# --- the missing-database precondition (round5-findings.json panel P0) -------------------------
+
+
+def test_db_upgrade_with_no_database_refuses_before_it_writes_anything(
+    db_path: Path,
+    ctx_factory: CtxFactory,
+    settings: Settings,
+    clock: FakeClock,
+    notifier: FakeNotifier,
+) -> None:
+    """The panel's P0, closed. ``_upgrade_locked`` used to call ``ctx_factory`` first:
+    ``engine_for`` created a 0-byte ``insightminer.db`` and ``repo.insert_run`` then died with
+    ``no such table: runs`` as an uncaught traceback (exit 1), leaving a phantom database that
+    made the next ``run`` report "pending migrations" instead of "run: insightminer db init".
+
+    The refusal is §8's named precondition and it happens before any engine is opened, so the
+    data directory is left with no database file at all. The subdirectory tree IS still
+    created -- that is the earlier P0's fix (the flock lives inside it) and it is not a
+    fabricated database.
+    """
+    assert not db_path.exists()
+
+    with pytest.raises(migrate_service.DatabaseMissingError) as caught:
+        migrate_service.db_upgrade(ctx_factory, settings=settings, clock=clock, notifier=notifier)
+
+    assert caught.value.db_path == db_path
+    assert str(caught.value) == migrate_service.database_missing_message(db_path)
+    assert "insightminer db init" in str(caught.value)
+    assert not db_path.exists(), "db upgrade fabricated a database it was supposed to refuse"
+    assert not list(settings.data_dir.glob("*.db"))
+    assert notifier.sent == []
+
+
+def test_db_upgrade_refuses_a_database_stamped_ahead_of_this_build(
+    db_path: Path,
+    ctx_factory: CtxFactory,
+    settings: Settings,
+    clock: FakeClock,
+    notifier: FakeNotifier,
+) -> None:
+    """A rollback to an older binary: the stamp names a revision this build does not ship.
+
+    Verified failure before the fix: alembic ``CommandError: Can't locate revision`` escaped
+    as a raw traceback, the ``runs`` row was left ``running``, and a full-size pre-migrate
+    backup was left on disk on every attempt because step 12's prune only runs on success. The
+    refusal now happens before the run row and before the backup (panel P1).
+    """
+    engine = engine_for(db_path)
+    try:
+        migrate_to_head(engine)
+        version = sa.table("alembic_version", sa.column("version_num"))
+        with engine.begin() as conn:
+            conn.execute(sa.update(version).values(version_num="0009_future"))
+    finally:
+        engine.dispose()
+
+    with pytest.raises(db_migrate.UnknownRevisionError):
+        migrate_service.db_upgrade(ctx_factory, settings=settings, clock=clock, notifier=notifier)
+
+    assert _read_runs(db_path) == [], "a refused upgrade wrote a run row"
+    assert list((settings.data_dir / "backups").glob("pre-migrate-*")) == []
+
+
+_UNLOCATABLE = "Can't locate revision identified by '0009_future'"
+
+
+def _raise_migration_failed(*_args: object, **_kwargs: object) -> None:
+    raise db_migrate.MigrationFailedError(_UNLOCATABLE)
+
+
+def test_a_command_error_inside_the_migration_is_restored_like_a_database_error(
+    db_path: Path,
+    ctx_factory: CtxFactory,
+    settings: Settings,
+    clock: FakeClock,
+    notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """panel P1: ``_migrate_and_verify`` caught only ``DatabaseError``, so an Alembic-level
+    failure escaped ``db_upgrade`` uncaught -- no ``MigrationOutcome``, no restore, a stuck
+    ``running`` row, and no printed backup path -- while ``run``, ``db init`` and ``doctor``
+    all told the operator to run exactly this command. Every migration failure now takes the
+    step-11 restore path."""
+    _seed_at_revision_0001(db_path)
+    monkeypatch.setattr(db_migrate, "upgrade_head", _raise_migration_failed)
+
+    outcome = migrate_service.db_upgrade(
+        ctx_factory, settings=settings, clock=clock, notifier=notifier
+    )
+
+    assert outcome.restored is True
+    assert outcome.migrated is False
+    assert outcome.error is not None and "restored from" in outcome.error
+    assert outcome.backup_path is not None and outcome.backup_path.is_file()
+    upgrade_rows = [row for row in _read_runs(db_path) if row["kind"] == "db_upgrade"]
+    assert len(upgrade_rows) == 1
+    assert upgrade_rows[0]["status"] == "failed"
+    assert upgrade_rows[0]["finished_at"] is not None
+    engine = engine_for(db_path)
+    try:
+        assert db_migrate.current_revision(engine) == "0001"
+    finally:
+        engine.dispose()
     assert [level for level, _message in notifier.sent] == ["error"]

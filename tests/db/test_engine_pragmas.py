@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import gc
+import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, Engine, inspect, text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import DatabaseError, IntegrityError, OperationalError
 
 from insightminer.db.engine import checkpoint_truncate, engine_for
 
@@ -98,3 +100,39 @@ def test_checkpoint_truncate_empties_the_wal(
     busy, _log_frames, _checkpointed = checkpoint_truncate(engine)
     assert busy == 0
     assert wal.stat().st_size == 0
+
+
+def test_a_pragma_that_fails_closes_the_dbapi_connection(engine: Engine, db_path: Path) -> None:
+    """A corrupt file makes the ``connect`` listener's first ``PRAGMA`` raise, and the raw
+    connection must be closed on the way out.
+
+    The pool does not own the connection yet at that point, so nothing else will ever close
+    it and ``engine.dispose()`` cannot: the record was never checked in. Left open it surfaces
+    as ``ResourceWarning: unclosed database`` at the next collection, which this project's
+    ``-W error`` turns into a red run with no failing test attached to it -- exactly what
+    ``tests/services/test_doctor.py``'s corrupt-database report hit. Detected here
+    deterministically: the connection is still reachable through the raised exception's
+    traceback, so it can be asked whether it is closed.
+    """
+    checkpoint_truncate(engine)
+    engine.dispose()
+    with db_path.open("r+b") as handle:
+        handle.seek(100)
+        handle.write(b"\xff" * 4096)
+
+    before = {id(obj) for obj in gc.get_objects() if isinstance(obj, sqlite3.Connection)}
+    corrupt = engine_for(db_path)
+    try:
+        with pytest.raises(DatabaseError):
+            corrupt.connect()
+    finally:
+        corrupt.dispose()
+
+    opened = [
+        obj
+        for obj in gc.get_objects()
+        if isinstance(obj, sqlite3.Connection) and id(obj) not in before
+    ]
+    assert len(opened) == 1, "the failed connect did not create exactly one raw connection"
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        opened[0].execute("select 1")

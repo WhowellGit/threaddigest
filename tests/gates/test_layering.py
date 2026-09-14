@@ -8,6 +8,7 @@ no-op lint-imports cannot pass as green.
 
 from __future__ import annotations
 
+import ast
 import shutil
 import subprocess
 import sys
@@ -76,3 +77,56 @@ def test_gate_goes_red_when_a_contract_is_violated(tmp_path: Path) -> None:
     assert result.returncode != 0, output
     assert "1 broken" in output, output
     assert "insightminer.cli -> typer" in output, output
+
+
+# --- services/ writes to no stdio: no `import typer` below the cli layer ----------------------
+
+SERVICES_ROOT = REPO_ROOT / "src" / "insightminer" / "services"
+
+#: Third-party modules a `services/` module may not import. `typer` is the CLI's own
+#: framework: a service that calls `typer.echo` has written to the CLI's stderr, which M2's
+#: web UI never sees, and which makes that service undrivable headlessly (design-round5.md
+#: section 1's ground-rule table, round5-findings.json panel P1). `click` is typer's engine and
+#: the same leak one import away.
+FORBIDDEN_IN_SERVICES = ("typer", "click")
+
+
+def _imports_of(path: Path) -> set[str]:
+    """Every top-level module name ``path`` imports, in either import form."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def _stdio_offenders(root: Path) -> list[str]:
+    return sorted(
+        f"{path.relative_to(root).as_posix()} -> {name}"
+        for path in root.rglob("*.py")
+        for name in sorted(_imports_of(path) & set(FORBIDDEN_IN_SERVICES))
+    )
+
+
+def test_no_service_imports_the_cli_framework() -> None:
+    """import-linter cannot see this: its layer contract orders ``insightminer.*`` modules,
+    and ``typer`` is third-party, so ``services/migrate.py``'s two ``typer.echo(..., err=True)``
+    calls kept the layering gate green for a whole tranche."""
+    assert _stdio_offenders(SERVICES_ROOT) == []
+
+
+@pytest.mark.gate
+def test_the_services_stdio_scanner_catches_a_planted_import(tmp_path: Path) -> None:
+    """Positive control: a scanner that finds nothing is not proof of anything."""
+    fake_services = tmp_path / "services"
+    fake_services.mkdir()
+    (fake_services / "leaky.py").write_text(
+        "import typer\n\n\ndef go() -> None:\n    typer.echo('oops', err=True)\n", encoding="utf-8"
+    )
+    (fake_services / "from_form.py").write_text("from click import echo\n", encoding="utf-8")
+    (fake_services / "clean.py").write_text("import json\n", encoding="utf-8")
+
+    assert _stdio_offenders(fake_services) == ["from_form.py -> click", "leaky.py -> typer"]

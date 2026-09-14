@@ -22,7 +22,9 @@ from sqlalchemy.exc import OperationalError
 from insightminer.db.backup import BackupResult
 from insightminer.db.engine import engine_for
 from insightminer.db.migrate import (
+    MigrationFailedError,
     MigrationsPendingError,
+    UnknownRevisionError,
     current_revision,
     downgrade_one,
     finish_restored_run,
@@ -30,6 +32,7 @@ from insightminer.db.migrate import (
     is_at_head,
     pending,
     require_head,
+    require_known_revision,
     upgrade_head,
 )
 from insightminer.db.repo import finish_run
@@ -401,3 +404,71 @@ def test_finish_restored_run_writes_only_columns_the_restored_revision_has(
                 )
     finally:
         engine.dispose()
+
+
+# --- a database stamped AHEAD of this build (round5-findings.json panel P1) -------------------
+
+_FUTURE_REVISION = "0009_future"
+
+
+def _stamp(engine: Engine, revision: str) -> None:
+    """Rewrite ``alembic_version`` to one revision, through Core rather than ``text()``.
+
+    The shape a rollback to an older binary leaves behind: the file names a revision this
+    build's script directory does not contain.
+    """
+    version = sa.table("alembic_version", sa.column("version_num"))
+    with engine.begin() as conn:
+        conn.execute(sa.update(version).values(version_num=revision))
+
+
+def test_require_known_revision_accepts_head_and_a_fresh_database(tmp_path: Path) -> None:
+    engine = engine_for(tmp_path / "known.db")
+    try:
+        require_known_revision(engine)  # no alembic_version table at all: nothing to refuse
+        upgrade_head(engine)
+        require_known_revision(engine)
+    finally:
+        engine.dispose()
+
+
+def test_require_known_revision_refuses_a_revision_this_build_does_not_ship(
+    tmp_path: Path,
+) -> None:
+    """``current_revision`` reports whatever string is stamped, so every comparison in
+    ``db/migrate.py`` reads "ahead of head" as "behind head" and then dies on it. Asking the
+    script directory is the only way to tell the two apart."""
+    engine = engine_for(tmp_path / "ahead.db")
+    try:
+        upgrade_head(engine)
+        _stamp(engine, _FUTURE_REVISION)
+
+        with pytest.raises(UnknownRevisionError) as caught:
+            require_known_revision(engine)
+    finally:
+        engine.dispose()
+
+    assert caught.value.current == _FUTURE_REVISION
+    assert caught.value.head == head_revision()
+    assert _FUTURE_REVISION in str(caught.value)
+
+
+def test_upgrade_head_translates_an_alembic_command_error(tmp_path: Path) -> None:
+    """The failure round 5 verified by hand: Alembic raises ``CommandError: Can't locate
+    revision``, which is neither a ``DatabaseError`` nor anything ``services/`` may name
+    without importing Alembic. ``upgrade_head`` re-raises it as ``MigrationFailedError`` so
+    ``services/migrate.py`` can restore from its backup instead of letting a raw traceback
+    out of ``db upgrade`` (round5-findings.json panel P1)."""
+    engine = engine_for(tmp_path / "unlocatable.db")
+    try:
+        upgrade_head(engine)
+        _stamp(engine, _FUTURE_REVISION)
+
+        with pytest.raises(MigrationFailedError) as caught:
+            upgrade_head(engine)
+    finally:
+        engine.dispose()
+
+    assert isinstance(caught.value, MigrationFailedError)
+    assert not isinstance(caught.value, OperationalError)
+    assert _FUTURE_REVISION in str(caught.value)

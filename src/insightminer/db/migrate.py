@@ -21,13 +21,16 @@ import sqlalchemy as sa
 from alembic import command
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
+from alembic.util import CommandError
 from sqlalchemy import Engine
 
 from insightminer.db.backup import BackupResult
 from insightminer.db.schema_dump import alembic_config, migrate_to_head
 
 __all__ = [
+    "MigrationFailedError",
     "MigrationsPendingError",
+    "UnknownRevisionError",
     "current_revision",
     "downgrade_one",
     "finish_below_head_run",
@@ -36,6 +39,7 @@ __all__ = [
     "is_at_head",
     "pending",
     "require_head",
+    "require_known_revision",
     "upgrade_head",
 ]
 
@@ -55,6 +59,41 @@ class MigrationsPendingError(RuntimeError):
         self.current = current
         self.head = head
         self.revisions = revisions
+
+
+class UnknownRevisionError(RuntimeError):
+    """The database is stamped a revision this build does not ship -- it is *ahead* of head.
+
+    The shape a rollback to an older binary produces. It is a precondition, not a migration
+    failure: nothing can be upgraded, so ``db upgrade`` must refuse before it takes a backup
+    rather than let Alembic's ``Can't locate revision`` escape as a traceback
+    (round5-findings.json panel P1, ``_migrate_and_verify``).
+    """
+
+    def __init__(self, current: str, head: str) -> None:
+        super().__init__(
+            f"database is stamped revision {current}, which this build does not ship "
+            f"(head is {head}); the database is ahead of the application -- upgrade "
+            f"insightminer, or restore a backup taken at {head}."
+        )
+        self.current = current
+        self.head = head
+
+
+class MigrationFailedError(RuntimeError):
+    """Alembic refused or aborted an upgrade for a reason that is not a ``DatabaseError``.
+
+    ``upgrade_head`` translates ``alembic.util.CommandError`` into this so ``services/`` can
+    name the failure without importing Alembic (this module is the only Alembic importer
+    besides ``db/schema_dump.py``) and without a blind ``except Exception``, which §8 forbids.
+    Before it existed, any scripting-level failure escaped ``db_upgrade`` uncaught: no
+    restore, no ``MigrationOutcome``, a ``running`` run row and a full-size backup left on
+    disk per attempt (round5-findings.json panel P1).
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"migration raised CommandError: {reason}")
+        self.reason = reason
 
 
 def _script_directory() -> ScriptDirectory:
@@ -93,8 +132,16 @@ def pending(engine: Engine) -> list[str]:
 
 
 def upgrade_head(engine: Engine) -> None:
-    """Upgrade the database behind ``engine`` to head through the Alembic API."""
-    migrate_to_head(engine)
+    """Upgrade the database behind ``engine`` to head through the Alembic API.
+
+    ``CommandError`` -- a revision Alembic cannot locate, a broken script directory, a
+    down_revision that does not chain -- is re-raised as :class:`MigrationFailedError` so the
+    caller in ``services/`` can restore from its backup without importing Alembic.
+    """
+    try:
+        migrate_to_head(engine)
+    except CommandError as exc:
+        raise MigrationFailedError(str(exc)) from exc
 
 
 def downgrade_one(engine: Engine) -> None:
@@ -109,6 +156,24 @@ def require_head(engine: Engine) -> None:
     if is_at_head(engine):
         return
     raise MigrationsPendingError(current_revision(engine), head_revision(), tuple(pending(engine)))
+
+
+def require_known_revision(engine: Engine) -> None:
+    """Raise :class:`UnknownRevisionError` when the stamp names no revision this build ships.
+
+    ``current_revision`` reports whatever string is in ``alembic_version``, so a database
+    written by a newer build reads as "behind head" to every comparison in this module and
+    ``pending`` / ``upgrade_head`` then die on it. Asking the script directory first is the
+    only way to tell "one revision behind" from "ahead of this binary", and ``db upgrade``
+    calls it before it writes a run row or takes a backup.
+    """
+    current = current_revision(engine)
+    if current is None:
+        return
+    try:
+        _script_directory().get_revision(current)
+    except CommandError as exc:
+        raise UnknownRevisionError(current, head_revision()) from exc
 
 
 # --- writes into a database that is BELOW head ------------------------------------------------

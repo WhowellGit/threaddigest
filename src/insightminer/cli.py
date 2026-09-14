@@ -231,6 +231,7 @@ class _RunOptions:
     budget: int | None
     dry_run: bool
     no_comments: bool
+    allow_fake_against_real_data: bool
     reason: str | None
     trigger: str
 
@@ -248,6 +249,11 @@ def run(
     no_comments: bool = typer.Option(
         False, "--no-comments", help="Skip comments (needs --reason)."
     ),
+    allow_fake_against_real_data: bool = typer.Option(
+        False,
+        "--allow-fake-against-real-data",
+        help="Let --gateway fake write into a database that holds real runs (needs --reason).",
+    ),
     reason: str | None = typer.Option(None, "--reason", help="Recorded in runs.options_json."),
     trigger: str = typer.Option("cli", "--trigger", help="cli | ui | schedule."),
 ) -> None:
@@ -255,12 +261,16 @@ def run(
     if no_comments and reason is None:
         msg = "--no-comments requires --reason"
         raise typer.BadParameter(msg)
+    if allow_fake_against_real_data and reason is None:
+        msg = "--allow-fake-against-real-data requires --reason"
+        raise typer.BadParameter(msg)
     options = _RunOptions(
         gateway=gateway,
         fixture=fixture,
         budget=budget,
         dry_run=dry_run,
         no_comments=no_comments,
+        allow_fake_against_real_data=allow_fake_against_real_data,
         reason=reason,
         trigger=trigger,
     )
@@ -279,8 +289,9 @@ def _run_ordered(options: _RunOptions) -> int:
     _guard_gateway(options.gateway, settings)
     db_path = db_path_for(settings.data_dir)
     if not db_path.is_file():
-        msg = f"no database at {db_path}; run: insightminer db init"
-        raise ConfigError(msg)
+        # One sentence for both commands: `db upgrade` refuses the same precondition through
+        # `migrate_service.DatabaseMissingError`, built from this same function (§8).
+        raise ConfigError(migrate_service.database_missing_message(db_path))
     _create_data_tree(settings.data_dir)
     lock_path = _lock_path(settings)
     if options.dry_run:
@@ -301,7 +312,13 @@ def _run_ordered(options: _RunOptions) -> int:
 
 def _guard_gateway(kind: str, settings: Settings) -> None:
     """§11.3 steps 2 and 3: the fake is refused against the real data directory, and a
-    network gateway is refused under pytest. Both exit 78 with no run row."""
+    network gateway is refused under pytest. Both exit 78 with no run row.
+
+    This clause is **location**-based and therefore not sufficient on its own: doctor's
+    ``data_dir_outside_tcc`` check pushes operators to relocate the data directory, and a
+    relocated one used to be completely unprotected (round5-findings.json panel P1).
+    :func:`_guard_fake_against_real_data` is the content-based half; both must hold.
+    """
     if kind == "fake" and settings.data_dir == default_data_dir().resolve():
         msg = (
             f"--gateway fake is refused against the default data directory {settings.data_dir}; "
@@ -311,6 +328,53 @@ def _guard_gateway(kind: str, settings: Settings) -> None:
     if kind != "fake" and _under_pytest():
         msg = f"refusing --gateway {kind} under pytest; only --gateway fake may run in a test"
         raise ConfigError(msg)
+
+
+def _recorded_gateway(options_json: str) -> str | None:
+    """The ``gateway`` key one ``runs.options_json`` recorded, or ``None`` when unreadable.
+
+    Unreadable is treated as "not the fake" by the caller: a row whose options this build
+    cannot parse is not evidence that the database is a scratch one.
+    """
+    try:
+        payload = json.loads(options_json)
+    except json.JSONDecodeError:
+        return None
+    kind = payload.get("gateway") if isinstance(payload, dict) else None
+    return kind if isinstance(kind, str) else None
+
+
+def _guard_fake_against_real_data(engine: Engine, options: _RunOptions) -> None:
+    """Refuse ``--gateway fake`` when this database already holds a real collection run.
+
+    The content-based half of the D-10 guard (round5-findings.json panel P1). The location
+    clause in :func:`_guard_gateway` only knows the default directory, so
+    ``INSIGHTMINER_DATA_DIR=/Volumes/data insightminer run --gateway fake --fixture demo.json``
+    -- the line an operator copy-pastes out of ``make run`` -- wrote fabricated posts, sources,
+    snapshots and author aggregates into a live collection, with ``first_seen_at`` and the pks
+    fixed forever after.
+
+    The evidence is the ``gateway`` key ``_options_json`` records on every collection run: a
+    ``kind='run'`` row whose recorded gateway is anything but ``fake`` means real data. A
+    ``NULL`` ``options_json`` is a ``skipped_locked`` row, which wrote nothing, so it is not
+    evidence either way. ``--allow-fake-against-real-data --reason "…"`` is the explicit
+    opt-in, and it is recorded in ``options_json`` like every other bypass flag.
+    """
+    if options.gateway != "fake" or options.allow_fake_against_real_data:
+        return
+    with engine.connect() as conn:
+        recorded = [
+            _recorded_gateway(payload) for payload in repo.run_options(conn) if payload is not None
+        ]
+    real = sorted({kind or "(unreadable)" for kind in recorded if kind != "fake"})
+    if not real:
+        return
+    msg = (
+        f"--gateway fake is refused against a database that already holds real collection "
+        f"runs (gateways recorded: {', '.join(real)}); point INSIGHTMINER_DATA_DIR at a "
+        f"scratch directory, or pass --allow-fake-against-real-data --reason '<why>'"
+    )
+    raise ConfigError(msg)
 
 
 def _record_skipped_locked(settings: Settings, trigger: str) -> None:
@@ -369,6 +433,10 @@ def _collect_through(options: _RunOptions, *, settings: Settings, db_path: Path)
     engine = engine_for(db_path, read_only=options.dry_run)
     try:
         _require_head(engine)
+        # The content half of the D-10 guard needs the database the location half cannot see.
+        # It runs before GATEWAY_FACTORY, so RL-02's "zero gateway calls" still holds, and
+        # before `collect`, so a refusal still writes no run row.
+        _guard_fake_against_real_data(engine, options)
         budget = _budget_for(settings, options.budget)
         gateway = GATEWAY_FACTORY(
             GatewaySpec(kind=options.gateway, fixture=options.fixture, settings=settings)
@@ -423,6 +491,7 @@ def _options_json(options: _RunOptions, budget: Budget) -> str:
         "fixture": None if options.fixture is None else str(options.fixture),
         "dry_run": options.dry_run,
         "no_comments": options.no_comments,
+        "allow_fake_against_real_data": options.allow_fake_against_real_data,
         "reason": options.reason,
         "budget": {
             "limit": budget.limit,
@@ -520,6 +589,11 @@ def _lifecycle(lifecycle: _Lifecycle) -> int:
     Both lifecycles take the collector lock themselves (RL-04), so a held lock arrives here
     as :class:`~insightminer.services.lock.LockHeldError` and exits 75; a database below head
     that ``db init`` refuses to migrate arrives as ``MigrationsPendingError`` and exits 78.
+
+    Two more named preconditions exit 78 the same way (round5-findings.json panel P0/P1):
+    ``DatabaseMissingError`` -- ``db upgrade`` before ``db init``, or after a restore that lost
+    the file -- and ``UnknownRevisionError``, a database stamped ahead of this build. Both are
+    raised before any run row exists, which is exactly what §8 says a 78 means.
     """
     settings = _settings()
     clock = build_clock()
@@ -532,7 +606,11 @@ def _lifecycle(lifecycle: _Lifecycle) -> int:
     except lock.LockHeldError as exc:
         _echo_error(str(exc))
         return int(ExitCode.SKIPPED_LOCKED)
-    except db_migrate.MigrationsPendingError as exc:
+    except (
+        db_migrate.MigrationsPendingError,
+        db_migrate.UnknownRevisionError,
+        migrate_service.DatabaseMissingError,
+    ) as exc:
         raise ConfigError(str(exc)) from exc
     _print_migration(outcome)
     return int(ExitCode.FAILED) if outcome.error is not None else int(ExitCode.OK)

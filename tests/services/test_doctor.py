@@ -627,3 +627,69 @@ def test_check_free_disk_is_not_ok_when_free_space_cannot_be_read(
 
     assert check.ok is False
     assert check.severity == doctor.CheckSeverity.WARNING
+
+
+# --- a database that exists and will not open (round5-findings.json panel P1) ------------------
+
+#: The twelve §15.2 check names, in order -- restated here so a corrupt-database report is
+#: compared against the SAME list the healthy one is, and a short report cannot read as healthy.
+EVERY_CHECK_NAME = [
+    "settings_valid",
+    "data_dir_writable",
+    "data_dir_outside_tcc",
+    "database_present",
+    "alembic_at_head",
+    "quick_check",
+    "schema_fingerprint",
+    "free_disk",
+    "last_run_age",
+    "lock_not_stale",
+    "credentials_present",
+    "no_stale_running_rows",
+]
+
+
+def _corrupt_the_schema_page(engine: Engine, db_path: Path) -> None:
+    """Overwrite page 1 after the 100-byte file header -- the mechanism
+    ``test_check_quick_check_is_not_ok_for_a_corrupt_file`` measured: a 256-byte nibble lands
+    in free space and corrupts nothing, the schema page proper is what SQLite calls malformed.
+    """
+    checkpoint_truncate(engine)
+    engine.dispose()
+    with db_path.open("r+b") as handle:
+        handle.seek(100)
+        handle.write(b"\xff" * 4096)
+
+
+def test_run_checks_reports_every_check_for_a_corrupt_database(
+    engine: Engine, settings: Settings, clock: FakeClock, db_path: Path
+) -> None:
+    """``run_checks`` branched on ``db_path.is_file()``, so a file that exists and is corrupt
+    fell through to ``_checks_with_a_database``, whose ``engine.connect()`` raises
+    ``DatabaseError``. Nothing caught it (``cli.doctor`` catches ``ConfigError``,
+    ``cli._doctor_report`` ``ValueError``), so ``doctor --no-network`` exited 1 with an
+    unhandled traceback and printed ZERO check rows -- the ``database_present`` and
+    ``quick_check`` rows that exist precisely to diagnose a corrupt file were unreachable in
+    the one case they are for, and "doctor lists its checks" failed.
+    """
+    _corrupt_the_schema_page(engine, db_path)
+
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=True)
+
+    assert [check.name for check in report.checks] == EVERY_CHECK_NAME
+    by_name = {check.name: check for check in report.checks}
+    # The two rows that actually diagnose this file both ran and both say so.
+    assert by_name["database_present"].ok is False
+    assert by_name["database_present"].severity == doctor.CheckSeverity.ERROR
+    assert by_name["quick_check"].ok is False
+    assert "malformed" in by_name["quick_check"].detail or "not a database" in (
+        by_name["quick_check"].detail
+    )
+    # The checks that need a connection are named placeholders, never silently dropped.
+    assert by_name["alembic_at_head"].ok is False
+    assert str(db_path) in by_name["alembic_at_head"].detail
+    # The two that need neither a connection nor the file still ran for real.
+    assert by_name["free_disk"].ok is True
+    assert by_name["credentials_present"].name == "credentials_present"
+    assert report.ok is False
+    assert report.exit_code == 1

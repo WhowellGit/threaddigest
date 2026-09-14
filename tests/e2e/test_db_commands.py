@@ -14,6 +14,7 @@ from insightminer import cli
 from insightminer.db import migrate as db_migrate
 from insightminer.db.engine import db_path_for, engine_for
 from insightminer.services import lock
+from insightminer.services import migrate as migrate_service
 
 FIXTURE_0001 = Path(__file__).resolve().parents[1] / "fixtures" / "db" / "0001.sqlite"
 
@@ -199,3 +200,68 @@ def test_db_init_on_a_data_dir_with_no_locks_directory_succeeds(
     assert (isolated_data_dir / "locks").is_dir()
     assert [row["kind"] for row in table_rows("runs")] == ["db_init"]
     assert len(table_rows("subreddits")) == 3
+
+
+def test_db_upgrade_with_no_database_exits_78_and_fabricates_nothing(
+    cli_runner, isolated_data_dir: Path
+) -> None:
+    """round5-findings.json panel P0, end to end.
+
+    Verified before the fix: ``INSIGHTMINER_DATA_DIR=/tmp/empty insightminer db upgrade`` died
+    with a 60-line SQLAlchemy traceback (``no such table: runs``, exit 1) and left a fabricated
+    0-byte ``insightminer.db`` behind -- which ``db current`` then reported as ``current: None``
+    and ``run`` reported as pending migrations, so every retry crashed the same way. It is now
+    §8's named precondition: exit 78, the message names ``insightminer db init``, and no
+    database file is created.
+    """
+    db_path = db_path_for(isolated_data_dir)
+    assert not db_path.exists()
+
+    result = cli_runner.invoke(cli.app, ["db", "upgrade"])
+
+    assert result.exit_code == 78, result.output
+    assert f"no database at {db_path}" in result.output
+    assert "insightminer db init" in result.output
+    assert not db_path.exists()
+    assert _run_pks(isolated_data_dir) == []
+
+
+def test_db_upgrade_and_run_name_the_missing_database_the_same_way(
+    cli_runner, isolated_data_dir: Path
+) -> None:
+    """The panel's "§8's named precondition (78)": an operator who reaches the precondition
+    from either command gets the same sentence and the same next action. Both are built from
+    ``migrate_service.database_missing_message``, so this asserts they cannot drift apart."""
+    upgrade = cli_runner.invoke(cli.app, ["db", "upgrade"])
+    run = cli_runner.invoke(cli.app, ["run", "--gateway", "fake"])
+
+    assert upgrade.exit_code == 78 == run.exit_code
+    expected = migrate_service.database_missing_message(db_path_for(isolated_data_dir))
+    assert expected in upgrade.output
+    assert expected in run.output
+
+
+def test_db_upgrade_refuses_a_database_stamped_ahead_of_this_build(
+    cli_runner, db_at_head: Path
+) -> None:
+    """A rollback to an older binary. Alembic's ``CommandError: Can't locate revision`` used to
+    escape ``db_upgrade`` uncaught: a raw traceback, exit 1, a ``running`` run row left behind
+    and a full-size pre-migrate backup on disk for every attempt (step 12's prune only runs on
+    success). The refusal is a precondition now -- exit 78, before the run row and before the
+    backup (round5-findings.json panel P1)."""
+    db_path = db_path_for(db_at_head)
+    version = sa.table("alembic_version", sa.column("version_num"))
+    engine = engine_for(db_path)
+    try:
+        with engine.begin() as conn:
+            conn.execute(sa.update(version).values(version_num="0009_future"))
+    finally:
+        engine.dispose()
+
+    before = _run_pks(db_at_head)
+    result = cli_runner.invoke(cli.app, ["db", "upgrade"])
+
+    assert result.exit_code == 78, result.output
+    assert "0009_future" in result.output
+    assert _run_pks(db_at_head) == before
+    assert list((db_at_head / "backups").glob("pre-migrate-*")) == []

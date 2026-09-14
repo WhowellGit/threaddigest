@@ -442,8 +442,8 @@ def check_no_stale_running_rows(conn: Connection, *, now: int, stale_after_secon
 # --- the report -------------------------------------------------------------------------------
 
 
-def _unreadable(name: str, severity: CheckSeverity, db_path: Path) -> Check:
-    """The placeholder a database-dependent check becomes when there is no database.
+def _unreadable(name: str, severity: CheckSeverity, reason: str) -> Check:
+    """The placeholder a database-dependent check becomes when there is no usable database.
 
     It is still a row, and still named: a report that silently drops six of twelve checks
     when the file is missing would read as a shorter healthy report.
@@ -451,21 +451,47 @@ def _unreadable(name: str, severity: CheckSeverity, db_path: Path) -> Check:
     return Check(
         name=name,
         ok=False,
-        detail=f"not checked: no database at {db_path}",
+        detail=f"not checked: {reason}",
         severity=severity,
     )
 
 
 def _checks_without_a_database(settings: Settings, db_path: Path) -> list[Check]:
     return [
-        _unreadable("alembic_at_head", CheckSeverity.WARNING, db_path),
-        _unreadable("quick_check", CheckSeverity.WARNING, db_path),
-        _unreadable("schema_fingerprint", CheckSeverity.WARNING, db_path),
+        _unreadable("alembic_at_head", CheckSeverity.WARNING, f"no database at {db_path}"),
+        _unreadable("quick_check", CheckSeverity.WARNING, f"no database at {db_path}"),
+        _unreadable("schema_fingerprint", CheckSeverity.WARNING, f"no database at {db_path}"),
         check_free_disk(settings.data_dir),
-        _unreadable("last_run_age", CheckSeverity.WARNING, db_path),
-        _unreadable("lock_not_stale", CheckSeverity.WARNING, db_path),
+        _unreadable("last_run_age", CheckSeverity.WARNING, f"no database at {db_path}"),
+        _unreadable("lock_not_stale", CheckSeverity.WARNING, f"no database at {db_path}"),
         check_credentials_present(settings),
-        _unreadable("no_stale_running_rows", CheckSeverity.WARNING, db_path),
+        _unreadable("no_stale_running_rows", CheckSeverity.WARNING, f"no database at {db_path}"),
+    ]
+
+
+def _checks_with_an_unusable_database(settings: Settings, db_path: Path) -> list[Check]:
+    """The same eight rows for a file that exists but will not open (round5-findings.json
+    panel P1).
+
+    ``quick_check`` is the **real** check here, not a placeholder: ``db.backup.quick_check``
+    reports a driver-level ``DatabaseError`` as its text rather than raising (§10.1), so it is
+    corruption-safe by design and it is the one row that actually diagnoses this file. Every
+    other database-dependent check needs an ``engine.connect()``, and that is precisely what
+    raises: before this branch existed, ``doctor --no-network`` on a corrupt database exited 1
+    with an unhandled ``DatabaseError`` and printed **zero** check rows -- the
+    ``database_present`` and ``quick_check`` rows that exist to diagnose a corrupt file were
+    unreachable in the one case they are for.
+    """
+    reason = f"{db_path} would not open"
+    return [
+        _unreadable("alembic_at_head", CheckSeverity.WARNING, reason),
+        check_quick_check(db_path),
+        _unreadable("schema_fingerprint", CheckSeverity.WARNING, reason),
+        check_free_disk(settings.data_dir),
+        _unreadable("last_run_age", CheckSeverity.WARNING, reason),
+        _unreadable("lock_not_stale", CheckSeverity.WARNING, reason),
+        check_credentials_present(settings),
+        _unreadable("no_stale_running_rows", CheckSeverity.WARNING, reason),
     ]
 
 
@@ -508,19 +534,33 @@ def run_checks(
     tranche A ``no_network`` is always true on every shipped path and **this function never
     touches ``gateway``** -- CF-01 proves it by passing a routeless fake and asserting it
     recorded no request and no call.
+
+    **``database_present`` short-circuits the list, and both of its failure modes do**
+    (round5-findings.json panel P1). Branching on ``db_path.is_file()`` covered only the
+    missing file: a file that exists and is *corrupt* fell through to
+    :func:`_checks_with_a_database`, whose ``engine.connect()`` raises ``DatabaseError`` --
+    which ``cli.doctor`` (``ConfigError`` only) and ``cli._doctor_report`` (``ValueError``
+    only) do not catch, so ``doctor`` died with a traceback and printed nothing at all. The
+    branch is now on the ``Check`` itself, so "doctor lists its checks" holds for every
+    database this installation can have.
     """
     del gateway, no_network  # tranche A makes no request; see the docstring and CF-01.
     now = clock.now()
     db_path = db_path_for(settings.data_dir)
     lock_path = settings.data_dir / "locks" / "collector.lock"
+    present = check_database_present(db_path)
     checks: list[Check] = [
         check_settings_valid(),
         check_data_dir_writable(settings.data_dir),
         check_data_dir_outside_tcc(settings.data_dir),
-        check_database_present(db_path),
+        present,
     ]
-    if not db_path.is_file():
-        checks.extend(_checks_without_a_database(settings, db_path))
+    if not present.ok:
+        checks.extend(
+            _checks_without_a_database(settings, db_path)
+            if not db_path.is_file()
+            else _checks_with_an_unusable_database(settings, db_path)
+        )
         return DoctorReport(checks=tuple(checks))
     engine = engine_for(db_path)
     try:

@@ -102,12 +102,25 @@ def engine_for(
     def _on_connect(dbapi_connection: Any, _record: Any) -> None:
         # Disable the driver's implicit BEGIN; SQLAlchemy emits it below.
         dbapi_connection.isolation_level = None
-        cursor = dbapi_connection.cursor()
+        # `applied` rather than `except`: a pragma that raises -- `PRAGMA journal_mode=WAL`
+        # against a corrupt file is the real case, reached by `doctor`'s `database_present`
+        # check -- happens before the pool owns this connection, so nothing else will ever
+        # close it. `engine.dispose()` cannot help: the record was never checked in. Left
+        # open it surfaces as `ResourceWarning: unclosed database` at the next collection,
+        # which is an error under this project's `-W error`. No `except Exception` is needed
+        # to close it, and §8 forbids one.
+        applied = False
         try:
-            for name, value in pragmas:
-                cursor.execute(f"PRAGMA {name}={value}")
+            cursor = dbapi_connection.cursor()
+            try:
+                for name, value in pragmas:
+                    cursor.execute(f"PRAGMA {name}={value}")
+            finally:
+                cursor.close()
+            applied = True
         finally:
-            cursor.close()
+            if not applied:
+                dbapi_connection.close()
 
     @event.listens_for(engine, "begin")
     def _on_begin(conn: Connection) -> None:

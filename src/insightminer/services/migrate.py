@@ -24,6 +24,13 @@ but it does not live in this module either (round5-findings.json P1): it is
 ``db.migrate.finish_restored_run``, built from ``sa.table``/``sa.column`` inside the ``db``
 layer, and what stays here is the ``except DatabaseError`` wrap and the
 exit-1 / ``restored=True`` outcome, which is where the decision belongs.
+
+**Nothing in this module writes to stdout or stderr** (round5-findings.json panel P1, "a
+services module writing to the CLI's stderr"). Both messages that used to go out through
+``typer.echo`` now go through the injected :class:`~insightminer.ports.Notifier`, so
+``db upgrade`` is drivable headlessly from M2's web UI without capturing stdio, and
+``tests/gates/test_layering.py`` scans ``services/`` for an ``import typer`` that
+import-linter's ``insightminer.*``-only contracts cannot see.
 """
 
 from __future__ import annotations
@@ -36,7 +43,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
-import typer
 from sqlalchemy import Connection, Engine
 from sqlalchemy.exc import DatabaseError
 
@@ -53,9 +59,11 @@ from insightminer.settings import Settings
 __all__ = [
     "DATA_SUBDIRECTORIES",
     "KEEP_PRE_MIGRATE_BACKUPS",
+    "DatabaseMissingError",
     "MigrationOutcome",
     "RunContextFactory",
     "create_data_tree",
+    "database_missing_message",
     "db_current",
     "db_init",
     "db_upgrade",
@@ -71,6 +79,33 @@ KEEP_PRE_MIGRATE_BACKUPS: Final = 3
 _PRE_MIGRATE: Final = "pre-migrate"
 
 type RunContextFactory = Callable[[Engine, str], runs.RunContext]
+
+
+def database_missing_message(db_path: Path) -> str:
+    """§8's sentence for "the database file does not exist", spelled once.
+
+    ``cli.run`` (§11.3 step 4) and ``db upgrade`` (below) must not disagree about it: an
+    operator who reaches the precondition from either command has the same next action, and
+    ``tests/e2e/test_db_commands.py`` asserts the two sentences are the same string.
+    """
+    return f"no database at {db_path}; run: insightminer db init"
+
+
+class DatabaseMissingError(RuntimeError):
+    """``db upgrade`` was asked to migrate a database that is not there.
+
+    §8 maps it to exit **78** with no run row, and ``cli`` re-raises it as its ``ConfigError``.
+    Before it existed, ``_upgrade_locked`` called ``ctx_factory`` first: ``engine_for`` created
+    a 0-byte ``insightminer.db``, ``repo.insert_run`` died with ``no such table: runs`` as an
+    uncaught traceback, and the phantom database it left behind made every retry -- and the
+    next ``run`` -- report the wrong problem (round5-findings.json panel P0).
+
+    The message is built here, so call sites pass the path and never a string (TRY003).
+    """
+
+    def __init__(self, db_path: Path) -> None:
+        super().__init__(database_missing_message(db_path))
+        self.db_path = db_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,13 +187,17 @@ def _remove_backup_file(path: Path) -> None:
         candidate.unlink(missing_ok=True)
 
 
-def _record_skipped_locked(settings: Settings, clock: Clock) -> None:
+def _record_skipped_locked(settings: Settings, clock: Clock, notifier: Notifier) -> None:
     """Best-effort ``skipped_locked`` row for a refused ``db upgrade`` (§10.3 step 1).
 
     Guarded twice. No database file means there is nothing to write into, and a
     ``DatabaseError`` here is the expected shape when the holder is mid-migration -- the
     caller still raises :class:`~insightminer.services.lock.LockHeldError`, so the operator
     sees the same exit 75 either way and nothing is swallowed silently.
+
+    The failure goes out through the injected ``notifier``, never ``typer.echo``: a service
+    that writes to the CLI's stderr is invisible to M2's web UI and unusable headlessly
+    (round5-findings.json panel P1).
     """
     db_path = db_path_for(settings.data_dir)
     if not db_path.is_file():
@@ -186,10 +225,10 @@ def _record_skipped_locked(settings: Settings, clock: Clock) -> None:
                 ),
             )
     except DatabaseError as exc:
-        typer.echo(
+        notifier.notify(
+            "error",
             f"the collector lock is held and the attempt could not be recorded "
             f"({exc.__class__.__name__})",
-            err=True,
         )
     finally:
         engine.dispose()
@@ -227,16 +266,29 @@ def db_upgrade(
         with lock.acquire(_lock_path(settings)):
             return _upgrade_locked(ctx_factory, settings=settings, clock=clock, notifier=notifier)
     except lock.LockHeldError:
-        _record_skipped_locked(settings, clock)
+        _record_skipped_locked(settings, clock, notifier)
         raise
 
 
 def _upgrade_locked(
     ctx_factory: RunContextFactory, *, settings: Settings, clock: Clock, notifier: Notifier
 ) -> MigrationOutcome:
+    """The two preconditions come **before** ``engine_for`` and ``ctx_factory``.
+
+    Neither may write a run row, and the first may not even open an engine:
+    ``engine_for`` creates the file it is pointed at, so a typo'd ``INSIGHTMINER_DATA_DIR``
+    or a ``db upgrade`` run before ``db init`` used to leave a 0-byte phantom database behind
+    and die inside ``repo.insert_run`` with ``no such table: runs``
+    (round5-findings.json panel P0). The second refuses a file stamped *ahead* of this build
+    before a backup is taken, because nothing in steps 6-13 can succeed against it
+    (panel P1, ``_migrate_and_verify``).
+    """
     db_path = db_path_for(settings.data_dir)
+    if not db_path.is_file():
+        raise DatabaseMissingError(db_path)
     engine = engine_for(db_path)
     try:
+        db_migrate.require_known_revision(engine)
         ctx = ctx_factory(engine, "db_upgrade")
         runs.heartbeat(ctx, stage="upgrade:backup")
         frm = db_migrate.current_revision(engine)
@@ -362,10 +414,21 @@ def _migrate_and_verify(engine: Engine, db_path: Path) -> str | None:
     Both post-checks are equally decisive: a migration that leaves an orphan child row has
     lost data just as surely as one that leaves a malformed page, and 0002's batch recreate
     is exactly the shape that could do it (§10.4).
+
+    **Three failure classes, not one** (round5-findings.json panel P1). Round 5 caught only
+    ``DatabaseError``, so an Alembic scripting failure -- reproduced with a database stamped
+    ``0009_future``: ``CommandError: Can't locate revision`` -- escaped ``db_upgrade``
+    uncaught: no ``MigrationOutcome``, no restore, the run row left ``running``, and a
+    full-size pre-migrate backup left on disk per attempt, because step 12's prune only runs
+    on success. ``db.migrate.upgrade_head`` now re-raises ``CommandError`` as
+    :class:`~insightminer.db.migrate.MigrationFailedError`, and ``OSError`` covers a disk or
+    permission failure mid-script. It is deliberately **not** ``except Exception``: §8's first
+    unsoftenable rule is "never a bare ``except Exception``", and the suppression ratchet
+    counts the ``noqa: BLE001`` one would need.
     """
     try:
         db_migrate.upgrade_head(engine)
-    except DatabaseError as exc:
+    except (DatabaseError, db_migrate.MigrationFailedError, OSError) as exc:
         return f"migration raised {exc.__class__.__name__}: {exc}"
     integrity = db_backup.integrity_check(db_path)
     if integrity != "ok":
@@ -401,6 +464,14 @@ def _restore(
     operator must know about, and the bookkeeping failing on top of it is a second sentence,
     not a different outcome. A ``running`` row left in the restored file is stamped
     ``crashed`` by the next run (§12.2).
+
+    **The second sentence is carried on the outcome, not only echoed** (round5-findings.json
+    panel P1). When ``finish_restored_run`` fails, the backup file exists with no ``backups``
+    row to point at it: ``prune_pre_migrate_backups`` reads ``repo.backups_of_kind``, so an
+    unreferenced file is never counted against :data:`KEEP_PRE_MIGRATE_BACKUPS` and never
+    deleted. An outcome whose ``error`` said only "restored from …" reported that as a clean
+    restore; it now names the bookkeeping failure so the printed exit-1 block carries both
+    sentences and a later reconcile has something to match the orphan file against.
     """
     engine.dispose()
     db_backup.restore(dest, db_path)
@@ -417,10 +488,10 @@ def _restore(
             now=clock.now(),
         )
     except DatabaseError as exc:
-        typer.echo(
-            f"restored from {dest}; the restored database could not be updated "
-            f"({exc.__class__.__name__})",
-            err=True,
+        error = (
+            f"{error}; the restored database could not be updated "
+            f"({exc.__class__.__name__}): its run row is still `running` and {dest} has no "
+            f"`backups` row, so it will not be pruned"
         )
     finally:
         restored_engine.dispose()
