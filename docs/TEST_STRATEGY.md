@@ -184,16 +184,19 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G31 | Connection chokepoint (behavioral) | gate | M0 | P1 | planned | |
 | G32 | No-bypass proof | gate | M1 | P2 | changed | dry-run fetches; zero-HTTP is for `doctor --no-network` and `config validate` (see CF-01) |
 | G33 | Doc currency | gate | M0 | P1 | changed | only the INDEX ↔ `docs/**` bidirectional check remains (plan); `KNOWN_ISSUES` node ids, `GUARDS` ↔ markers, data dictionary, count regex not gates |
-| G34 | Guard firings ledger | CI | M0 | P2 | planned | |
-| G35 | Weekly enforcement audit | CI | M0–M1 | P2 | planned | deferrable to M1 |
-| G36 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
+| G41 | Guard firings ledger | CI | M0 | P2 | planned | |
+| G42 | Weekly enforcement audit | CI | M0–M1 | P2 | planned | deferrable to M1 |
+| G43 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
 | G37 | Weekly stress | CI | M1d | P3 | changed | 50k/500k corpus cut; the `EXPLAIN QUERY PLAN` assertions live in DB-08 |
 | G38 | Mutation (informational) | CI | M3 | P3 | cut | optional tool, never a ratchet; no `.ratchets/mutation.txt` (plan) |
-| G34 | Retired claims not stated as live | gate | M1a | P1 | shipped | id reused: distinct from this table's own G34 "Guard firings ledger" row above, which the build has not touched and which stays `planned` under the panel's original numbering; see `GUARDS.md` Active for the built guard; tests/gates/test_superseded_claims.py::test_positive_control_stale_claim_is_red_and_annotated_claim_is_green, ::test_positive_control_unknown_decision_id_is_red |
-| G35 | No imported identifiers in tracked text | gate | M1a | P1 | shipped | id reused: distinct from this table's own G35 "Weekly enforcement audit" row above, which stays `planned`; nine rules over every tracked `.md`/`.py`/`.toml`/… file, one excluded path (`docs/reference/earlier-project-retrospectives/`); tests/gates/test_no_imported_identifiers.py::test_positive_control_a_planted_identifier_is_red, ::test_positive_control_the_same_tree_without_the_violation_is_green, ::test_positive_control_the_carve_outs_are_narrow |
-| G36 | Attribution trailers refused at commit time | hook | M1a | P1 | shipped | id reused: distinct from this table's own G36 "Settings-drift check" row above, which stays `planned`; part of the same `no_bypass_git.sh` hook as G23/G24; tests/gates/test_hooks.py::test_positive_control_a_trailer_in_a_message_file_is_red |
+| G34 | Retired claims not stated as live | gate | M1a | P1 | shipped | the panel proposal formerly numbered G34 is now G41 |
+| G35 | No imported identifiers in tracked text | gate | M1a | P1 | shipped | the panel proposal formerly numbered G35 is now G42 |
+| G36 | Attribution trailers refused at commit time | hook | M1a | P1 | shipped | the panel proposal formerly numbered G36 is now G43 |
 | G39 | Rules name an enforcer that exists | gate | M1a | P1 | shipped | resolves every backticked path, pytest marker, ruff code and `make` target in CLAUDE.md's rule table; a row with no resolving enforcer must say "review", capped by `.ratchets/review_only_rules.txt`; tests/gates/test_rules_name_their_enforcer.py::test_positive_control_an_enforcer_that_does_not_exist_is_red, ::test_positive_control_a_review_row_is_counted_not_failed |
 | G40 | Register node ids resolve | gate | M1a | P1 | shipped | every node id in `KNOWN_ISSUES.md`'s regression-test column and `GUARDS.md`'s positive-control column must name a test that exists, resolved structurally with `ast`; tests/gates/test_known_issues_cite_collected_tests.py::test_positive_control_a_dangling_node_id_is_red, ::test_positive_control_a_second_control_from_the_same_file_resolves |
+
+> **Id note (2026-09-14):** guard ids are assigned in `docs/runbook/GUARDS.md`, the register that owns them. Three enforcement-panel proposals in this table originally carried G34–G36 before the ledger gave those ids to gates that were built (retired claims, imported identifiers, trailer refusal); the proposals are now G41–G43 and keep their `planned` status.
+
 
 Note (2026-09-13): the five rows above (G34, G35, G36, G39, G40) are the guard-ledger ids `GUARDS.md` assigned to gates discovered and built during the M1a tranche A build (retired claims, imported identifiers, attribution trailers, rule-enforcer names, register node ids). G34, G35 and G36 collide with this table's own three-panel-numbered rows above (`Guard firings ledger`, `Weekly enforcement audit`, `Settings-drift check`), which the build never touched and which remain `planned` under the enforcement panel's original G-nn sequence; this is a pre-existing numbering clash between the panel's spec and the guards ledger, not a claim that either of the colliding rows is the same gate. G39 and G40 do not collide (the panel's own sequence stopped at G38).
 

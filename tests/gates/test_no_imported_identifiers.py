@@ -124,14 +124,33 @@ def violations(root: Path, rel_paths: Iterable[str]) -> list[str]:
 
 
 def tracked_files(root: Path) -> list[str]:
+    """Tracked files plus untracked files git would not ignore.
+
+    A new file is invisible to ``git ls-files`` until it is added, so a scan of tracked files
+    alone lets a violation ride into the first commit that adds it (this happened on
+    2026-09-14: a review record carrying a foreign register id passed the gate untracked and
+    failed it once committed). Untracked-but-not-ignored files are therefore scanned too.
+    """
     out = subprocess.run(
-        ["git", "-C", str(root), "ls-files"],
+        ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard"],
         capture_output=True,
         text=True,
         check=True,
         timeout=60,
     ).stdout
     return out.split()
+
+
+@pytest.mark.gate
+def test_positive_control_an_untracked_file_is_scanned(tmp_path: Path) -> None:
+    """An untracked, non-ignored file must be in the scan set before it is ever added."""
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, timeout=60)
+    (tmp_path / "note.md").write_text("draft\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text("ignored.md\n", encoding="utf-8")
+    (tmp_path / "ignored.md").write_text("draft\n", encoding="utf-8")
+    listed = tracked_files(tmp_path)
+    assert "note.md" in listed and ".gitignore" in listed
+    assert "ignored.md" not in listed
 
 
 # --------------------------------------------------------------------------- the gate

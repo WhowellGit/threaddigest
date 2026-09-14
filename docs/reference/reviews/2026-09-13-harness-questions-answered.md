@@ -445,7 +445,7 @@ without ever being run as the command.
 
 ---
 
-### Q9 — "How long was `snapshot_memory.py` silently deleting memories before [register-id] was found, and what was lost?" / "were the restored files ever verified as complete, or only as 'restored'?"
+### Q9 — "How long was `snapshot_memory.py` silently deleting memories before the memory-deletion register entry was filed, and what was lost?" / "were the restored files ever verified as complete, or only as 'restored'?"
 
 **Answer to the second half first, because it is the transferable one: only as "restored".** The restore path
 copies any snapshot file missing from live, never clobbers an existing one, and prints a **count**. There is no
