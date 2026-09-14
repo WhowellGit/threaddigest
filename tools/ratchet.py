@@ -38,6 +38,18 @@ newline). Direction says which way a value may move without approval.
         file:line on every run. ``tests/gates/test_rules_name_their_enforcer.py`` is the
         gate: a row that neither resolves nor says "review" fails there, and this ceiling
         is what keeps the review-only count going down and never up.
+    code_health.txt   cognitive_over_15      down  slack 0
+                      cyclomatic_over_15     down  slack 0
+                      mi_below_a             down  slack 0
+                      size_rule_violations   down  slack 0
+                      dead_code              down  slack 0
+                      dead_code_whitelisted  down  slack 0
+                      duplicate_blocks       down  slack 0
+        read from .build/code_health.json, which tools/code_health.py writes from complexipy,
+        radon, ruff's size rules, vulture with a counted whitelist, and pylint's duplicate-code
+        (Wes, 2026-09-14: maintainability passes on its own, judged by analysis, never by a
+        model). A missing or partial report is an error, never a zero, and every offender the
+        report names is printed with its location.
 
 Counting is structural (AST and tokenizer), so a marker inside a string literal is not a
 suppression and a comment rewrap cannot hide one. Every skip and suppression is printed
@@ -51,8 +63,10 @@ A relaxed line may carry an expiry date on the line below it:
 ``compare`` prints every live relaxation on every run and turns RED once today is past the
 date, naming the metric and the way back (tighten it, or re-approve through ``loosen``), so
 a deliberate relaxation cannot quietly become permanent. ``bump`` carries the dates over
-untouched; ``loosen`` writes one when given ``HARD_AFTER=YYYY-MM-DD``, which is also how an
-existing relaxation gets a date without hand-editing ``.ratchets/``.
+untouched, and clears one once a ceiling has reached zero (the relaxation is over; a date
+left behind would go red for nothing); ``loosen`` writes one when given
+``HARD_AFTER=YYYY-MM-DD``, which is also how an existing relaxation gets a date without
+hand-editing ``.ratchets/``.
 
 ``compare`` makes three comparisons and exits 0 (ok), 1 (red, stale or expired) or 3
 (loosening):
@@ -99,6 +113,7 @@ LEDGER_HEADING = "## Loosenings"
 LEDGER_HEADER = "| Date | Key | From | To | Reason | PR |"
 LEDGER_SEPARATOR = "|---|---|---|---|---|---|"
 COVERAGE_JSON = Path(".build") / "coverage.json"
+CODE_HEALTH_JSON = Path(".build") / "code_health.json"
 MAIN_REF_ENV = "RATCHET_MAIN_REF"
 DEFAULT_MAIN_REFS = ("main", "origin/main")
 
@@ -160,6 +175,13 @@ SPECS: tuple[Spec, ...] = (
     Spec("suppressions", "mypy_overrides", DOWN),
     Spec("review_only_rules", "count", DOWN),
     Spec("review_only_rules", "guards_without_control", DOWN),
+    Spec("code_health", "cognitive_over_15", DOWN),
+    Spec("code_health", "cyclomatic_over_15", DOWN),
+    Spec("code_health", "mi_below_a", DOWN),
+    Spec("code_health", "size_rule_violations", DOWN),
+    Spec("code_health", "dead_code", DOWN),
+    Spec("code_health", "dead_code_whitelisted", DOWN),
+    Spec("code_health", "duplicate_blocks", DOWN),
 )
 FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
 
@@ -335,7 +357,31 @@ def measure_coverage(path: Path, notes: list[str]) -> float:
     return round(float(data["totals"]["percent_covered"]), 2)
 
 
-def measure(root: Path, coverage_json: Path) -> Measurement:
+def measure_code_health(path: Path, hits: list[str]) -> dict[str, Number]:
+    """The counts ``tools/code_health.py`` measured, with its offenders as hits.
+
+    A missing or partial report is an error rather than a zero: a ceiling read as zero would be
+    green for the wrong reason (fail, never skip). ``make check`` writes the report first, and
+    ``make ratchet-bump`` / ``make ratchet-loosen`` depend on the same target.
+    """
+    if not path.is_file():
+        fail(f"ratchet: code health report {path} missing; run make code-health (make check does)")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        values: dict[str, Number] = {
+            spec.key: int(data["values"][spec.key]) for spec in specs_for("code_health")
+        }
+    except (ValueError, KeyError, TypeError) as exc:
+        msg = f"ratchet: code health report {path} unreadable: {exc!r}"
+        raise SystemExit(msg) from exc
+    reported = data.get("hits", [])
+    if not isinstance(reported, list):
+        fail(f"ratchet: code health report {path} unreadable: hits is not a list")
+    hits.extend(f"{hit} [code-health]" for hit in reported)
+    return values
+
+
+def measure(root: Path, coverage_json: Path, code_health_json: Path | None = None) -> Measurement:
     notes: list[str] = []
     hits: list[str] = []
     counts = {"noqa": 0, "type_ignore": 0, "pragma_no_cover": 0, "filterwarnings_ignore": 0}
@@ -376,6 +422,7 @@ def measure(root: Path, coverage_json: Path) -> Measurement:
             "count": measure_rules(root, hits, notes),
             "guards_without_control": measure_guards(root, hits, notes),
         },
+        "code_health": measure_code_health(code_health_json or root / CODE_HEALTH_JSON, hits),
     }
     return Measurement(values=values, hits=hits, notes=notes)
 
@@ -927,7 +974,13 @@ def bump(root: Path, measurement: Measurement) -> int:
                 was = f" (was {spec.fmt(old)})" if old is not None else ""
                 print(f"SET       {spec.name:<34} {spec.fmt(measured)}{was}")
             if spec.key in dates:
-                print(f"RELAXED   {spec.name:<34} hard_after={dates[spec.key]} (kept)")
+                if spec.direction == DOWN and new[spec.key] == 0:
+                    print(
+                        f"CLEARED   {spec.name:<34} hard_after={dates.pop(spec.key)} "
+                        "(the ceiling reached zero, so the relaxation is over)"
+                    )
+                else:
+                    print(f"RELAXED   {spec.name:<34} hard_after={dates[spec.key]} (kept)")
         write_family(root, family, new, dates)
     return rc
 
@@ -1085,6 +1138,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"default <root>/{COVERAGE_JSON.as_posix()}",
     )
+    parser.add_argument(
+        "--code-health-json",
+        type=Path,
+        default=None,
+        help=f"default <root>/{CODE_HEALTH_JSON.as_posix()}",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     measure_p = sub.add_parser("measure", help="print the measured values as JSON")
     measure_p.add_argument("--write", type=Path, default=None, help="also write the JSON here")
@@ -1104,7 +1163,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root: Path = args.root.resolve()
     coverage_json: Path = args.coverage_json or root / COVERAGE_JSON
-    measurement = measure(root, coverage_json)
+    code_health_json: Path = args.code_health_json or root / CODE_HEALTH_JSON
+    measurement = measure(root, coverage_json, code_health_json)
 
     if args.command == "measure":
         payload = json.dumps(measurement.to_json(), indent=2, sort_keys=True) + "\n"

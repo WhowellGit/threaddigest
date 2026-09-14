@@ -1,9 +1,9 @@
 # STATUS (prune-stale; rewritten, never appended; contract enforced by `tests/gates/test_status_page.py`)
 
-**As of 2026-09-14.** M0 and M1a tranche A are built on `main`; as of this stamp `make check` is red on the hook-settings gate alone, by design, until the third hook is registered (see In flight); the enforcement tranche, the separation pass (the earlier project's residue abstracted or removed from the tree), and the routing, status-page, and ledger-completeness gates have landed. No remote yet: Wes intends a bare git remote on his QNAP as the first backup, GitHub later. Numbers live in the `make check` output, never here.
+**As of 2026-09-14.** M0 and M1a tranche A are built and green on `main`; the three hooks are registered and the code-health gate is live; the enforcement tranche, the separation pass (the earlier project's residue abstracted or removed from the tree), and the routing, status-page, and ledger-completeness gates have landed. No remote yet: Wes intends a bare git remote on his QNAP as the first backup, GitHub later. Numbers live in the `make check` output, never here.
 
 ## In flight
-- The third hook (read before touch) is built and tested, log-first; its mirrors are on `main` and the hook-settings gate stays red until Wes pastes the registration snippet (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)); the ledger review is on 2026-09-28. Nothing on the collector; the next code is tranche B (needs credentials).
+- The third hook (read before touch) is built, tested, and registered, log-first; the ledger review is on 2026-09-28. The code-health ratchet family (G51) is built; its three birth relaxations expire 2026-09-27 unless the counts reach zero or Wes re-approves. The fake gateway split lands separately. Nothing on the collector; the next code is tranche B (needs credentials).
 - Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
 
 ## Next
@@ -12,7 +12,7 @@
 3. M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week): brief → bounded design rounds → build on a branch → panel.
 4. Milestone MB when the new QNAP arrives: bare repository over SSH, first push through the pre-push hook, nightly bundle, restore drill from the NAS copy.
 5. The review runner and the first external review at tranche B's design freeze; the last two days' enforcement changes are that review's first job.
-6. Code-health gate, layer one (a `code_health` ratchet family in `make check`), as the first build of the next session on Wes's go; the CodeScene trial at the end of the first milestone after that.
+6. Code-health layer two: the CodeScene trial at the end of the first milestone after M1d (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)); layer one is built and gated.
 7. The harness page for this project (proposed name only so far; it will link to `docs/reference/earlier-project/EARLIER_PROJECT_REFERENCE.md`, built 2026-09-14) and moving the assessments beside that reference as appendices.
 8. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
 
@@ -24,6 +24,7 @@
 - The read-before-touch hook stays in `log` mode until its ledger is reviewed on 2026-09-28; flipping the mode is a reviewed commit, never a hand edit.
 - The hook-settings gate requires every script under `tools/hooks/` to be registered, so a new hook script turns `make check` red until a human registers it; that is the design, not a broken test.
 - Two sessions were live in this checkout on 2026-09-14 and one swept the other's uncommitted edits into its commit; a second live session works in a git worktree until the proposed guard lands (`docs/decisions/DECISIONS.md` § 2026-09-14 (later), incident bullet).
+- The code-health ceilings move only through `make ratchet-bump` and `make ratchet-loosen`; a relaxation past its date is red until tightened or re-approved with a reason, never hand-edited.
 
 ## Waiting on Wes
-Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); pasting the third-hook registration snippet into the hook settings and committing it on a branch, which turns `main` green; the go for the one-live-session-per-checkout guard; the harness document's name; the ChatGPT data-controls opt-out before the first external packet; moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README); the go for the code-health gate's two layers (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); pasting the third-hook registration snippet into the hook settings and committing it on a branch, which turns `main` green; the go for the one-live-session-per-checkout guard; the argument-count ceiling ruling (hold, refactor, or raise ruff's limit with a reason; `docs/decisions/DECISIONS.md` § 2026-09-14 (later)); the harness document's name; the ChatGPT data-controls opt-out before the first external packet; moving this session's transcript to the archive after it ends (the earlier session's moved 2026-09-14; guarded command in the archive folder's README); the go for the code-health gate's two layers (`docs/decisions/DECISIONS.md` § 2026-09-14 (later)). Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.

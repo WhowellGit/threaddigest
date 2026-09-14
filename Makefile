@@ -13,9 +13,10 @@ UV ?= uv
 BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
+CODE_HEALTH := $(BUILD_DIR)/code_health.json
 
 .PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html \
-        memory-check memory-export
+        memory-check memory-export code-health
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
@@ -25,6 +26,7 @@ help:
 	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
 	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
 	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
+	@echo "make code-health      measure code health into .build/code_health.json (check does this first)"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
 	@echo "                      (lands a GUARDS.md row; HARD_AFTER turns it red again on that date)"
@@ -59,6 +61,7 @@ check: | $(BUILD_DIR)
 	if [ $$rc -ne 0 ]; then echo "dmypy exited $$rc; falling back to mypy"; $(UV) run mypy src; fi
 	$(UV) run lint-imports
 	$(UV) run pytest -m "$(MARKEXPR)" --cov --cov-report=term --cov-report=json:$(BUILD_DIR)/coverage.json -p no:cacheprovider
+	$(UV) run python tools/code_health.py --write $(CODE_HEALTH)
 	$(RATCHET) measure --write $(SUMMARY)
 	$(RATCHET) compare
 	@echo "<!-- make-check-summary:begin -->"
@@ -80,10 +83,16 @@ memory-check:
 memory-export:
 	$(UV) run python tools/memory_snapshot.py export
 
-ratchet-bump:
+# Code health (Wes, 2026-09-14): complexipy, radon, ruff's size rules, vulture with a counted
+# whitelist, and pylint's duplicate-code, written to one report the ratchet reads like the
+# coverage report. bump and loosen depend on it so a stale report can never set a floor.
+code-health: | $(BUILD_DIR)
+	$(UV) run python tools/code_health.py --write $(CODE_HEALTH)
+
+ratchet-bump: code-health
 	$(RATCHET) bump
 
-ratchet-loosen:
+ratchet-loosen: code-health
 	@if [ -z "$(KEY)" ] || [ -z "$(REASON)" ]; then \
 	  echo 'usage: make ratchet-loosen KEY=<key> REASON="<why>"' >&2; exit 2; fi
 	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)" $(if $(HARD_AFTER),HARD_AFTER=$(HARD_AFTER),)

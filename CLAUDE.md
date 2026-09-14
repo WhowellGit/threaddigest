@@ -65,6 +65,7 @@ that only goes down.
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
 | Never edit a file a rule file governs without reading the documents it names first | `tools/hooks/read_before_touch.sh` (log-first; ledger `.build/hooks/read_before_touch.jsonl`, reviewed 2026-09-28; mode in `tools/hooks/read_before_touch.mode`); `tests/gates/test_hooks.py` |
 | Every commit on a review-required surface since 2026-09-15 has a review register row with a record | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md` |
+| Maintainability passes on its own at a milestone, judged by analysis and never by a model: function complexity, module maintainability, size rules, dead code, and duplication are ceilings that only go down, with dated birth relaxations | `tools/code_health.py` (run by `make code-health` inside `make check`); `.ratchets/code_health.txt`; `tests/gates/test_code_health.py`; `tests/gates/test_ratchet.py` |
 
 ## Routing: read before you touch
 

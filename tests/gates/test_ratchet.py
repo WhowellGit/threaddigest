@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.gate("G08 G09 G10 G11")
+pytestmark = pytest.mark.gate("G08 G09 G10 G11 G51")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RATCHET = REPO_ROOT / "tools" / "ratchet.py"
@@ -82,6 +82,15 @@ EXPECTED = {
     # No CLAUDE.md in the throwaway tree, so the rules table contributes nothing; the real
     # count and its positive controls live in tests/gates/test_rules_name_their_enforcer.py.
     "review_only_rules": {"count": 0, "guards_without_control": 0},
+    "code_health": {
+        "cognitive_over_15": 0,
+        "cyclomatic_over_15": 0,
+        "mi_below_a": 0,
+        "size_rule_violations": 0,
+        "dead_code": 0,
+        "dead_code_whitelisted": 0,
+        "duplicate_blocks": 0,
+    },
 }
 
 
@@ -90,6 +99,15 @@ def write_coverage(root: Path, percent: float) -> None:
     build.mkdir(exist_ok=True)
     (build / "coverage.json").write_text(
         json.dumps({"totals": {"percent_covered": percent}}), encoding="utf-8"
+    )
+
+
+def write_code_health(root: Path, values: dict[str, int], hits: list[str] | None = None) -> None:
+    """The report tools/code_health.py would write; the ratchet reads it like coverage.json."""
+    build = root / ".build"
+    build.mkdir(exist_ok=True)
+    (build / "code_health.json").write_text(
+        json.dumps({"values": values, "hits": hits or []}), encoding="utf-8"
     )
 
 
@@ -102,6 +120,7 @@ def project(tmp_path: Path) -> Path:
     (root / "src" / "pkg" / "mod.py").write_text(SRC_MODULE, encoding="utf-8")
     (root / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
     write_coverage(root, 80.0)
+    write_code_health(root, dict(EXPECTED["code_health"]))
     return root
 
 
@@ -456,3 +475,61 @@ def test_loosen_refuses_a_tightening_and_an_empty_reason(project: Path) -> None:
     write_coverage(project, 70.0)
     assert ratchet(project, "loosen", "KEY=coverage.line_percent=70.00", "REASON=").returncode == 1
     assert read(project, "coverage") == "line_percent=80.00\n"
+
+
+# --------------------------------------------------------------- code_health (G51)
+
+
+def test_compare_is_red_when_a_code_health_count_rises(project: Path) -> None:
+    assert ratchet(project, "bump").returncode == 0
+    assert read(project, "code_health").startswith("cognitive_over_15=0\n")
+    write_code_health(
+        project,
+        {**EXPECTED["code_health"], "cognitive_over_15": 1},
+        ["cognitive_over_15 src/pkg/mod.py tangled cognitive 16"],
+    )
+    proc = ratchet(project, "compare", "--main-ref", "none")
+    assert proc.returncode == 1, proc.stdout
+    assert "RED       code_health.cognitive_over_15" in proc.stdout
+    assert (
+        "HIT       cognitive_over_15 src/pkg/mod.py tangled cognitive 16 [code-health]"
+        in proc.stdout
+    )
+
+
+def test_measure_fails_without_the_code_health_report(project: Path) -> None:
+    """A missing report is an error, never a zero, which would be green for the wrong reason."""
+    (project / ".build" / "code_health.json").unlink()
+    proc = ratchet(project, "measure")
+    assert proc.returncode == 1
+    assert "code health report" in proc.stderr and "code_health.json missing" in proc.stderr
+    partial = project / ".build" / "code_health.json"
+    partial.write_text(json.dumps({"values": {"cognitive_over_15": 0}}), encoding="utf-8")
+    proc = ratchet(project, "measure")
+    assert proc.returncode == 1
+    assert "unreadable" in proc.stderr
+
+
+def test_bump_clears_a_hard_after_once_a_ceiling_reaches_zero(project: Path) -> None:
+    """A birth relaxation carries a date; when the count reaches zero the relaxation is over
+    and bump drops the date, so a solved problem cannot go red on the expiry day."""
+    write_code_health(project, {**EXPECTED["code_health"], "cognitive_over_15": 3})
+    assert ratchet(project, "bump").returncode == 0
+    proc = ratchet(
+        project,
+        "loosen",
+        "KEY=code_health.cognitive_over_15",
+        "REASON=birth relaxation",
+        "HARD_AFTER=2999-01-01",
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "cognitive_over_15.hard_after=2999-01-01" in read(project, "code_health")
+    write_code_health(project, {**EXPECTED["code_health"], "cognitive_over_15": 2})
+    proc = ratchet(project, "bump")
+    assert "RELAXED   code_health.cognitive_over_15" in proc.stdout
+    assert "hard_after=2999-01-01" in read(project, "code_health")
+    write_code_health(project, dict(EXPECTED["code_health"]))
+    proc = ratchet(project, "bump")
+    assert "CLEARED   code_health.cognitive_over_15" in proc.stdout
+    assert "hard_after" not in read(project, "code_health")
+    assert ratchet(project, "compare", "--main-ref", "none").returncode == 0

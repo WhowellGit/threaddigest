@@ -42,6 +42,10 @@ dev = [
   "pre-commit>=4.0",
   "types-PyYAML",
   "types-regex>=2026.9.10.20260911",
+  "complexipy>=8.0.1",
+  "radon>=6.0.1",
+  "vulture>=2.16",
+  "pylint>=4.0.8",
 ]
 
 [build-system]
