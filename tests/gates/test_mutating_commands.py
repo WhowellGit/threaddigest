@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import typer
+from click.testing import Result
 from tests.db.sqlhelp import run_pks, table_digest
 from typer.testing import CliRunner
 
@@ -139,32 +140,45 @@ def test_every_mutating_command_takes_the_lock_and_writes_a_run_row(
     assert after == before + 1, f"{name} did not write exactly one run row"
 
 
-EXCLUDED_COMMANDS: list[tuple[str, list[str]]] = [
-    ("doctor", ["doctor", "--no-network"]),
-    ("config_validate", ["config", "validate"]),
-    ("db_current", ["db", "current"]),
+#: ``(id, argv, expected exit code)``. Every case here is the command's HAPPY path against a
+#: database at head, so the expected code is 0: a command that wrote nothing because it
+#: refused to start (78) or died (1) would otherwise pass this gate by doing nothing at all.
+EXCLUDED_COMMANDS: list[tuple[str, list[str], int]] = [
+    ("doctor", ["doctor", "--no-network"], 0),
+    ("config_validate", ["config", "validate"], 0),
+    ("db_current", ["db", "current"], 0),
     (
         "run_dry_run",
         ["run", "--dry-run", "--gateway", "fake", "--fixture", FIXTURE_PLACEHOLDER],
+        0,
     ),
 ]
 
 
 @pytest.mark.gate("RL-04")
 @pytest.mark.parametrize(
-    "name,args", EXCLUDED_COMMANDS, ids=[case[0] for case in EXCLUDED_COMMANDS]
+    "name,args,expected_exit", EXCLUDED_COMMANDS, ids=[case[0] for case in EXCLUDED_COMMANDS]
 )
 def test_excluded_commands_write_nothing(
     name: str,
     args: list[str],
+    expected_exit: int,
     cli_runner: CliRunner,
     db_at_head: Path,
     demo_fixture_path: Path,
+    exited_cleanly: Callable[[Result], bool],
 ) -> None:
     """A dry run opens no writable connection, so it is not a mutating command (section
     11.4); ``doctor``, ``config validate`` and ``db current`` are read-only by construction.
     Every table's content hash -- ``runs`` included -- must be unchanged, not just row
     counts (section 11.4's own falsifiability requirement).
+
+    The exit code is asserted too (panel P2-3 / finding 14). "Wrote nothing" is trivially
+    true of a command that never ran: a ``config validate`` refusing at 78, or a dry run
+    crashing on its first page, would have kept this gate green while the behaviour it
+    guards was gone. ``exited_cleanly`` is the second half of that -- ``CliRunner`` catches
+    exceptions and reports them as exit 1, so the code alone cannot tell a refusal from a
+    traceback.
     """
     engine = engine_for(db_path_for(db_at_head))
     try:
@@ -177,3 +191,5 @@ def test_excluded_commands_write_nothing(
         engine.dispose()
     changed = [t for t in before if before[t] != after.get(t)]
     assert changed == [], f"{name} (exit {result.exit_code}) wrote to: {changed}"
+    assert exited_cleanly(result), f"{name} raised: {result.exception!r}\n{result.output}"
+    assert result.exit_code == expected_exit, f"{name}: {result.output}"

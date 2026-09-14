@@ -4,6 +4,11 @@
 ``INSIGHTMINER_DATA_DIR`` is already a tmp path outside the repo (``tests/conftest.py``'s
 autouse ``isolated_data_dir``), so the snapshot below is of the REPO ROOT: a full run must
 change nothing in it at all.
+
+:func:`_snapshot` takes the root it walks, which is what keeps this file honest both ways:
+the run test reads the real repository and writes nothing, and the positive control writes
+into a tmp tree of its own. No test here creates a file inside the real ``data/`` directory
+(panel P2-5).
 """
 
 from __future__ import annotations
@@ -65,6 +70,7 @@ def test_volatile_exclusion_list_contains_neither_data_nor_config() -> None:
 def test_a_full_run_changes_no_file_outside_the_data_dir(
     cli_runner, db_at_head: Path, loaded_gateway: FakeRedditGateway, demo_fixture_path: Path
 ) -> None:
+    """The one test that looks at the real repository, and it only ever READS it."""
     before = _snapshot(REPO_ROOT)
     result = cli_runner.invoke(
         cli.app, ["run", "--gateway", "fake", "--fixture", str(demo_fixture_path)]
@@ -74,15 +80,30 @@ def test_a_full_run_changes_no_file_outside_the_data_dir(
     assert after == before
 
 
-def test_control_a_write_into_the_repo_is_detected() -> None:
+def test_control_a_write_into_a_data_directory_is_detected(tmp_path: Path) -> None:
     """The positive control: the comparison must go red on a real write, so it cannot be
     passing by looking at nothing.
+
+    Run against a tmp tree shaped like the repository, never the repository itself (panel
+    P2-5). The control used to write ``REPO_ROOT/data/probe`` -- a real file inside the real
+    data directory, created by the very test file whose subject is that a run never writes
+    there. The ``finally`` removed it, but a crash, a ``SIGKILL``, or a failure between the
+    two statements left it behind, and G19's rule is about the write, not the residue.
+
+    The ``.git`` file proves the :data:`VOLATILE` prune is doing its job in the same breath:
+    a volatile directory's contents never enter a snapshot, so they can never make one
+    differ.
     """
-    before = _snapshot(REPO_ROOT)
-    probe = REPO_ROOT / "data" / "probe"
-    probe.write_bytes(b"x")
-    try:
-        after = _snapshot(REPO_ROOT)
-        assert after != before
-    finally:
-        probe.unlink(missing_ok=True)
+    root = tmp_path / "repo"
+    (root / "data").mkdir(parents=True)
+    (root / "data" / "insightminer.db").write_bytes(b"a database that was already there")
+    (root / ".git").mkdir()
+    (root / ".git" / "index").write_bytes(b"volatile")
+
+    before = _snapshot(root)
+    (root / "data" / "probe").write_bytes(b"x")
+    after = _snapshot(root)
+
+    assert str(Path(".git") / "index") not in before
+    assert after != before
+    assert set(after) - set(before) == {str(Path("data") / "probe")}

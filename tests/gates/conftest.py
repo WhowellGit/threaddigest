@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from click.testing import Result
 from sqlalchemy import select
 from typer.testing import CliRunner
 
@@ -27,6 +28,28 @@ from insightminer.db.schema import Base
 @pytest.fixture
 def cli_runner() -> CliRunner:
     return CliRunner()
+
+
+ExitedCleanly = Callable[[Result], bool]
+
+
+@pytest.fixture
+def exited_cleanly() -> ExitedCleanly:
+    """ "Never a traceback": nothing escaped but the ``SystemExit`` a ``typer.Exit`` raises.
+
+    ``CliRunner`` records that one in ``result.exception`` on every non-zero exit, so an exit
+    code on its own cannot tell a documented refusal apart from a crash the runner caught.
+
+    Copied from ``tests/e2e/test_run_lock_and_preconditions.py``'s helper of the same name
+    rather than imported: ``tests/e2e/`` is not an importable package (no ``__init__.py``,
+    unlike ``tests/db/``), and importing a *test module* from another test module would give
+    the same file two module identities under pytest's prepend import mode.
+    """
+
+    def _cleanly(result: Result) -> bool:
+        return result.exception is None or isinstance(result.exception, SystemExit)
+
+    return _cleanly
 
 
 @pytest.fixture
