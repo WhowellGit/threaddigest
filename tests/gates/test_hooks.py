@@ -155,6 +155,64 @@ def test_no_bypass_git_ignores_other_tools(project: Path) -> None:
     assert proc.returncode == 0, proc.stderr
 
 
+# ------------------------------------------------- no_bypass_git: attribution trailers
+#
+# Wes's rule: a commit message ends at its last content line and never names the model that
+# wrote it. The two banned strings are assembled at runtime so that this file does not carry
+# them (see tests/gates/test_no_imported_identifiers.py, which scans every tracked text file).
+
+TRAILER = "Co-Authored" + "-By: Someone <someone@example.invalid>"
+GENERATED = "Generated with [" + "Claude Code]"
+
+TRAILER_ROWS: list[tuple[str, int]] = [
+    # allowed twins: ordinary messages, and the same words in a non-commit command
+    ("git commit -m 'Land the sweep and the gate'", 0),
+    ("git commit -m 'describe the attribution rule without quoting it'", 0),
+    (f"grep -rn '{TRAILER}' docs/", 0),
+    (f"echo '{GENERATED}' > /tmp/scratch", 0),
+    (f"git log --grep '{TRAILER}'", 0),
+    ("grep -F pattern docs/PLAN.md && git commit -m 'msg'", 0),  # a -F that is not a message file
+    # blocked: the trailer in the command text, in any of git commit's message options
+    (f"git commit -m 'msg\n\n{TRAILER}'", 2),
+    (f'git commit -m "msg" -m "{TRAILER}"', 2),
+    (f"git commit -m 'msg\n\n{GENERATED}'", 2),
+    (f"git commit --trailer '{TRAILER}'", 2),
+    ("git commit -am 'msg\n\n" + TRAILER.lower() + "'", 2),  # the match is case-insensitive
+    # blocked: a message this hook cannot read
+    ("git commit -F -", 2),
+    ("git commit -F /nonexistent/message.txt", 2),
+]
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"), TRAILER_ROWS, ids=[row[0][:48] for row in TRAILER_ROWS]
+)
+def test_no_bypass_git_refuses_attribution_trailers(
+    project: Path, command: str, expected: int
+) -> None:
+    proc = run_hook(NO_BYPASS, bash_payload(command, project), project)
+    assert proc.returncode == expected, proc.stderr
+    if expected == 2:
+        assert "BLOCKED" in proc.stderr and proc.stderr.count("\n") == 1
+
+
+@pytest.mark.gate("attribution-trailer")
+@pytest.mark.parametrize("option", ["-F", "--file", "-F{path}", "--file={path}"])
+def test_positive_control_a_trailer_in_a_message_file_is_red(project: Path, option: str) -> None:
+    """The same tree goes red with the trailer in the -F file and green once it is gone."""
+    message = project / "COMMIT_MSG.txt"
+    argument = option.format(path=message) if "{path}" in option else f"{option} {message}"
+
+    message.write_text(f"Land the gate\n\nBody line.\n\n{TRAILER}\n", encoding="utf-8")
+    red = run_hook(NO_BYPASS, bash_payload(f"git commit {argument}", project), project)
+    assert red.returncode == 2, red.stderr
+    assert "BLOCKED" in red.stderr and "attribution trailer" in red.stderr
+
+    message.write_text("Land the gate\n\nBody line.\n", encoding="utf-8")
+    green = run_hook(NO_BYPASS, bash_payload(f"git commit {argument}", project), project)
+    assert green.returncode == 0, green.stderr
+
+
 # --------------------------------------------------------------------------- enforcement files
 
 FILE_ROWS: list[tuple[str, str, int]] = [

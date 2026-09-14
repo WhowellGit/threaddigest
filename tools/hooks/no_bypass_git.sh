@@ -13,6 +13,12 @@
 #   git -c core.hooksPath=... / git config core.hooksPath ...
 #   SKIP=... or PRE_COMMIT_ALLOW_NO_CONFIG=... assignments in front of a command (or exported)
 #   pre-commit uninstall
+#   git commit whose command text, or whose -F/--file message file, carries an attribution
+#     trailer (Wes's rule: a commit message ends at its last content line, and never names the
+#     model that wrote it). A message file that cannot be read, and -F - (message on stdin, which
+#     this hook cannot see), are blocked too: the check fails closed like every other one here.
+#     The patterns below are spelled with a redundant character class so that this script does
+#     not carry the very strings it bans; a regex engine treats the two spellings identically.
 set -euo pipefail
 trap 'echo "no_bypass_git: internal error at: ${BASH_COMMAND}; failing closed" >&2; exit 2' ERR
 
@@ -40,6 +46,8 @@ COMMIT_VALUE_OPTS = {
     "--fixup", "--squash", "--author", "--date", "-t", "--template", "--cleanup", "--trailer",
 }
 PUSH_VALUE_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec", "--recurse-submodules"}
+ATTRIBUTION = re.compile(r"Co-Authored[-]By|Generated with \[Claude Code\]", re.IGNORECASE)
+MESSAGE_FILE_OPTS = ("--file", "-F")
 
 
 def segments(command):
@@ -68,6 +76,52 @@ def current_branch(cwd):
         return None
     name = proc.stdout.strip()
     return name if proc.returncode == 0 and name else None
+
+
+def message_files(rest):
+    """Every -F/--file value in a git commit argument list, in all four spellings."""
+    paths = []
+    j = 0
+    while j < len(rest):
+        tok = rest[j]
+        for opt in MESSAGE_FILE_OPTS:
+            if tok == opt:
+                if j + 1 < len(rest):
+                    paths.append(rest[j + 1])
+                    j += 1
+                break
+            if tok.startswith(opt + "="):
+                paths.append(tok[len(opt) + 1:])
+                break
+            if opt == "-F" and tok.startswith("-F") and len(tok) > 2:
+                paths.append(tok[2:])
+                break
+        j += 1
+    return paths
+
+
+def commits(command):
+    """True when any pipeline segment invokes git commit."""
+    for segment in segments(command):
+        names = [os.path.basename(tok) for tok in tokens(segment)]
+        if "git" in names and "commit" in names[names.index("git") + 1:]:
+            return True
+    return False
+
+
+def check_message_files(rest, cwd):
+    """Read every -F/--file message file of one git commit. Unreadable, or stdin, blocks."""
+    for path in message_files(rest):
+        if path == "-":
+            block("git commit -F - reads the message from stdin, which cannot be checked for an attribution trailer")
+        full = path if os.path.isabs(path) else os.path.join(cwd, path)
+        try:
+            with open(full, encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+        except OSError:
+            block("git commit -F %s: message file cannot be read; failing closed" % path)
+        if ATTRIBUTION.search(text):
+            block("message file %s carries an attribution trailer; remove it before committing" % path)
 
 
 def check_commit_or_merge(sub, rest):
@@ -139,6 +193,8 @@ def check_git(toks, cwd):
         block("git config core.hooksPath redirects the installed hooks")
     if sub in ("commit", "merge"):
         check_commit_or_merge(sub, rest)
+        if sub == "commit":
+            check_message_files(rest, git_cwd)
     elif sub == "push":
         check_push(rest, git_cwd)
 
@@ -176,6 +232,12 @@ def main():
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     for segment in segments(command):
         check_segment(tokens(segment), cwd)
+    # The trailer scan is judged on the WHOLE command text, not per segment: a -m message may
+    # contain newlines and segments() splits on those, so a per-segment scan would miss a trailer
+    # sitting on its own line. The -F files are read per segment (check_git), so a -F belonging to
+    # some other command in the pipeline -- grep -F, say -- is never read as a commit message.
+    if commits(command) and ATTRIBUTION.search(command):
+        block("git commit carries an attribution trailer; a commit message ends at its last content line")
 
 
 main()
