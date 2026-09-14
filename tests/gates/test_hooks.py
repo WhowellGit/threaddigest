@@ -352,15 +352,27 @@ def test_hook_scripts_are_executable_bash_that_fails_closed() -> None:
         assert "trap '" in text and "exit 2' ERR" in text
 
 
-def test_settings_json_registers_both_hooks_with_timeout_5() -> None:
+#: Every script under ``tools/hooks/`` and the matcher it is registered under. Registration
+#: is a human-only edit, so this is the gate that makes it happen: a script that exists but is
+#: not registered has never run (installed-ness, not existence), and the registered set must
+#: equal the on-disk set. A new script turns this red until a human registers it; an entry
+#: naming a script that is not here is a typo in the settings.
+EXPECTED_MATCHERS: dict[str, str] = {
+    "no_bypass_git.sh": "Bash",
+    "enforcement_files_script_only.sh": "Bash|Edit|Write|MultiEdit",
+    "read_before_touch.sh": "Edit|Write|MultiEdit",
+}
+
+
+def test_settings_json_registers_every_hook_script_with_timeout_5() -> None:
+    on_disk = sorted(p.name for p in HOOKS_DIR.glob("*.sh"))
+    assert on_disk == sorted(EXPECTED_MATCHERS), "a hook script without an expected matcher"
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     entries = settings["hooks"]["PreToolUse"]
     by_matcher = {entry["matcher"]: entry["hooks"] for entry in entries}
-    assert set(by_matcher) == {"Bash", "Bash|Edit|Write|MultiEdit"}
-    for matcher, script in (
-        ("Bash", "no_bypass_git.sh"),
-        ("Bash|Edit|Write|MultiEdit", "enforcement_files_script_only.sh"),
-    ):
+    assert len(by_matcher) == len(entries), "two PreToolUse entries share a matcher"
+    assert set(by_matcher) == set(EXPECTED_MATCHERS.values())
+    for script, matcher in EXPECTED_MATCHERS.items():
         (hook,) = by_matcher[matcher]
         assert hook["type"] == "command"
         assert hook["timeout"] == 5
