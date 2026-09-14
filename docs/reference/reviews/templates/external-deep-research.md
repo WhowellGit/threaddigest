@@ -98,21 +98,19 @@ Ground rules:
 Read this before spending effort: several questions below touch code that is designed but not
 yet built, and the packet's index confirms the absences.
 
-| Area | State at this commit | Where to look |
-|---|---|---|
-| Pure logic: deletion state machine, paging and stop rules, revisit ladder, budget, theme rules, normalisation, digest rendering, retry ladder | Built, test-first, as `core/` modules; some have no caller yet (see below) | `src/insightminer/core/`, `tests/unit/` |
-| Schema, migrations, upserts, search index over live views, backups table | Built (revision 2) | `src/insightminer/db/`, `tests/db/` |
-| Posts ingestion: lock, run lifecycle, sweep with one transaction per page, post-run invariants, doctor, migrate and seed commands, the `run` command | Built and proven end to end against the fake gateway | `src/insightminer/services/`, `src/insightminer/cli.py`, `tests/e2e/`, `tests/services/` |
-| The fake Reddit gateway | Built; the only gateway that exists | `src/insightminer/adapters/reddit_fake/` |
-| The real Reddit adapter, wire captures, the `probe` command | Not built (tranche B waits on credentials); no real Reddit response has been captured yet | nothing under `adapters/` for it |
-| Comment trees and their budget accounting | Not built (M1b); the fake and the paging rules model them | `core/paging.py`, the fake's tree methods |
-| Reconcile, revisit, scrub as run stages | Not built (M1c); `core/deletion.py` decides, nothing in a run calls it yet | `core/deletion.py`, `db/fts.py` (scrub of the index exists) |
-| Themes, digest, schedule, notifications as a daily product | Not built (M1d); the core modules render, nothing schedules or ships them | `core/themes.py`, `core/digest.py` |
-| Web UI, saved searches, containers | Not built (M2, M3, M4) | plan sections only |
-| The harness: hooks, ratchet families, gates, code-health analysis, this packet builder | Built and live | `tools/`, `tests/gates/`, the hook settings and rule files, the ratchet files |
+- Pure logic: deletion state machine, paging and stop rules, revisit ladder, budget, theme rules, normalisation, digest rendering, retry ladder. State: Built, test-first, as `core/` modules; some have no caller yet (see below). Where to look: `src/insightminer/core/`, `tests/unit/`.
+- Schema, migrations, upserts, search index over live views, backups table. State: Built (revision 2). Where to look: `src/insightminer/db/`, `tests/db/`.
+- Posts ingestion: lock, run lifecycle, sweep with one transaction per page, post-run invariants, doctor, migrate and seed commands, the `run` command. State: Built and proven end to end against the fake gateway. Where to look: `src/insightminer/services/`, `src/insightminer/cli.py`, `tests/e2e/`, `tests/services/`.
+- The fake Reddit gateway. State: Built; the only gateway that exists. Where to look: `src/insightminer/adapters/reddit_fake/`.
+- The real Reddit adapter, wire captures, the `probe` command. State: Not built (tranche B waits on credentials); no real Reddit response has been captured yet. Where to look: nothing under `adapters/` for it.
+- Comment trees and their budget accounting. State: Not built (M1b); the fake and the paging rules model them. Where to look: `core/paging.py`, the fake's tree methods.
+- Reconcile, revisit, scrub as run stages. State: Not built (M1c); `core/deletion.py` decides, nothing in a run calls it yet. Where to look: `core/deletion.py`, `db/fts.py` (scrub of the index exists).
+- Themes, digest, schedule, notifications as a daily product. State: Not built (M1d); the core modules render, nothing schedules or ships them. Where to look: `core/themes.py`, `core/digest.py`.
+- Web UI, saved searches, containers. State: Not built (M2, M3, M4). Where to look: plan sections only.
+- The harness: hooks, ratchet families, gates, code-health analysis, this packet builder. State: Built and live. Where to look: `tools/`, `tests/gates/`, the hook settings and rule files, the ratchet files.
 
 For questions about unbuilt stages, judge the design and the pure logic that exists, say so,
-and do not spend effort confirming absences the table already states.
+and do not spend effort confirming absences the list above already states.
 
 ## Questions, in priority order
 
@@ -178,7 +176,9 @@ and do not spend effort confirming absences the table already states.
 
 ## Output
 
-At most fifteen findings, each under 150 words, as a ranked table with the columns: rank, cost
-(3/2/1), confidence (3/2/1), part and path, quoted line, claim attacked, why, cost if right,
-cheapest check. Then the "cannot judge" items with the missing context named. Then at most
-five questions for the owner. No preamble, no summary of the system, no closing encouragement.
+At most fifteen findings, each under 150 words, as a numbered list ranked by cost times
+confidence, one block per finding with these labelled lines: Cost (3/2/1); Confidence (3/2/1);
+Location (part, path, line); Quote; Claim attacked; Why; Cost if right; Cheapest check. No
+tables anywhere in the report. Then the "cannot judge" items, each with the missing context
+named. Then at most five questions for the owner. No preamble, no summary of the system, no
+closing encouragement.
