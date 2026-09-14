@@ -196,7 +196,46 @@ def frontmatter_problems(path: Path) -> list[str]:
     return problems
 
 
-def check_memory(memory_dir: Path) -> tuple[list[str], str]:
+#: A sibling memory home belongs to this project when any file in it names the project.
+PROJECT_WORD = "insightminer"
+
+
+def projects_root_for(memory_dir: Path) -> Path | None:
+    """``~/.claude/projects`` when ``memory_dir`` follows the ``projects/<key>/memory`` layout."""
+    root = memory_dir.parent.parent
+    return root if root.name == "projects" else None
+
+
+def second_home_findings(memory_dir: Path, projects_root: Path) -> list[str]:
+    """One finding per other memory home under ``projects_root`` holding this project's topics.
+
+    Two homes diverge silently: on 2026-09-14 the Desktop-keyed home and the repo-keyed one
+    differed by 589 bytes in one topic file, and nothing looked at the second. A second home may
+    hold a pointer index and nothing else; a home that never mentions the project is another
+    project's and is left alone.
+    """
+    findings: list[str] = []
+    live = memory_dir.resolve()
+    if not projects_root.is_dir():
+        return findings
+    for candidate in sorted(projects_root.iterdir()):
+        home = candidate / "memory"
+        if not home.is_dir() or home.resolve() == live:
+            continue
+        files = [p for p in home.rglob("*.md") if p.is_file()]
+        topics = [p for p in files if p.name != INDEX_NAME]
+        ours = any(
+            PROJECT_WORD in p.read_text(encoding="utf-8", errors="replace").lower() for p in files
+        )
+        if topics and ours:
+            findings.append(
+                f"memory: second home {home} holds {len(topics)} topic files; one memory home "
+                "(move them to the archive, keep the pointer index)"
+            )
+    return findings
+
+
+def check_memory(memory_dir: Path, projects_root: Path | None = None) -> tuple[list[str], str]:
     """Audit the live memory directory: one line per finding, plus a summary line."""
     findings: list[str] = []
     topics = [
@@ -231,6 +270,8 @@ def check_memory(memory_dir: Path) -> tuple[list[str], str]:
         for rel in topics
         if (problems := frontmatter_problems(memory_dir / rel))
     ]
+    if projects_root is not None:
+        findings += second_home_findings(memory_dir, projects_root)
     verdict = f"FAILED - {len(findings)} findings" if findings else "OK"
     summary = (
         f"memory: check {verdict}; {len(topics)} topic files, {len(links)} index links, "
@@ -341,7 +382,7 @@ def cmd_check(memory_dir: Path) -> int:
     if not memory_dir.is_dir():
         print(NO_LIVE_DIR.format(path=memory_dir))
         return 0
-    findings, summary = check_memory(memory_dir)
+    findings, summary = check_memory(memory_dir, projects_root_for(memory_dir))
     for finding in findings:
         print(finding)
     print(summary)

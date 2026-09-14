@@ -400,3 +400,33 @@ def test_the_snapshot_defaults_into_this_tree_not_into_the_main_checkout(tmp_pat
     assert memory == ms.memory_dir_for(main.resolve())
     assert snapshot == worktree / ms.SNAPSHOT_DIRNAME
     assert ms.default_paths(main) == (ms.memory_dir_for(main.resolve()), main / "memory-snapshot")
+
+
+@pytest.mark.gate("G47")
+def test_check_reports_a_second_memory_home_with_topic_files(tmp_path: Path) -> None:
+    """One memory home: a sibling home that holds this project's topic files is a finding; a
+    sibling holding only a pointer index, or another project's memory, is not."""
+    projects = tmp_path / "projects"
+    live = projects / "-repo-keyed" / "memory"
+    live.mkdir(parents=True)
+    (live / INDEX).write_text("- [t](t.md) — insightminer note\n", encoding="utf-8")
+    (live / "t.md").write_text(topic("t"), encoding="utf-8")
+    stale = projects / "-desktop-keyed" / "memory"
+    stale.mkdir(parents=True)
+    (stale / INDEX).write_text("pointer: the insightminer home moved\n", encoding="utf-8")
+    (stale / "old.md").write_text(topic("old"), encoding="utf-8")
+    other = projects / "-another-project" / "memory"
+    other.mkdir(parents=True)
+    (other / "x.md").write_text(topic("x"), encoding="utf-8")
+
+    findings, _ = ms.check_memory(live, projects_root=projects)
+    assert [f for f in findings if "second home" in f] == [
+        f"memory: second home {stale} holds 1 topic files; one memory home "
+        "(move them to the archive, keep the pointer index)"
+    ]
+
+    (stale / "old.md").unlink()
+    findings, _ = ms.check_memory(live, projects_root=projects)
+    assert not any("second home" in f for f in findings)
+    assert ms.projects_root_for(live) == projects
+    assert ms.projects_root_for(tmp_path / "memory") is None

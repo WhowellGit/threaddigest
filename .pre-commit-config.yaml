@@ -2,7 +2,8 @@
 # CI runs the same tools through `make check`; this is the fast local copy of that gate.
 # Revisions are pinned; bump them deliberately (with the monthly dependency bump), never blindly.
 minimum_pre_commit_version: "4.0.0"
-default_install_hook_types: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 fail_fast: false
 
 repos:
@@ -39,3 +40,11 @@ repos:
         language: system
         pass_filenames: false
         types_or: [python, pyi, toml]
+      # A remote is a backup, never the gate: every push first runs the full check locally.
+      - id: make-check
+        name: make check before every push
+        entry: make check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

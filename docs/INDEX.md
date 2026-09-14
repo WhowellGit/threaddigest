@@ -8,7 +8,7 @@
 | I am about to… | Read | Then |
 |---|---|---|
 | Start a session | `recent/STATUS.md` | `CLAUDE.md` § The irreversible few |
-| Touch the schema, migrations, upserts, search index, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2 | `runbook/RUNBOOK.md` § migrations; `.claude/rules/db.md` loads automatically |
+| Touch the schema, migrations, upserts, search index, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2 | `runbook/RUNBOOK.md` § Migrate; `.claude/rules/db.md` loads automatically |
 | Change the collector (fetch, budget, revisit, reconcile, invariants) | `PLAN.md` § Collector algorithm | `decisions/DECISIONS.md` 2026-09-13 entries; `.claude/rules/services.md` |
 | Touch deletion, scrubbing, or anything compliance-related | `PLAN.md` § Data model (state machine) | `runbook/KNOWN_ISSUES.md` |
 | Change the web UI | `PLAN.md` § Web UI | `reference/reviews/2026-09-12-ui-design-review.md`; `.claude/rules/web.md` |

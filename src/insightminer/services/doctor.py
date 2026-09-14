@@ -513,13 +513,19 @@ def _git_hooks_dir(root: Path) -> Path | None:
     return git_dir.resolve() / "hooks"
 
 
+#: The two git hook stages pre-commit installs here (``default_install_hook_types``).
+HOOK_STAGES = ("pre-commit", "pre-push")
+
+
 def check_hooks_installed(start: Path | None = None) -> Check:
-    """The checkout's ``pre-commit`` hook is installed, so the gates actually run on commit.
+    """The checkout's ``pre-commit`` and ``pre-push`` hooks are installed, so the gates run.
 
     Three states, all of them real answers:
 
-    * **ok** -- ``<git dir>/hooks/pre-commit`` exists and names pre-commit;
-    * **not ok** -- there is a git repository and that hook is missing or is something else
+    * **ok** -- ``<git dir>/hooks/pre-commit`` and ``<git dir>/hooks/pre-push`` both exist and
+      name pre-commit (the push hook runs ``make check``, since a remote is a backup and never
+      the gate; added 2026-09-14);
+    * **not ok** -- there is a git repository and either hook is missing or is something else
       (git's own ``pre-commit.sample`` is not installed: git never runs it);
     * **ok, "no git repository"** -- an installed wheel or a container has nothing to
       install hooks into. That is a healthy state, not a skipped check.
@@ -532,12 +538,15 @@ def check_hooks_installed(start: Path | None = None) -> Check:
     hooks_dir = None if root is None else _git_hooks_dir(root)
     if hooks_dir is None:
         return Check(name=name, ok=True, detail="no git repository", severity=CheckSeverity.WARNING)
-    hook = hooks_dir / "pre-commit"
-    installed = hook.is_file() and HOOK_MARKER in hook.read_text(encoding="utf-8", errors="replace")
+    hooks = [hooks_dir / stage for stage in HOOK_STAGES]
+    installed = all(
+        hook.is_file() and HOOK_MARKER in hook.read_text(encoding="utf-8", errors="replace")
+        for hook in hooks
+    )
     return Check(
         name=name,
         ok=installed,
-        detail=f"{hook} runs pre-commit" if installed else "run make hooks",
+        detail=f"{hooks[0]} and {hooks[1].name} run pre-commit" if installed else "run make hooks",
         severity=CheckSeverity.WARNING,
     )
 

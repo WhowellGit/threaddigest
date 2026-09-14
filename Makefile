@@ -67,6 +67,7 @@ check: | $(BUILD_DIR)
 	@echo "<!-- make-check-summary:end -->"
 	@$(UV) run python tools/hooks_status.py
 	@$(UV) run python tools/memory_snapshot.py check
+	@$(UV) run python tools/memory_snapshot.py diff
 
 # Claude Code's auto-memory: the one asset here that no rebuild can regenerate. It is keyed to
 # this checkout's absolute path and lives outside git, so `check` audits it (unreachable files,

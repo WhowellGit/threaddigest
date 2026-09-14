@@ -1,26 +1,22 @@
-# STATUS (prune-stale; rewritten, never appended; capped at about fifty lines)
+# STATUS (prune-stale; rewritten, never appended; contract enforced by `tests/gates/test_status_page.py`)
 
-**As of the night of 2026-09-13.** M0 and M1a tranche A are built, reviewed, and green on `main`; the enforcement tranche landed the same night; the earlier project's material has been assessed, distilled, and pruned to three redacted files plus an archive outside the repo. No GitHub remote yet.
+**As of 2026-09-14.** M0 and M1a tranche A are built and green on `main`; the enforcement tranche, the separation pass (the earlier project's residue abstracted or removed from the tree), and the routing, status-page, and ledger-completeness gates have landed. No remote yet: Wes intends a bare git remote on his QNAP as the first backup, GitHub later. Numbers live in the `make check` output, never here.
 
-## Green on main
-- `make check`: ruff, mypy strict, import-linter, 1,396 tests (923 collected), coverage floor 98.17, ratchets 10 ok, review-only rules ceiling 2, hooks-installed line printed at the end, memory check pending merge.
-- The collector runs end to end against the generated fake corpus: `db init` → `run --gateway fake --fixture …` (240 posts) → rerun (0 new, 240 updated, primary keys unchanged) → `doctor --no-network` all ok except credentials not set.
-- Gates: layering, network block, data-dir isolation, pragma chokepoint, schema golden, doc currency (G33), retired claims (G34), imported identifiers (G35), trailer refusal (G36), rules name enforcers (G39), register node ids (G40), planted-invariant controls, pk stability, counters-versus-deltas, no-bypass, sqlite confined, no sleep under pytest.
-
-## In flight (branches, then fast-forward into main)
-- Health command: no lock file created by a read-only check; stale-alert duration validated on every path; hooks-installed check in the report.
-- Memory snapshot and integrity tool (`tools/memory_snapshot.py`, `memory-snapshot/`, `make memory-check`).
-- Bookkeeping: test-strategy rows flipped to shipped; guards ledger rows G35/G36/G39/G40 and the empty positive-control cells; issue-register rows for the defects fixed tonight.
-- After those merge: install the pre-commit hooks (`make hooks`), strip the attribution trailers from local history before any push, re-render the plan.
+## In flight
+- History rewrite for the earlier project's identifiers in old revisions: bundle taken, callback and verification scripts staged outside the repo; the command awaits Wes (the app's permission classifier refused it). Afterwards: remap cited hashes (`tests/gates/test_known_issues_cite_collected_tests.py` goes red on a dangling one), re-scan, refresh the memory snapshot.
+- Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
 
 ## Next
-- Tranche B when credentials arrive: the real Reddit adapter probe-first, cassettes, `probe --save-fixture`.
-- GitHub repository: push the rewritten history, CI, branch protection, one pull request per step through the review harness.
-- M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week), each as a brief → bounded design rounds → build on a branch → panel.
-- The 26 harness answers and the recommendations for the earlier repository (synthesis running); the harness catalogue re-scored from them.
+1. QNAP bare remote when the server is fixed: add the remote, first push runs `make check` through the pre-push hook, nightly `git bundle` to the same share as a second copy.
+2. Tranche B when credentials arrive: the real Reddit adapter probe-first (`probe --save-fixture`), cassettes, the `doctor` auth ping.
+3. M1b (comment trees), M1c (deletion compliance), M1d (themes, digest, schedule, the seven-digest reading week): brief → bounded design rounds → build on a branch → panel.
+4. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
+
+## Do not undo
+- Local history has been rewritten twice (retrospectives, trailers) and a third rewrite is staged; never restore a bundle into `main` without re-running the identifier scan over every commit.
+- The memory home is the repo-keyed directory; the Desktop-keyed one holds a pointer only (its stale topic files moved to the archive on 2026-09-14) and `make check` goes red if a second home grows topic files again.
+- Sessions start in `~/repos/insightminer`; a session started elsewhere runs without the two hard-block hooks.
+- The three redacted retrospectives keep the earlier project's own register ids on purpose; the identifier gate excludes that folder and nothing else.
 
 ## Waiting on Wes
-Reddit credentials; the GitHub repository and its plan; the agent token scope; the pruning pass-one ruling and its three judgement calls (`~/repos/insightminer-desktop-archive/earlier-project/findings/from-build-2026-09-14/prune/removal-list.md` (moved out of the repo folder 2026-09-14 because it quotes the earlier project)); the day-zero items from the harness assessment (suppression statuses now ride with the expiry-date change). Full lists: `docs/decisions/DECISIONS.md` § "Moved from STATUS.md".
-
-## Session hygiene
-Sessions start in `~/repos/insightminer`; the single memory home is the repo-keyed directory; the old Desktop-keyed one is a pointer.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; running the staged history rewrite; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); suppression statuses and review dates; the harness document's name; a third hard-block hook (read-before-touch) against the two-hook cut N-16; whether to move this project's session transcripts into the archive. Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
