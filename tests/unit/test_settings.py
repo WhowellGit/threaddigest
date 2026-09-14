@@ -10,9 +10,11 @@ import yaml
 from pydantic import SecretStr, ValidationError
 
 from insightminer.settings import (
+    SANCTIONED_ENVIRONMENT_VARIABLES,
     Settings,
     default_settings_file,
     settings_fingerprint,
+    unknown_environment_variables,
     user_agent,
 )
 
@@ -103,6 +105,78 @@ def test_unknown_setting_is_rejected() -> None:
     unknown: dict[str, Any] = {"bogus": 1}
     with pytest.raises(ValidationError, match="bogus"):
         Settings(**unknown)
+
+
+#: Misspellings ``extra="forbid"`` cannot see, because pydantic-settings never offers an
+#: unmatched environment variable to the model at all: a typo'd operator field, a variable
+#: under a leaf field, and a nested key whose FIRST segment already names nothing.
+UNKNOWN_ENVIRONMENT_VARIABLES = [
+    "INSIGHTMINER_DATA_DIRR",
+    "INSIGHTMINER_DATA_DIR__DEEPER",
+    "INSIGHTMINER_BUDGET__PER_RUN_REQUESTS",
+]
+
+
+@pytest.mark.parametrize("name", UNKNOWN_ENVIRONMENT_VARIABLES)
+def test_an_unknown_environment_variable_is_rejected_naming_it(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Panel P2-8: the module docstring claimed ``extra="forbid"`` made a misspelled key fail,
+    which was true of ``settings.yaml`` and false of the environment -- pydantic-settings
+    matches ``INSIGHTMINER_*`` against the field names and silently drops the rest, so
+    ``INSIGHTMINER_DATA_DIRR=/tmp/x`` ran against the DEFAULT data directory while the
+    operator believed it was overridden.
+
+    The stronger option was implemented rather than the docstring corrected: a validator over
+    ``os.environ``. The message names the variable, so ``config validate`` and every command
+    exit 78 pointing at the typo.
+    """
+    monkeypatch.setenv(name, "7")
+
+    with pytest.raises(ValidationError, match=name):
+        Settings()
+
+    assert unknown_environment_variables() == [name]
+
+
+def test_a_misspelled_nested_static_key_is_still_rejected_by_forbid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the pair: when the first segment DOES name a field, the variable
+    reaches the model and ``extra="forbid"`` on the nested model rejects it, naming the key.
+    Both mechanisms are needed and neither covers the other's case.
+    """
+    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUEST", "7")  # singular
+
+    with pytest.raises(ValidationError, match="per_run_request"):
+        Settings()
+
+
+def test_every_recognised_environment_variable_is_accepted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The negative control for the scan: a validator that rejected something real would
+    break every command, so each shape that must stay recognised is asserted here -- an
+    operator field, a path field, a nested static key, and the two sanctioned variables that
+    are deliberately not fields (``tests/conftest.py``'s autouse fixture sets the data dir,
+    ``tests/gates/test_data_dir_isolation.py`` sets the opt-in, and
+    ``deploy/launchd/run.sh`` reads the UI URL).
+    """
+    monkeypatch.setenv("INSIGHTMINER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "wes")
+    monkeypatch.setenv("INSIGHTMINER_SETTINGS_FILE", str(default_settings_file()))
+    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
+    monkeypatch.setenv("INSIGHTMINER_ALLOW_REAL_DATA_DIR", "1")
+    monkeypatch.setenv("INSIGHTMINER_UI_URL", "http://127.0.0.1:8765")
+
+    assert unknown_environment_variables() == []
+    assert Settings().static.budget.per_run_requests == 7
+    assert SANCTIONED_ENVIRONMENT_VARIABLES == frozenset(
+        {
+            "INSIGHTMINER_ALLOW_REAL_DATA_DIR",
+            "INSIGHTMINER_UI_URL",
+        }
+    )
 
 
 def test_budget_above_hard_cap_is_rejected(tmp_path: Path) -> None:

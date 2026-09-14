@@ -19,8 +19,22 @@ Precedence, highest first:
 4. Field defaults declared on :class:`Settings` for operator settings (empty
    credentials, ``<repo>/data``, no UI password).
 
-Every model uses ``extra="forbid"`` so a misspelled key fails at construction instead
-of silently doing nothing. No ``.env`` file is read implicitly: the launcher exports it
+A misspelled key fails at construction instead of silently doing nothing, and it takes
+two mechanisms to make that true of both layers:
+
+* ``extra="forbid"`` on every model rejects an unknown key in ``config/settings.yaml``
+  and an unknown constructor argument. It does **not** see environment variables:
+  pydantic-settings matches ``INSIGHTMINER_*`` against the field names and simply
+  ignores every variable that matches nothing, so ``extra="forbid"`` alone lets
+  ``INSIGHTMINER_DATA_DIRR=/tmp/x`` pass as silently as if it were never set.
+* :func:`unknown_environment_variables` closes that gap: a validator refuses to build
+  :class:`Settings` while any ``INSIGHTMINER_*`` variable names no field of this model
+  (nested static keys included), naming the offenders, so ``config validate`` and every
+  command exit 78 on a typo rather than running with a default the operator thought
+  they had overridden. The two variables that are deliberately not fields are listed in
+  :data:`SANCTIONED_ENVIRONMENT_VARIABLES`.
+
+No ``.env`` file is read implicitly: the launcher exports it
 (``uv run --env-file .env ...``) so tests never inherit real credentials.
 
 Data-directory isolation (learning rank 1): when pytest is loaded (``pytest`` in
@@ -40,8 +54,9 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, Final, get_args
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -49,6 +64,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 __all__ = [
+    "SANCTIONED_ENVIRONMENT_VARIABLES",
     "BudgetSettings",
     "CommentsSettings",
     "DataDirRefused",
@@ -61,12 +77,26 @@ __all__ = [
     "default_data_dir",
     "default_settings_file",
     "settings_fingerprint",
+    "unknown_environment_variables",
     "user_agent",
 ]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ALLOW_REAL_DATA_DIR = "INSIGHTMINER_ALLOW_REAL_DATA_DIR"
 _STATIC_KEY = "static"
+
+#: The ``INSIGHTMINER_*`` variables that are deliberately **not** fields of
+#: :class:`Settings`, so the strict scan below must not reject them. Each is read by
+#: something else and each is documented where it is read; anything not a field and not
+#: here is a typo.
+SANCTIONED_ENVIRONMENT_VARIABLES: Final[frozenset[str]] = frozenset({
+    # The data-directory refusal's opt-in, read from `os.environ` a few lines below rather
+    # than declared as a field (it is a test/ops escape hatch, not a setting).
+    _ALLOW_REAL_DATA_DIR,
+    # `deploy/launchd/run.sh`'s health-check URL: the launchd job's own variable, exported
+    # to the job from `.env` and never read by this module.
+    "INSIGHTMINER_UI_URL",
+})  # fmt: skip
 
 
 class DataDirRefusedError(RuntimeError):
@@ -198,6 +228,14 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="forbid",
         frozen=True,
+        # A ``ValidationError`` from this model is echoed to stderr by ``cli`` and quoted in
+        # ``doctor``'s ``settings_valid`` row, and pydantic's default error rendering carries
+        # the offending *input* -- for a model-level validator, the whole raw input mapping,
+        # secrets included (``ui_password`` and ``reddit_client_secret`` arrive as plain
+        # strings and are only wrapped in ``SecretStr`` afterwards). "Never log credentials"
+        # is unconditional, so the inputs stay out of the message; every error still names
+        # its field, which is what the messages are read for.
+        hide_input_in_errors=True,
     )
 
     reddit_client_id: str = ""
@@ -225,6 +263,24 @@ class Settings(BaseSettings):
         return value.expanduser().resolve()
 
     @model_validator(mode="after")
+    def _refuse_unknown_environment_variables(self) -> Settings:
+        """A typo'd ``INSIGHTMINER_*`` variable fails the load and is named in the message.
+
+        ``extra="forbid"`` cannot do this: pydantic-settings never offers an unmatched
+        environment variable to the model, so there is no extra key for it to forbid.
+        """
+        unknown = unknown_environment_variables()
+        if unknown:
+            msg = (
+                f"unrecognised environment variable(s): {', '.join(unknown)}. "
+                "Every INSIGHTMINER_* variable must name a setting "
+                f"(nested keys use `__`); sanctioned exceptions: "
+                f"{', '.join(sorted(SANCTIONED_ENVIRONMENT_VARIABLES))}."
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _refuse_real_data_dir_under_pytest(self) -> Settings:
         if not _pytest_is_loaded() or os.environ.get(_ALLOW_REAL_DATA_DIR):
             return self
@@ -236,6 +292,59 @@ class Settings(BaseSettings):
             )
             raise DataDirRefused(msg)
         return self
+
+
+def _nested_model(annotation: Any) -> type[BaseModel] | None:
+    """The settings model an annotation carries (``static``), or ``None`` for a leaf field."""
+    for candidate in (annotation, *get_args(annotation)):
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel):
+            return candidate
+    return None
+
+
+def _names_a_field(path: Sequence[str]) -> bool:
+    """Does ``path`` (an env var's name, split on the nested delimiter) name a real field?
+
+    Walks the model tree the way pydantic-settings resolves the variable, so
+    ``static__budget__per_run_requests`` is known, ``static__budget__per_run_request`` is
+    not, and ``data_dir__anything`` is not either -- a leaf field has nothing under it.
+    """
+    model: type[BaseModel] | None = Settings
+    for part in path:
+        if model is None:
+            return False
+        field = model.model_fields.get(part)
+        if field is None:
+            return False
+        model = _nested_model(field.annotation)
+    return True
+
+
+def unknown_environment_variables(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Every ``INSIGHTMINER_*`` variable in ``environ`` that names no setting, sorted.
+
+    ``environ`` defaults to ``os.environ`` and is a parameter only so a caller can scan a
+    mapping it is about to export (the launchd job's parsed ``.env``, M2's setup wizard)
+    without mutating the process. Case is ignored and the nested delimiter is honoured,
+    both read from ``Settings.model_config`` rather than respelled here, so a change to the
+    prefix or the delimiter cannot leave this scan matching the old spelling.
+
+    Emptiness is not an excuse: ``env_ignore_empty`` means an empty variable sets nothing,
+    but an empty **misspelled** variable is still a misspelling and reporting it costs the
+    operator nothing.
+    """
+    source = os.environ if environ is None else environ
+    prefix = str(Settings.model_config.get("env_prefix") or "")
+    delimiter = str(Settings.model_config.get("env_nested_delimiter") or "__")
+    unknown: list[str] = []
+    for name in source:
+        upper = name.upper()
+        if not upper.startswith(prefix) or upper in SANCTIONED_ENVIRONMENT_VARIABLES:
+            continue
+        rest = upper[len(prefix) :].lower()
+        if not rest or not _names_a_field(rest.split(delimiter)):
+            unknown.append(name)
+    return sorted(unknown)
 
 
 def _is_secret(field: FieldInfo) -> bool:
