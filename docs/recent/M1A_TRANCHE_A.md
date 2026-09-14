@@ -1,6 +1,6 @@
 # M1a tranche A: the collector without Reddit (execution brief)
 
-> **Status:** in flight, 2026-09-13. Prune-stale: deleted when M1a closes (its decisions move to `DECISIONS.md`, its spec rows flip to `shipped` in `TEST_STRATEGY.md`). Authored by the planning session (the main session); reviewed by an Opus panel before implementation (see `docs/reference/reviews/2026-09-13-m1a-tranche-a-review.md` once it exists).
+> **Status:** in flight, 2026-09-13. Prune-stale: deleted when M1a closes (its decisions move to `DECISIONS.md`, its spec rows flip to `shipped` in `TEST_STRATEGY.md`). Authored by the planning session; reviewed by an Opus panel before implementation (see `docs/reference/reviews/2026-09-13-m1a-tranche-a-review.md` once it exists).
 
 ## Why this tranche exists
 
@@ -67,7 +67,7 @@ Out of scope for this tranche: `adapters/reddit_praw.py`, `probe`, cassettes, co
 | 5 | `services/doctor.py`, `services/migrate.py` | Sonnet tests, Opus implementation | `make check` |
 | 6 | `cli.py` commands, `make run`, e2e tests | Opus | `make check` |
 | 7 | Panel: two Opus reviewers (correctness and tests; operator and data safety) plus one Opus adversarial reviewer over the whole diff; findings fixed; P0 pauses | Opus; the main session synthesizes | `make check`, review recorded |
-| 8 | Docs: TEST_STRATEGY flips, DECISIONS entries, STATUS rewrite, KNOWN_ISSUES for anything found, GUARDS rows for new gates, this brief deleted | the main session | doc-currency gate |
+| 8 | Docs: TEST_STRATEGY flips, DECISIONS entries, STATUS rewrite, KNOWN_ISSUES for anything found, GUARDS rows for new gates, this brief deleted | The main session | doc-currency gate |
 
 ## Design freeze (2026-09-13, late evening)
 

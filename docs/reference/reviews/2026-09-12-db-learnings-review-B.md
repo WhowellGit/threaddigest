@@ -184,7 +184,7 @@ Detection: **H** human noticed; **G** gate caught; **S** silent until measured l
 | E22 | Interpreter pin | launchd invokes the venv interpreter by absolute path | Low |
 | E23 | Human blind-labeling for non-deterministic quality | 30-post packet per theme labeled by Wes; precision per theme in the digest | Low-Medium |
 | E24 | Keyword beats dense for identifier-heavy text | Keep FTS as the retrieval arm at M5 | Low |
-| E25 | Data never on SMB/[earlier-project] | `doctor` checks `DATA_DIR` is local | Low |
+| E25 | Data never on a network share | `doctor` checks `DATA_DIR` is local | Low |
 | E26 | Non-re-fetchable data protected above the DB | Covered; scrub-ability is by design | Low |
 
 ## F. Reviewer's top 10 changes

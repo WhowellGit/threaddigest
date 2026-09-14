@@ -100,7 +100,7 @@ recommendation and a confidence level. Applies to chat, PR bodies, and document 
 ## Agent model tiers
 
 Every sub-agent call (the `Agent` tool or a workflow `agent()`) names its model; nothing inherits.
-the main session is the main session: planning, synthesis, decisions, edits to the plan or enforcement
+The main session carries planning, synthesis, decisions, and edits to the plan or enforcement
 surfaces. **Opus** for judgement-bearing work: reviewers, judges and critics, migrations,
 `core/deletion`, `services/scrub`, `db/repo`, under-specified services, red-gate debugging.
 **Sonnet** for well-specified mechanical work: inventories, scans, codemods, tests written from a
