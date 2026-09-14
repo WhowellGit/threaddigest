@@ -25,9 +25,17 @@ from sqlalchemy.engine import URL
 __all__ = [
     "CONNECTION_PRAGMAS",
     "DEFAULT_BUSY_TIMEOUT_MS",
+    "DB_FILENAME",
     "checkpoint_truncate",
+    "db_path_for",
     "engine_for",
 ]
+
+#: The database file's name inside a data directory. One constant, because ``doctor``,
+#: ``db init``, ``db upgrade``, ``db current`` and ``run`` must all resolve the same file
+#: from ``settings.data_dir`` alone, and a second spelling anywhere would be a second
+#: database.
+DB_FILENAME: Final = "insightminer.db"
 
 #: Lock wait every connection gets unless :func:`engine_for` is given an override. Extracted
 #: from ``CONNECTION_PRAGMAS`` so the default and the override cannot drift (design-round5 §10.5).
@@ -43,6 +51,11 @@ CONNECTION_PRAGMAS: tuple[tuple[str, str], ...] = (
     ("temp_store", "MEMORY"),
     ("secure_delete", "ON"),
 )
+
+
+def db_path_for(data_dir: Path) -> Path:
+    """The database file inside ``data_dir``. Resolves nothing and creates nothing."""
+    return data_dir / DB_FILENAME
 
 
 def _sqlite_url(db_path: Path, *, read_only: bool) -> URL:

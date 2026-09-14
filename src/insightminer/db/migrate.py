@@ -3,12 +3,14 @@
 Alembic is imported here and in ``db/schema_dump.py`` only; ``services/migrate.py`` calls
 this module and never touches Alembic itself.
 
-This module also owns the one write path that must work against a database **below head**
-(:func:`finish_restored_run`). Every other statement in ``src/`` is built from the head
-models in ``db/repo.py``; this one is built from bare ``sa.table`` / ``sa.column`` objects
-naming only columns the restored revision is known to have, exactly as revision 0002's own
-``downgrade()`` does and for the same reason: code that runs against an older file must not
-import the models (design-round5 §10.2, §10.3 T12).
+This module also owns the write paths that must work against a database **below head**
+(:func:`finish_restored_run` and :func:`finish_below_head_run`). Every other statement in
+``src/`` is built from the head models in ``db/repo.py``; these are built from bare
+``sa.table`` / ``sa.column`` objects naming only columns the older revision is known to have,
+exactly as revision 0002's own ``downgrade()`` does and for the same reason: code that runs
+against an older file must not import the models (design-round5 §10.2, §10.3 T12;
+round5-findings.json P1, whose rule is "any write to a database below head is built in
+``db/migrate.py``, never in ``services/`` and never through ``db/repo.py``").
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ __all__ = [
     "MigrationsPendingError",
     "current_revision",
     "downgrade_one",
+    "finish_below_head_run",
     "finish_restored_run",
     "head_revision",
     "is_at_head",
@@ -108,12 +111,12 @@ def require_head(engine: Engine) -> None:
     raise MigrationsPendingError(current_revision(engine), head_revision(), tuple(pending(engine)))
 
 
-# --- T12: bookkeeping inside a database that has just been restored -------------------------
+# --- writes into a database that is BELOW head ------------------------------------------------
 
-#: The four ``runs`` columns T12 may touch. Deliberately not the model: the restored file is
-#: at the PRE-migration revision, so a head-model write raises ``no such column`` -- which is
-#: what revision 0002's ``violations_json`` did to round 4's shape.
-_RESTORED_RUNS = sa.table(
+#: The four ``runs`` columns a below-head write may touch. Deliberately not the model: the
+#: file is at the PRE-migration revision, so a head-model write raises ``no such column`` --
+#: which is what revision 0002's ``violations_json`` did to round 4's T12 shape.
+_BELOW_HEAD_RUNS = sa.table(
     "runs", sa.column("pk"), sa.column("status"), sa.column("finished_at"), sa.column("error")
 )
 
@@ -179,11 +182,37 @@ def finish_restored_run(
             )
         )
         conn.execute(
-            sa.update(_RESTORED_RUNS)
-            .where(_RESTORED_RUNS.c.pk == run_pk)
+            sa.update(_BELOW_HEAD_RUNS)
+            .where(_BELOW_HEAD_RUNS.c.pk == run_pk)
             .values(
                 status="failed",
                 finished_at=now,
                 error=f"migration failed, restored from {dest}",
             )
+        )
+
+
+def finish_below_head_run(
+    engine: Engine, *, run_pk: int, status: str, finished_at: int, error: str | None
+) -> None:
+    """Close a run row in a database that is still **below** head.
+
+    ``db upgrade`` commits its run row *before* it takes the backup (design-round5 §7 T9), so
+    every abort between that commit and a successful ``upgrade_head`` -- a copy that fails
+    ``quick_check`` at step 7, for instance -- has to close a row in a file at the
+    pre-migration revision. ``db/repo.py``'s ``finish_run`` cannot: it is built from the head
+    models and writes ``violations_json``, a column revision 0001 does not have, so the abort
+    would die with ``no such column`` on top of whatever it was already reporting -- leaving
+    the row ``running`` and the operator with a traceback instead of the documented exit 1.
+
+    Same rule, same four columns and same reason as :func:`finish_restored_run`
+    (round5-findings.json P1: any write to a database below head is built here from
+    ``sa.table``/``sa.column``, never in ``services/`` and never through ``db/repo.py``). It
+    writes no ``counters_json`` and no ``api_requests``: the run never counted anything.
+    """
+    with engine.begin() as conn:
+        conn.execute(
+            sa.update(_BELOW_HEAD_RUNS)
+            .where(_BELOW_HEAD_RUNS.c.pk == run_pk)
+            .values(status=status, finished_at=finished_at, error=error)
         )

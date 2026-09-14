@@ -63,10 +63,24 @@ def _pragma(path: Path, pragma: str) -> list[tuple[object, ...]]:
 
     The connection is read-write on purpose: opening a WAL database read-only can fail when
     no ``-shm`` file exists yet, and a clean close removes any sidecar this created.
+
+    A ``sqlite3.DatabaseError`` is **reported, not raised**. When the corruption reaches the
+    schema page -- the ordinary shape of a damaged SQLite file -- the driver refuses to run
+    the PRAGMA at all and raises ``database disk image is malformed`` instead of returning
+    it as a row. Letting that escape would make the one caller that exists for corruption
+    (``doctor``'s ``quick_check`` check, design-round5 §15.2) unreachable in exactly the case
+    it is there for, and ``services/`` cannot catch the driver's exception class without
+    importing ``sqlite3`` (§10.1). The message SQLite gives is the string these functions
+    already promise to return.
     """
-    connection = sqlite3.connect(path)
+    try:
+        connection = sqlite3.connect(path)
+    except sqlite3.DatabaseError as exc:
+        return [(str(exc),)]
     try:
         return [tuple(row) for row in connection.execute(f"PRAGMA {pragma}").fetchall()]
+    except sqlite3.DatabaseError as exc:
+        return [(str(exc),)]
     finally:
         connection.close()
 
