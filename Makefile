@@ -14,7 +14,8 @@ BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
 
-.PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html
+.PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html \
+        memory-check memory-export
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
@@ -27,6 +28,8 @@ help:
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
 	@echo "                      (lands a GUARDS.md row; HARD_AFTER turns it red again on that date)"
+	@echo "make memory-check     audit this machine's Claude Code memory (also runs at the end of check)"
+	@echo "make memory-export    snapshot that memory into memory-snapshot/, add-or-update only"
 
 setup:
 	@if ! command -v $(UV) >/dev/null 2>&1; then \
@@ -63,6 +66,18 @@ check: | $(BUILD_DIR)
 	@echo
 	@echo "<!-- make-check-summary:end -->"
 	@$(UV) run python tools/hooks_status.py
+	@$(UV) run python tools/memory_snapshot.py check
+
+# Claude Code's auto-memory: the one asset here that no rebuild can regenerate. It is keyed to
+# this checkout's absolute path and lives outside git, so `check` audits it (unreachable files,
+# dangling index links, the index budget, the frontmatter contract) and `export` mirrors it into
+# memory-snapshot/ add-or-update only -- a file deleted upstream is reported, never deleted here.
+# Both print their findings; on a machine with no memory directory (CI) they say exactly that.
+memory-check:
+	$(UV) run python tools/memory_snapshot.py check
+
+memory-export:
+	$(UV) run python tools/memory_snapshot.py export
 
 ratchet-bump:
 	$(RATCHET) bump
