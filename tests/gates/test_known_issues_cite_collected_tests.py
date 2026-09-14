@@ -239,8 +239,15 @@ def cited_hashes(root: Path) -> list[tuple[str, int, str]]:
 
 
 def resolves_in_git(root: Path, sha: str) -> bool:
+    """True when ``sha`` names a commit that is an ancestor of ``HEAD``.
+
+    Existence is not enough: after a history rewrite the old objects can linger in the object
+    store (or come back with a fetched bundle) while no branch reaches them, and a citation of
+    such a commit is dead for every clone. Ancestry of ``HEAD`` covers ``main`` locally, a
+    branch built on it, and a pull request head in CI.
+    """
     proc = subprocess.run(
-        ["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
         capture_output=True,
         timeout=60,
     )

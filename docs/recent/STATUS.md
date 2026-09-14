@@ -3,7 +3,7 @@
 **As of 2026-09-14.** M0 and M1a tranche A are built and green on `main`; the enforcement tranche, the separation pass (the earlier project's residue abstracted or removed from the tree), and the routing, status-page, and ledger-completeness gates have landed. No remote yet: Wes intends a bare git remote on his QNAP as the first backup, GitHub later. Numbers live in the `make check` output, never here.
 
 ## In flight
-- History rewrite for the earlier project's identifiers in old revisions: bundle taken, callback and verification scripts staged outside the repo; the command awaits Wes (the app's permission classifier refused it). Afterwards: remap cited hashes (`tests/gates/test_known_issues_cite_collected_tests.py` goes red on a dangling one), re-scan, refresh the memory snapshot.
+- Nothing on the collector; the next code is tranche B (needs credentials).
 - Harness inventory document with a generated block (shape decided, name and go awaiting Wes).
 
 ## Next
@@ -13,10 +13,10 @@
 4. Score the first predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 at the M1d retrospective.
 
 ## Do not undo
-- Local history has been rewritten twice (retrospectives, trailers) and a third rewrite is staged; never restore a bundle into `main` without re-running the identifier scan over every commit.
+- Local history has been rewritten three times (retrospectives, trailers, identifiers; Wes ran the third on 2026-09-14 and the whole-history scan is clean outside the redacted retrospectives); never restore a bundle into `main` without re-running that scan, and never push a bundle's history anywhere.
 - The memory home is the repo-keyed directory; the Desktop-keyed one holds a pointer only (its stale topic files moved to the archive on 2026-09-14) and `make check` goes red if a second home grows topic files again.
 - Sessions start in `~/repos/insightminer`; a session started elsewhere runs without the two hard-block hooks.
 - The three redacted retrospectives keep the earlier project's own register ids on purpose; the identifier gate excludes that folder and nothing else.
 
 ## Waiting on Wes
-Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; running the staged history rewrite; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); suppression statuses and review dates; the harness document's name; a third hard-block hook (read-before-touch) against the two-hook cut N-16; whether to move this project's session transcripts into the archive. Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
+Reddit credentials (keys in `.env.example`, pasted into `.env` by Wes); the QNAP remote; the pruning pass-one ruling (the list now lives in the archive folder outside the repo); suppression statuses and review dates; the harness document's name; a third hard-block hook (read-before-touch) against the two-hook cut N-16; whether to move this project's session transcripts into the archive. Details and recommendations: `docs/decisions/DECISIONS.md` § 2026-09-14.
