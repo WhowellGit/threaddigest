@@ -31,84 +31,84 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-03 | single_head_and_up_down_consistency | migration | M0 | H | planned | |
 | DB-04 | every_reddit_keyed_table_has_rowid_alias_pk | db | M0 | H | planned | |
 | DB-05 | timestamp_columns_are_integer_epoch | db+unit | M0 | H | planned | |
-| DB-06 | next_check_at_not_null_enforced | db | M1a | H | planned | |
-| DB-07 | derived_enums_closed_upstream_enums_open | db | M1a | H | planned | |
-| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | planned | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus (stress corpus cut 2026-09-13, N-11) |
+| DB-06 | next_check_at_not_null_enforced | db | M1a | H | shipped | tests/db/test_schema_shape.py::test_next_check_at_is_not_null |
+| DB-07 | derived_enums_closed_upstream_enums_open | db | M1a | H | shipped | tests/db/test_schema_shape.py::test_check_rejects_unknown_derived_state, ::test_check_rejects_unknown_run_status, ::test_check_accepts_unknown_upstream_enum_values |
+| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | shipped | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus (stress corpus cut 2026-09-13, N-11); tests/db/test_query_plans.py::test_due_posts_uses_next_check_at_index, ::test_window_query_uses_subreddit_created_index, ::test_author_query_uses_author_index, ::test_live_feed_uses_content_state_index |
 | DB-09 | every_column_has_a_comment | unit | M0 | M | planned | |
-| DB-10 | fts_definition_shape (live views, `_docsize`) | db | M1a | H | planned | |
+| DB-10 | fts_definition_shape (live views, `_docsize`) | db | M1a | H | shipped | tests/db/test_fts.py::test_fts_definition_shape |
 | DB-11 | create_engine_only_in_db_engine | gate | M0 | H | changed | symbol ban is ruff `TID251` (`create_engine`, `text(`, `sqlite3.connect`); import-linter confines modules only |
 | DB-12 | pragmas_effective_on_public_write_connection | db | M0 | H | planned | |
-| DB-13 | foreign_keys_enforced_behaviorally | db | M1a | H | planned | |
-| DB-14 | busy_timeout_waits_then_fails_cleanly | db | M1a | M | planned | |
+| DB-13 | foreign_keys_enforced_behaviorally | db | M1a | H | shipped | tests/db/test_engine_pragmas.py::test_foreign_keys_are_enforced |
+| DB-14 | busy_timeout_waits_then_fails_cleanly | db | M1a | M | shipped | tests/db/test_repo_busy_timeout.py::test_second_writer_waits_then_page_fails_with_nothing_committed |
 | DB-15 | secure_delete_leaves_no_canary_bytes | db | M1c | H | planned | |
 | DB-16 | read_only_paths_cannot_write | db/web | M2 | H | changed | web `mode=ro` read session cut (one rw engine behind the writer-map repository, DB-52); Datasette `mode=ro` launcher assertion kept |
-| DB-17 | wal_truncated_at_end_of_run | e2e | M1a | L | planned | |
+| DB-17 | wal_truncated_at_end_of_run | e2e | M1a | L | shipped | tests/e2e/test_run_happy_path.py::test_wal_is_truncated_at_end_of_run |
 | DB-18 | settings_refuse_default_data_dir_under_pytest | unit/gate | M0 | H | planned | |
 | DB-19 | only_data_dir_is_writable_during_tests | gate/e2e | M0/M1a | H | planned | |
-| DB-20 | pk_stability_across_reruns | e2e | M1a | H | changed | `AUTOINCREMENT` on posts/comments; `max(pk)==count(*)` only in this no-purge scenario, never at runtime (adversarial A10) |
-| DB-21 | field_ownership_per_ingest_path | db | M1a | H | planned | may be deleted with the second wire shape if trees are fetched via `reddit.request()` (decide M1b) |
+| DB-20 | pk_stability_across_reruns | e2e | M1a | H | shipped | `AUTOINCREMENT` on posts/comments; `max(pk)==count(*)` only in this no-purge scenario, never at runtime (adversarial A10); tests/gates/test_pk_stability.py::test_three_reruns_keep_pk_and_first_seen_at; positive control tests/db/test_alembic.py::test_insert_or_replace_burns_the_pk_and_detaches_fts |
+| DB-21 | field_ownership_per_ingest_path | db | M1a | H | shipped | may be deleted with the second wire shape if trees are fetched via `reddit.request()` (decide M1b); tests/db/test_repo_ownership.py::test_ownership_covers_every_column, ::test_emitted_statement_matches_ownership, ::test_value_builder_emits_exactly_the_declared_insert_columns |
 | DB-22 | upsert_never_resurrects_terminal_content | db+e2e | M1c | H | planned | |
 | DB-23 | moderator_removed_returns_to_live_reindexes | db | M1c | M | planned | |
 | DB-24 | orphan_parent_comment_without_fk | db | M1b | M | planned | |
-| DB-25 | unknown_enum_values_stored_raw_and_counted | e2e | M1a | H | planned | |
-| DB-26 | fts_membership_equals_live_via_run (`_docsize`) | gate/e2e | M1a | H | planned | |
-| DB-27 | fts_insert_gated_on_live | db | M1a | H | planned | |
+| DB-25 | unknown_enum_values_stored_raw_and_counted | e2e | M1a | H | shipped | tests/services/test_sweep_writes.py::test_unknown_enum_is_stored_raw_and_counted, ::test_overlapping_pages_count_one_unknown_occurrence |
+| DB-26 | fts_membership_equals_live_via_run (`_docsize`) | gate/e2e | M1a | H | shipped | tests/services/test_invariants.py::test_fts_membership_equals_live_passes_when_the_index_matches_live_rows, ::test_fts_membership_equals_live_flags_a_membership_mismatch; planted control tests/gates/test_invariants_planted.py::test_planted_violation_flips_the_run |
+| DB-27 | fts_insert_gated_on_live | db | M1a | H | shipped | tests/db/test_fts.py::test_live_post_is_indexed, ::test_tombstone_insert_is_not_indexed |
 | DB-28 | fts_scrub_removes_entry_and_snippets | db | M1c | H | planned | |
 | DB-29 | fts_author_scrub_reindexes_without_author | db | M1c | H | planned | |
-| DB-30 | fts_rebuild_indexes_live_only_and_integrity_check_passes | migration/db | M1a | H | planned | |
+| DB-30 | fts_rebuild_indexes_live_only_and_integrity_check_passes | migration/db | M1a | H | shipped | tests/db/test_fts.py::test_rebuild_indexes_live_rows_only_and_passes_integrity_check |
 | DB-31 | scrub_touches_four_surfaces_in_one_call | e2e | M1c | H | changed | the JSONL surface is gone (sidecar cut 2026-09-13); canary also in a title |
 | DB-32 | compliance_canary_absent_everywhere_incl_backup | e2e/gate | M1c | H | changed | also asserts no backup older than 14 d and no export older than 7 d (adversarial B1); title canary (B3) |
 | DB-33 | scrubbed_rows_have_no_content_columns | gate | M1c | H | planned | |
 | DB-34 | compressed_jsonl_verified_before_plain_deleted | unit/e2e | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | DB-35 | partial_trailing_jsonl_line_tolerated_db_authoritative | unit | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | DB-36 | daily_vacuum_into_backup_recorded_and_verified | e2e | M1c | H | planned | |
-| DB-37 | pre_migrate_backup_order_and_post_checks | migration/e2e | M1a | H | planned | |
-| DB-38 | transaction_per_migration_no_half_state | migration | M1a | H | planned | |
+| DB-37 | pre_migrate_backup_order_and_post_checks | migration/e2e | M1a | H | shipped | tests/services/test_migrate_service.py::test_backup_precedes_migration_and_records_a_row, ::test_quick_check_failure_aborts_before_migrating, ::test_post_checks_run_after_upgrade |
+| DB-38 | transaction_per_migration_no_half_state | migration | M1a | H | shipped | tests/e2e/test_db_commands.py::test_failed_upgrade_restores_and_finishes_the_run_row_failed; tests/services/test_migrate_service.py::test_a_failed_integrity_check_also_restores |
 | DB-39 | destructive_ops_require_recent_verified_backup | gate/e2e | M1c/M2 | H | changed | gate takes a `Confirmation` value object (UI phrase or CLI flag) checked inside the service; `backups` table ships in rev 1 so the UI gate is live at M2 |
 | DB-40 | restore_is_atomic_under_lock | e2e | M2 | H | planned | |
 | DB-41 | online_backup_consistent_under_concurrent_writes | db | M1c | M | planned | |
 | DB-42 | import_export_roundtrip_preserves_and_refuses | e2e | M2 | M | planned | |
 | DB-43 | runtime_fingerprint_agreement | e2e/gate | M0 | H | changed | mismatch is a warning on `doctor` and `/system`, ordinary tables only, never exit 78 (adversarial A9); stamping assertions kept |
-| DB-44 | fixture_db_per_revision_upgrades_clean | migration | M1a→ | H | planned | |
-| DB-45 | fixture_set_equals_revision_set_and_every_table_seeded | gate | M1a | H | planned | |
-| DB-46 | downgrade_one_and_back_preserves_data | migration | M1a | M | planned | |
-| DB-47 | reprocess_from_raw_json_byte_identical | e2e | M1a | H | planned | |
-| DB-48 | rows_written_this_run_carry_current_normalizer_version | gate | M1a | H | planned | adversarial A15 would fold it into DB-47; the plan did not adopt that |
+| DB-44 | fixture_db_per_revision_upgrades_clean | migration | M1a→ | H | shipped | tests/db/test_alembic.py::test_revision_fixture_upgrades_clean |
+| DB-45 | fixture_set_equals_revision_set_and_every_table_seeded | gate | M1a | H | shipped | tests/db/test_alembic.py::test_fixture_set_equals_non_head_revisions, ::test_every_table_seeded_in_each_fixture |
+| DB-46 | downgrade_one_and_back_preserves_data | migration | M1a | M | shipped | tests/db/test_migrate_revisions.py::test_downgrade_one_steps_back_exactly_one_revision, ::test_downgrade_rewrites_network_rows_to_failed |
+| DB-47 | reprocess_from_raw_json_byte_identical | e2e | M1a | H | planned | no `reprocess` command exists yet; not built in tranche A |
+| DB-48 | rows_written_this_run_carry_current_normalizer_version | gate | M1a | H | shipped | adversarial A15 would fold it into DB-47; the plan did not adopt that; tests/services/test_invariants.py::test_rows_carry_current_normalizer_version_passes_when_all_rows_are_current, ::test_rows_carry_current_normalizer_version_flags_a_stale_row_written_this_run |
 | DB-49 | settings_fingerprint_changes_only_on_non_secret_change | e2e | M1d | M | planned | |
-| DB-50 | population_floors_fail_the_run_and_name_the_column | gate/e2e | M1a | H | changed | structural floors only: 100% on live rows with `author_state=known` (A11, ingest D-13), not 95% over all rows; amber not `failed` for the first 60 days |
-| DB-51 | floors_scoped_by_normalizer_version_and_empty_population_fails | gate | M1a/M1c | H | planned | |
+| DB-50 | population_floors_fail_the_run_and_name_the_column | gate/e2e | M1a | H | shipped | structural floors only: 100% on live rows with `author_state=known` (A11, ingest D-13), not 95% over all rows; amber not `failed` for the first 60 days; tests/services/test_invariants.py::test_empty_population_with_writes_is_a_violation |
+| DB-51 | floors_scoped_by_normalizer_version_and_empty_population_fails | gate | M1a/M1c | H | shipped | tests/services/test_invariants.py::test_floor_is_scoped_by_normalizer_version, ::test_empty_population_with_writes_is_a_violation |
 | DB-52 | web_writer_map_enforced | gate/web | M2 | H | planned | |
 | DB-53 | authors_counters_match_count | gate | M1c | M | planned | |
-| DB-54 | counters_equal_table_deltas | gate | M1a | H | changed | the `raw_files.item_count` clause is dropped (sidecar cut 2026-09-13) |
+| DB-54 | counters_equal_table_deltas | gate | M1a | H | shipped | the `raw_files.item_count` clause is dropped (sidecar cut 2026-09-13); tests/gates/test_counters_deltas.py::test_counters_equal_table_deltas_on_a_clean_run, ::test_planted_extra_row_fails_the_run |
 | DB-55 | row_counts_never_decrease_without_recorded_purge | gate | M1c/M2 | M | planned | |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
 
 | ID | Name | Layer | Phase | Pri | Status | Reason if cut/changed |
 |---|---|---|---|---|---|---|
-| SW-01 | sweep_full_window_forward_after_only | unit+service | M1a | H | planned | |
-| SW-02 | sweep_cap_sets_gap_stickies_excluded | unit+service | M1a | H | planned | |
-| SW-03 | sweep_overlapping_pages_dedupe | service | M1a | H | planned | |
-| SW-04 | sweep_crash_between_pages_one_txn_per_page | e2e | M1a | H | planned | |
-| SW-05 | field_ownership_per_ingest_path | unit+service | M1a | H | planned | see DB-21 (M1b decision on the second wire shape) |
-| SW-06 | sweep_removal_signal_confirmed_via_info | service | M1a/M1c | H | planned | |
-| SW-07 | sweep_empty_or_zero_new_ok | service | M1a | M | planned | its zero-yield counter is the per-source zero-new detection kept in place of the anchor |
-| SS-01 | sub_forbidden_others_continue | service | M1a | H | planned | |
+| SW-01 | sweep_full_window_forward_after_only | unit+service | M1a | H | shipped | tests/services/test_sweep_paging.py::test_sweep_pages_forward_only_and_never_uses_before |
+| SW-02 | sweep_cap_sets_gap_stickies_excluded | unit+service | M1a | H | shipped | tests/services/test_sweep_paging.py::test_cap_stop_sets_gap_suspected, ::test_stickies_are_seen_but_excluded_from_the_window |
+| SW-03 | sweep_overlapping_pages_dedupe | service | M1a | H | shipped | tests/services/test_sweep_paging.py::test_overlapping_pages_produce_one_row_each |
+| SW-04 | sweep_crash_between_pages_one_txn_per_page | e2e | M1a | H | shipped | tests/e2e/test_run_happy_path.py::test_crash_between_pages_commits_earlier_pages_and_rerun_completes |
+| SW-05 | field_ownership_per_ingest_path | unit+service | M1a | H | shipped | see DB-21 (M1b decision on the second wire shape); tests/db/test_repo_ownership.py::test_emitted_statement_matches_ownership; tests/services/test_sweep_writes.py::test_sweep_never_touches_first_seen_at_check_stage_next_check_at_or_scrubbed_at |
+| SW-06 | sweep_removal_signal_confirmed_via_info | service | M1a/M1c | H | planned | needs the reconcile step's `info()` confirmation (M1c); not built in tranche A |
+| SW-07 | sweep_empty_or_zero_new_ok | service | M1a | M | shipped | its zero-yield counter is the per-source zero-new detection kept in place of the anchor; tests/services/test_sweep_paging.py::test_empty_subreddit_is_ok_and_exhausted, ::test_zero_new_run_records_zero_new_items |
+| SS-01 | sub_forbidden_others_continue | service | M1a | H | shipped | tests/services/test_sweep_status.py::test_forbidden_marks_the_source_and_others_continue |
 | SS-02 | sub_not_found_banned_policy | service | M1c | M | planned | P-16 fixture may be unresolvable |
-| SS-03 | sub_redirect_auto_disabled_after_n | service | M1a | M | planned | |
-| SS-04 | sub_quarantined_disabled_with_alert | service+adapter | M1a | M | planned | |
-| SS-05 | sub_identity_casing_merges_t5_change_aborts | service+CLI | M1a | H | planned | |
-| SS-06 | sub_recovery_clears_error_state_after_complete_sweep | service | M1a | M | planned | |
-| TE-01 | transient_page_error_outer_retry_backoff | service | M1a | H | planned | |
-| TE-02 | rate_limited_and_fatal_gateway_errors | service | M1a | H | planned | |
+| SS-03 | sub_redirect_auto_disabled_after_n | service | M1a | M | shipped | tests/services/test_sweep_status.py::test_redirect_auto_disables_after_three_runs_with_an_alert |
+| SS-04 | sub_quarantined_disabled_with_alert | service+adapter | M1a | M | shipped | tests/services/test_sweep_status.py::test_quarantined_is_disabled_with_an_alert |
+| SS-05 | sub_identity_casing_merges_t5_change_aborts | service+CLI | M1a | H | shipped | tests/services/test_sweep_status.py::test_casing_merges_to_one_row, ::test_t5_mismatch_aborts_the_subreddit_before_any_row_is_written |
+| SS-06 | sub_recovery_clears_error_state_after_complete_sweep | service | M1a | M | shipped | tests/services/test_sweep_status.py::test_complete_sweep_clears_status_failures_last_error_and_gap |
+| TE-01 | transient_page_error_outer_retry_backoff | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_transient_page_error_walks_the_30_120_300_ladder |
+| TE-02 | rate_limited_and_fatal_gateway_errors | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_rate_limited_waits_then_retries_once, ::test_auth_failed_aborts_the_run_with_78, ::test_html_403_aborts_the_run_not_the_subreddit |
 | TR-01 | tree_skip_when_num_comments_zero | service | M1b | H | planned | |
 | TR-02 | tree_more_accounting_and_per_post_cap | service | M1b | H | planned | cap is per fetch (ingest D-3), pending Wes |
 | TR-03 | tree_crash_mid_tree_nothing_committed | e2e | M1b | H | planned | |
 | TR-04 | tree_budget_reserve_newest_first | service | M1b | H | planned | |
 | TR-05 | tree_missing_known_comments_checked_via_info | service | M1c | H | planned | |
-| RV-01 | ladder_pure_never_null | unit+hypothesis | M1a | H | changed | ladder gains a 365-day stage; `next_check_at` is never a far-future sentinel |
+| RV-01 | ladder_pure_never_null | unit+hypothesis | M1a | H | shipped | ladder gains a 365-day stage; `next_check_at` is never a far-future sentinel; tests/unit/test_milestones.py::test_never_none_and_always_after_creation, ::test_default_ladder_matches_plan |
 | RV-02 | ladder_advances_on_complete_refetch_skew_safe | service | M1c | H | planned | clock-skew claim scoped per ingest D-2 |
-| RC-01 | deletion_state_table_fail_closed | unit | M1a | H | changed | predicate keys on `removed_by_category='deleted'` first; `author is None` on a link post = deletion pending `info()`; predicates unlocked until probes land (incl. a deleted link post) |
+| RC-01 | deletion_state_table_fail_closed | unit | M1a | H | shipped | predicate keys on `removed_by_category='deleted'` first; `author is None` on a link post = deletion pending `info()`; predicates unlocked until probes land (incl. a deleted link post); tests/unit/test_deletion.py::test_never_raises_and_invariants_hold, ::test_never_live_without_intact_content, ::test_info_absence_counts_a_miss, ::test_deleted_markers_are_terminal_from_any_prior |
 | RC-02 | reconcile_batches_100_match_by_fullname | service | M1c | H | planned | reconcile upserts the full normalized row (edits are an event) |
 | RC-03 | reconcile_misses_scrub_second_transient_resets | service | M1c | H | planned | same-run re-check of first misses (D-9) pending Wes |
 | RC-04 | author_deletion_terminal_mod_removal_returns | service | M1c | H | planned | |
@@ -116,36 +116,36 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RC-06 | reconcile_cadence_invariant_and_tier_fallback | service+digest | M1c/M3 | M | changed | invariant is per tier: 60 h ≤ 30 d, 8 d to 1 y, 35 d beyond (replaces 48 h + 12 h grace) |
 | SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too |
 | SC-02 | compliance_canary_end_to_end | e2e | M1c | H | changed | scans `data/**`; digest is a route (no file); asserts backup/export file ages (B1) |
-| FR-01 | per_source_freshness_degraded | e2e | M1a | H | planned | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8) |
+| FR-01 | per_source_freshness_degraded | e2e | M1a | H | shipped | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8); tests/services/test_invariants.py::test_freshness_skips_runs_that_swept_nothing, ::test_freshness_stands_down_on_a_terminal_run |
 | FR-02 | freshness_anchor_uniform_staleness | e2e | M1a | H | cut | anchor cut (adversarial A8: sweep and anchor are the same call); `new_head()` port and `set_live_anchor` go with it; SW-07 zero-yield detection kept |
 | PA-01 | shape_parity_listing_tree_info_search | unit+contract | M1a | H | planned | may be deleted with the second shape (M1b decision) |
-| PA-02 | reprocess_golden_byte_identical | db/unit | M1a | H | planned | |
-| NM-01 | normalize_missing_fields_and_rejects | unit+hypothesis | M1a | H | planned | |
-| NM-02 | unknown_enum_stored_raw_and_counted | service | M1a | H | planned | |
-| NM-03 | population_floor_and_coverage_median_via_run | gate | M1a | H | changed | part (a) floors at M1a, scoped to live `author_state=known` rows; part (b) trailing-median alarm deferred to M3 after 60 days of baseline |
-| RL-01 | preconditions_exit_78_no_running_row | e2e | M0/M1a | H | planned | full exit-code table (0/1/3/4/75/78/130) proposed, pending Wes |
-| RL-02 | flock_held_exit_75_zero_calls | e2e | M1a | H | planned | |
-| RL-03 | stale_running_row_marked_crashed_at_45m | e2e | M1a | H | changed | threshold is 3 min (shared settings key with the UI); a held flock means alive regardless of heartbeat age; `queued` > 2 min without pid → `failed` |
-| RL-04 | every_mutating_command_takes_lock_writes_run_row | gate | M1a | H | planned | |
+| PA-02 | reprocess_golden_byte_identical | db/unit | M1a | H | planned | no `reprocess` command exists yet; not built in tranche A |
+| NM-01 | normalize_missing_fields_and_rejects | unit+hypothesis | M1a | H | shipped | tests/unit/test_normalize.py::test_missing_required_post_key_rejects_and_preserves_raw, ::test_missing_required_comment_key_rejects |
+| NM-02 | unknown_enum_stored_raw_and_counted | service | M1a | H | shipped | tests/services/test_sweep_writes.py::test_unknown_enum_is_stored_raw_and_counted |
+| NM-03 | population_floor_and_coverage_median_via_run | gate | M1a | H | shipped | (a) floors shipped, scoped to live `author_state=known` rows: tests/services/test_invariants.py::test_empty_population_with_writes_is_a_violation, ::test_floor_is_scoped_by_normalizer_version; (b) trailing-median alarm deferred to M3 after 60 days of baseline |
+| RL-01 | preconditions_exit_78_no_running_row | e2e | M0/M1a | H | shipped | full exit-code table (0/1/3/4/75/78/130) proposed, pending Wes; tests/e2e/test_run_lock_and_preconditions.py::test_invalid_settings_exit_78_with_no_run_row, ::test_pending_migrations_exit_78_with_no_run_row, ::test_exit_code_table_is_total_over_run_status |
+| RL-02 | flock_held_exit_75_zero_calls | e2e | M1a | H | shipped | tests/e2e/test_run_lock_and_preconditions.py::test_held_lock_exits_75_with_zero_gateway_calls |
+| RL-03 | stale_running_row_marked_crashed_at_45m | e2e | M1a | H | shipped | threshold is 3 min (shared settings key with the UI); a held flock means alive regardless of heartbeat age; `queued` > 2 min without pid → `failed`; tests/services/test_runs_lifecycle.py::test_stale_running_row_is_marked_crashed, ::test_orphan_queued_row_older_than_two_minutes_fails |
+| RL-04 | every_mutating_command_takes_lock_writes_run_row | gate | M1a | H | shipped | tests/gates/test_mutating_commands.py::test_every_mutating_command_takes_the_lock_and_writes_a_run_row |
 | RL-05 | wall_clock_ceiling_partial_after_batch | service | M1d | M | planned | |
 | RL-06 | sigterm_finishes_batch_cancelled | e2e | M1d | M | planned | cancel at the request boundary (D-16), pending Wes |
-| RL-07 | write_side_failures_abort_page_cleanly | e2e | M1a | H | planned | (b)/(c) sink cases dropped (sidecar cut 2026-09-13); (a) DB-locked case stays |
+| RL-07 | write_side_failures_abort_page_cleanly | e2e | M1a | H | shipped | (b)/(c) sink cases dropped (sidecar cut 2026-09-13); (a) DB-locked case stays: tests/services/test_sweep_errors.py::test_db_locked_write_fails_the_page_with_nothing_committed |
 | JS-01 | jsonl_per_run_file_compress_verify_before_delete | unit+service | M1c | H | cut | per-run JSONL sidecar cut 2026-09-13 |
 | JS-02 | jsonl_retention_gate_and_partial_trailing_line | service | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | TH-01 | theme_regex_timeout_and_caps | unit | M1d | H | planned | |
 | TH-02 | theme_inputs_bot_exclusion_retag | service | M1d | H | changed | crosspost parent text stripped to `{id, subreddit}` at ingest (no `matched_field=crosspost_parent`); bot flag is a heuristic per author, never inherited |
 | DG-01 | digest_golden_denominators_from_state | unit+service | M1d | H | changed | golden gains the M1d sections pulled forward: distinct-author ranking, top untagged (7 d, ≥3 authors), rising title phrases |
 | DG-02 | notifier_proof_recorded | service | M1d | M | cut | notifications are best-effort; the UI pill computed from `runs` is the canonical alert (adversarial A4) |
-| CF-01 | dry_run_no_network_zero_http_zero_db_writes | gate | M1a | H | changed | `--dry-run` fetches (HTTP counted, zero DB writes); zero-HTTP applies to `doctor --no-network` and `config validate` (ingest D-1) |
-| CF-02 | no_bypass_flags_budget_hard_cap | gate | M1a | H | changed | option-name grep dropped (list-policing, A7); budget cap and "reconcile and scrub still run" kept; bypass flags record a reason on the run row; `--gateway fake` refused against the default data dir (D-10) |
+| CF-01 | dry_run_no_network_zero_http_zero_db_writes | gate | M1a | H | shipped | `--dry-run` fetches (HTTP counted, zero DB writes); zero-HTTP applies to `doctor --no-network` and `config validate` (ingest D-1); tests/gates/test_no_bypass.py::test_dry_run_writes_nothing_anywhere |
+| CF-02 | no_bypass_flags_budget_hard_cap | gate | M1a | H | shipped | option-name grep dropped (list-policing, A7); budget cap and "reconcile and scrub still run" kept; bypass flags record a reason on the run row; `--gateway fake` refused against the default data dir (D-10); tests/gates/test_no_bypass.py::test_budget_is_clamped_to_the_hard_cap, ::test_no_comments_requires_a_reason_and_records_it, ::test_fake_gateway_refused_against_the_default_data_dir, ::test_fake_gateway_refused_against_a_database_holding_real_runs |
 | CF-03 | settings_extra_forbid_and_fingerprint | unit | M0 | M | planned | |
 | CF-04 | data_dir_isolation_refusal | gate | M0 | H | changed | extended across the subprocess seam: env-var data dir, injectable `ProcessRunner`, CLI refuses under `PYTEST_CURRENT_TEST` without `--gateway fake` (B4) |
 | AD-01 | cassette_auth_ping_two_requests_ua_limits | adapter-cassette | M0 | H | planned | |
 | AD-02 | responses_failure_paths_exact_counts | adapter-responses | M1a | H | planned | |
 | AD-03 | cassette_tree_serialization_no_lazy_fetch | adapter-cassette | M1b | H | planned | |
 | AD-04 | contract_suite_fake_vs_praw | contract | M1a–M1c | H | planned | |
-| GT-01 | guard_reachability_meta_and_planted_invariants | gate | M0→ | H | planned | sidecar-dependent plantings dropped (sidecar cut 2026-09-13); scope is post-run invariants only (A3 split) |
-| GT-02 | pk_stability_three_reruns | gate | M1a | H | changed | drop `max(pk)==count(*)` (A10); `pk`/`first_seen_at` stability kept |
+| GT-01 | guard_reachability_meta_and_planted_invariants | gate | M0→ | H | shipped | sidecar-dependent plantings dropped (sidecar cut 2026-09-13); scope is post-run invariants only (A3 split); tests/gates/test_invariants_planted.py::test_planted_violation_flips_the_run, ::test_a_crashing_invariant_fails_the_run_rather_than_leaving_it_running |
+| GT-02 | pk_stability_three_reruns | gate | M1a | H | shipped | drop `max(pk)==count(*)` (A10); `pk`/`first_seen_at` stability kept; tests/gates/test_pk_stability.py::test_three_reruns_keep_pk_and_first_seen_at |
 
 ### 3.3 Enforcement, gates, ratchets, CI — `2026-09-13-panel-enforcement.md` §B (38), hooks §D
 
@@ -167,8 +167,8 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G14 | Guard-count ceiling | gate | M0 | P2 | planned | |
 | G15 | Schema snapshot | gate | M0 | P1 | planned | |
 | G16 | Models == DDL | gate | M0 | P1 | planned | |
-| G17 | Per-revision fixture DBs | gate | M1a | P2 | changed | "FTS count == live count" is measured via `posts_fts_docsize`, never `count(*) FROM posts_fts` (DB panel verification) |
-| G18 | Runtime schema fingerprint | runtime | M1a | P1 | changed | warning on `doctor` and `/system`, ordinary tables only; never refuses (A9) |
+| G17 | Per-revision fixture DBs | gate | M1a | P2 | shipped | "FTS count == live count" is measured via `posts_fts_docsize`, never `count(*) FROM posts_fts` (DB panel verification); tests/db/test_alembic.py::test_revision_fixture_upgrades_clean, ::test_fixture_set_equals_non_head_revisions, ::test_every_table_seeded_in_each_fixture |
+| G18 | Runtime schema fingerprint | runtime | M1a | P1 | shipped | warning on `doctor` and `/system`, ordinary tables only; never refuses (A9); tests/services/test_doctor.py::test_check_schema_fingerprint_is_ok_at_head, ::test_schema_fingerprint_mismatch_is_a_warning_not_an_error |
 | G19 | DATA_DIR isolation | gate | M0 | P1 | changed | across the subprocess seam (B4) |
 | G20 | TCC path and interpreter | gate/runtime | M0, M1d | P1 | planned | |
 | G21 | Size caps | gate | M0 | P1 | changed | `C901` and `PLR0915` only (plan); the file-length test and `PLR0913` not adopted |
@@ -180,7 +180,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G27 | Changed-tests sticky comment | CI | M0 | P2 | planned | |
 | G28 | Portability | CI | M0 | P1 | planned | external control: "last seen red" line in `GUARDS.md` |
 | G29 | pre-commit hooks | commit | M0 | P1 | planned | |
-| G30 | Guard reachability | gate | M1a | P1 | planned | the required half of the positive-control split |
+| G30 | Guard reachability | gate | M1a | P1 | shipped | the required half of the positive-control split; tests/gates/test_invariants_planted.py::test_every_invariant_has_a_planter |
 | G31 | Connection chokepoint (behavioral) | gate | M0 | P1 | planned | |
 | G32 | No-bypass proof | gate | M1 | P2 | changed | dry-run fetches; zero-HTTP is for `doctor --no-network` and `config validate` (see CF-01) |
 | G33 | Doc currency | gate | M0 | P1 | changed | only the INDEX ↔ `docs/**` bidirectional check remains (plan); `KNOWN_ISSUES` node ids, `GUARDS` ↔ markers, data dictionary, count regex not gates |
@@ -189,6 +189,13 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G36 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
 | G37 | Weekly stress | CI | M1d | P3 | changed | 50k/500k corpus cut; the `EXPLAIN QUERY PLAN` assertions live in DB-08 |
 | G38 | Mutation (informational) | CI | M3 | P3 | cut | optional tool, never a ratchet; no `.ratchets/mutation.txt` (plan) |
+| G34 | Retired claims not stated as live | gate | M1a | P1 | shipped | id reused: distinct from this table's own G34 "Guard firings ledger" row above, which the build has not touched and which stays `planned` under the panel's original numbering; see `GUARDS.md` Active for the built guard; tests/gates/test_superseded_claims.py::test_positive_control_stale_claim_is_red_and_annotated_claim_is_green, ::test_positive_control_unknown_decision_id_is_red |
+| G35 | No imported identifiers in tracked text | gate | M1a | P1 | shipped | id reused: distinct from this table's own G35 "Weekly enforcement audit" row above, which stays `planned`; nine rules over every tracked `.md`/`.py`/`.toml`/… file, one excluded path (`docs/reference/earlier-project-retrospectives/`); tests/gates/test_no_imported_identifiers.py::test_positive_control_a_planted_identifier_is_red, ::test_positive_control_the_same_tree_without_the_violation_is_green, ::test_positive_control_the_carve_outs_are_narrow |
+| G36 | Attribution trailers refused at commit time | hook | M1a | P1 | shipped | id reused: distinct from this table's own G36 "Settings-drift check" row above, which stays `planned`; part of the same `no_bypass_git.sh` hook as G23/G24; tests/gates/test_hooks.py::test_positive_control_a_trailer_in_a_message_file_is_red |
+| G39 | Rules name an enforcer that exists | gate | M1a | P1 | shipped | resolves every backticked path, pytest marker, ruff code and `make` target in CLAUDE.md's rule table; a row with no resolving enforcer must say "review", capped by `.ratchets/review_only_rules.txt`; tests/gates/test_rules_name_their_enforcer.py::test_positive_control_an_enforcer_that_does_not_exist_is_red, ::test_positive_control_a_review_row_is_counted_not_failed |
+| G40 | Register node ids resolve | gate | M1a | P1 | shipped | every node id in `KNOWN_ISSUES.md`'s regression-test column and `GUARDS.md`'s positive-control column must name a test that exists, resolved structurally with `ast`; tests/gates/test_known_issues_cite_collected_tests.py::test_positive_control_a_dangling_node_id_is_red, ::test_positive_control_a_second_control_from_the_same_file_resolves |
+
+Note (2026-09-13): the five rows above (G34, G35, G36, G39, G40) are the guard-ledger ids `GUARDS.md` assigned to gates discovered and built during the M1a tranche A build (retired claims, imported identifiers, attribution trailers, rule-enforcer names, register node ids). G34, G35 and G36 collide with this table's own three-panel-numbered rows above (`Guard firings ledger`, `Weekly enforcement audit`, `Settings-drift check`), which the build never touched and which remain `planned` under the enforcement panel's original G-nn sequence; this is a pre-existing numbering clash between the panel's spec and the guards ledger, not a claim that either of the colliding rows is the same gate. G39 and G40 do not collide (the panel's own sequence stopped at G38).
 
 ### 3.4 Web UI and delivery surface — `2026-09-13-panel-ui.md` §A (55); operator checklist §B; setup threat model §C
 
