@@ -17,7 +17,9 @@
 #     tools/check_stamp.py as the last step of make check) names the tree of the branch being
 #     merged: main only ever receives a tree the check passed on (2026-09-14, from the packet
 #     panel's dry run: nothing else stops a red fast-forward while there is no remote). git pull
-#     on main is refused for the same reason.
+#     on main is refused for the same reason. A `git switch main` or `git checkout main` earlier
+#     in the same command counts: the branch the merge lands on is the one the command will be
+#     on, not the one it started on (the principal-engineer seat's hole, 2026-09-14).
 #   git commit whose command text, or whose -F/--file message file, carries an attribution
 #     trailer (Wes's rule: a commit message ends at its last content line, and never names the
 #     model that wrote it). A message file that cannot be read, and -F - (message on stdin, which
@@ -85,6 +87,45 @@ def current_branch(cwd):
     return name if proc.returncode == 0 and name else None
 
 
+ASSUMED_BRANCH = None  # set by main() when an earlier segment switched branches
+
+
+def effective_branch(cwd):
+    """The branch the current segment will run on: a switch earlier in the command wins over
+    the branch the command started on."""
+    return ASSUMED_BRANCH if ASSUMED_BRANCH is not None else current_branch(cwd)
+
+
+def branch_switch(toks):
+    """The branch a `git switch` / `git checkout` segment lands on, "" for a detached head,
+    None when the segment is not a branch change (a file checkout, another command)."""
+    k = 0
+    while k < len(toks) and (ASSIGNMENT.match(toks[k]) or os.path.basename(toks[k]) in WRAPPERS):
+        k += 1
+    if k >= len(toks) or os.path.basename(toks[k]) != "git":
+        return None
+    i = k + 1
+    while i < len(toks) and toks[i].startswith("-"):
+        i += 2 if toks[i] in GIT_GLOBAL_WITH_VALUE else 1
+    if i >= len(toks) or toks[i] not in ("switch", "checkout"):
+        return None
+    rest = toks[i + 1:]
+    if "--" in rest:
+        return None  # a path checkout, never a branch change
+    j = 0
+    while j < len(rest):
+        tok = rest[j]
+        if tok in ("-c", "-C", "--create", "--force-create", "-b", "-B", "--orphan"):
+            return rest[j + 1] if j + 1 < len(rest) else ""
+        if tok in ("-d", "--detach"):
+            return ""
+        if tok.startswith("-"):
+            j += 1
+            continue
+        return tok
+    return None
+
+
 def message_files(rest):
     """Every -F/--file value in a git commit argument list, in all four spellings."""
     paths = []
@@ -142,7 +183,7 @@ def git_out(args, cwd):
 
 def check_merge_into_main(rest, cwd):
     """main receives only a tree the check passed on: the stamp must name the merged tree."""
-    if current_branch(cwd) != "main":
+    if effective_branch(cwd) != "main":
         return
     sources = []
     j = 0
@@ -215,7 +256,7 @@ def check_push(rest, cwd):
             dst = dst[len("refs/heads/"):]
         if dst == "main":
             block("direct push to main (%s); open a PR instead" % spec)
-    if not refspecs and current_branch(cwd) == "main":
+    if not refspecs and effective_branch(cwd) == "main":
         block("git push from branch main pushes main directly; open a PR instead")
 
 
@@ -246,7 +287,7 @@ def check_git(toks, cwd):
             check_message_files(rest, git_cwd)
         else:
             check_merge_into_main(rest, git_cwd)
-    elif sub == "pull" and current_branch(git_cwd) == "main":
+    elif sub == "pull" and effective_branch(git_cwd) == "main":
         block("git pull on main merges without the check stamp; fetch, then merge a checked branch")
     elif sub == "push":
         check_push(rest, git_cwd)
@@ -283,8 +324,13 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    global ASSUMED_BRANCH
     for segment in segments(command):
-        check_segment(tokens(segment), cwd)
+        toks = tokens(segment)
+        check_segment(toks, cwd)
+        landed = branch_switch(toks)
+        if landed is not None:
+            ASSUMED_BRANCH = landed
     # The trailer scan is judged on the WHOLE command text, not per segment: a -m message may
     # contain newlines and segments() splits on those, so a per-segment scan would miss a trailer
     # sitting on its own line. The -F files are read per segment (check_git), so a -F belonging to

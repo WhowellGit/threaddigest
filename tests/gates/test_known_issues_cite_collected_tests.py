@@ -29,6 +29,7 @@ from tools.ratchet import is_separator_row, split_row
 ROOT = Path(__file__).resolve().parents[2]
 KNOWN_ISSUES = Path("docs") / "runbook" / "KNOWN_ISSUES.md"
 GUARDS = Path("docs") / "runbook" / "GUARDS.md"
+DECISIONS = Path("docs") / "decisions" / "DECISIONS.md"
 CLAIMS = Path("docs") / "reference" / "reviews" / "templates" / "claims.md"
 ISSUES_COLUMN = "Regression test (node id)"
 GUARDS_COLUMN = "Positive control node"
@@ -111,16 +112,19 @@ def duplicate_ids(text: str, pattern: str) -> list[str]:
     seen: dict[str, int] = {}
     for line in strip_comments(text).splitlines():
         cells = split_row(line)
-        if cells and re.fullmatch(pattern, cells[0]):
-            seen[cells[0]] = seen.get(cells[0], 0) + 1
+        match = re.match(pattern, cells[0]) if cells else None
+        if match:
+            seen[match.group(0)] = seen.get(match.group(0), 0) + 1
     return sorted(key for key, count in seen.items() if count > 1)
 
 
 def test_register_ids_are_unique() -> None:
     issues = duplicate_ids((ROOT / KNOWN_ISSUES).read_text(encoding="utf-8"), r"KI-\d+")
     guards = duplicate_ids((ROOT / GUARDS).read_text(encoding="utf-8"), r"G\d+(?:/G\d+)*")
+    decisions = duplicate_ids((ROOT / DECISIONS).read_text(encoding="utf-8"), r"[DN]-\d+")
     assert not issues, "KNOWN_ISSUES.md reuses ids: " + ", ".join(issues)
     assert not guards, "GUARDS.md reuses ids: " + ", ".join(guards)
+    assert not decisions, "DECISIONS.md reuses ids: " + ", ".join(decisions)
 
 
 def test_positive_control_a_reused_id_is_red() -> None:

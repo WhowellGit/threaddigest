@@ -52,8 +52,10 @@ hooks: ## install the git hooks and pre-build their environments (network on fir
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# Every step fails the target on error (bash -e, one command per line).
+# Every step fails the target on error (bash -e, one command per line). The green stamp from an
+# earlier run is removed first, so a check that goes red cannot leave yesterday's stamp behind.
 check: | $(BUILD_DIR)
+	@rm -f $(BUILD_DIR)/check-green.json
 	$(UV) run ruff format --check
 	$(UV) run ruff check
 	@rc=0; $(UV) run dmypy --status-file $(BUILD_DIR)/dmypy.json run -- src || rc=$$?; \

@@ -643,3 +643,49 @@ def test_check_stamp_names_the_staged_tree_and_refuses_untracked_files(project: 
     proc = run_stamp(project)
     assert proc.returncode == 0 and "untracked" in proc.stdout
     assert not (project / ".build" / "check-green.json").exists()
+
+
+def test_a_branch_switch_earlier_in_the_command_counts(project: Path) -> None:
+    """The principal-engineer seat's hole (2026-09-14): the hook judged the branch the command
+    started on, so `git switch main && git merge feature` from a feature branch slipped past."""
+    tree = repo_with_feature(project)
+    git_in(project, "switch", "-q", "feature")
+    for command in (
+        "git switch main && git merge --ff-only feature",
+        "git checkout main && git merge feature",
+        "git checkout main && git pull",
+        "git switch main && git push",
+    ):
+        proc = run_hook(NO_BYPASS, bash_payload(command, project), project)
+        assert proc.returncode == 2, (command, proc.stderr)
+    for command in (
+        "git switch -c scratch && git merge feature",
+        "git checkout -b scratch && git merge feature",
+        "git checkout -- README.md && git merge feature",
+    ):
+        proc = run_hook(NO_BYPASS, bash_payload(command, project), project)
+        assert proc.returncode == 0, (command, proc.stderr)
+    write_stamp(project, tree)
+    proc = run_hook(
+        NO_BYPASS, bash_payload("git switch main && git merge --ff-only feature", project), project
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_make_check_removes_the_stamp_before_it_runs() -> None:
+    """A stamp from an earlier green run must not outlive a check that goes red: the target's
+    first step removes it, and the stamp step is the last, so only a fully green run leaves one."""
+    lines = (REPO_ROOT / "Makefile").read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("check:"))
+    recipe = [line.strip() for line in lines[start + 1 :] if line.startswith("\t")]
+    body = []
+    for line in lines[start + 1 :]:
+        if line.startswith("\t"):
+            body.append(line.strip())
+        elif line.strip() == "" or line.startswith("#"):
+            continue
+        else:
+            break
+    assert body[0].startswith("@rm -f") and "check-green.json" in body[0], body[0]
+    assert "check_stamp.py" in body[-1], body[-1]
+    assert recipe  # the recipe was found at all
