@@ -40,7 +40,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-12 | pragmas_effective_on_public_write_connection | db | M0 | H | planned | |
 | DB-13 | foreign_keys_enforced_behaviorally | db | M1a | H | shipped | tests/db/test_engine_pragmas.py::test_foreign_keys_are_enforced |
 | DB-14 | busy_timeout_waits_then_fails_cleanly | db | M1a | M | shipped | tests/db/test_repo_busy_timeout.py::test_second_writer_waits_then_page_fails_with_nothing_committed |
-| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1c | H | planned | |
+| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1a | H | shipped | pulled forward 2026-09-14 (KI-009): `tests/db/test_fts.py::test_scrub_then_optimize_leaves_no_term_bytes_in_the_index_or_the_file` asserts the term absent from the index's data blocks, the database file, and a `VACUUM INTO` copy after scrub and `optimize`; the first byte-level assertion, the class the methodology seat asked for |
 | DB-16 | read_only_paths_cannot_write | db/web | M2 | H | changed | web `mode=ro` read session cut (one rw engine behind the writer-map repository, DB-52); Datasette `mode=ro` launcher assertion kept |
 | DB-17 | wal_truncated_at_end_of_run | e2e | M1a | L | shipped | tests/e2e/test_run_happy_path.py::test_wal_is_truncated_at_end_of_run |
 | DB-18 | settings_refuse_default_data_dir_under_pytest | unit/gate | M0 | H | planned | |
@@ -81,6 +81,9 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-53 | authors_counters_match_count | gate | M1c | M | planned | |
 | DB-54 | counters_equal_table_deltas | gate | M1a | H | shipped | the `raw_files.item_count` clause is dropped (sidecar cut 2026-09-13); tests/gates/test_counters_deltas.py::test_counters_equal_table_deltas_on_a_clean_run, ::test_planted_extra_row_fails_the_run |
 | DB-55 | row_counts_never_decrease_without_recorded_purge | gate | M1c/M2 | M | planned | |
+| DB-56 | fts_update_trigger_fires_only_on_a_change | db | M1a | H | shipped | KI-012, 2026-09-14 (revision 0003): `tests/db/test_fts.py::test_a_routine_upsert_with_identical_text_leaves_the_index_untouched`; control `::test_positive_control_the_unconditional_trigger_rewrote_the_index` downgrades to 0002 and shows the growth |
+| DB-57 | wal_checkpoint_busy_is_a_run_warning | service | M1a | H | shipped | KI-013, 2026-09-14: `tests/services/test_collect_checkpoint.py::test_a_reader_during_the_final_checkpoint_leaves_a_warning_and_a_partial_run` |
+| DB-58 | error_text_hides_bound_parameters | db | M1a | H | shipped | KI-010, 2026-09-14: `tests/db/test_engine_pragmas.py::test_error_text_hides_bound_parameters` (control: a bare engine renders the value); `tests/services/test_sweep_errors.py::test_a_failed_page_write_keeps_post_text_out_of_the_error_message` |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
 
@@ -114,7 +117,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RC-04 | author_deletion_terminal_mod_removal_returns | service | M1c | H | planned | |
 | RC-05 | account_deletion_scrubs_author_only | service | M1c | H | planned | |
 | RC-06 | reconcile_cadence_invariant_and_tier_fallback | service+digest | M1c/M3 | M | changed | invariant is per tier: 60 h ≤ 30 d, 8 d to 1 y, 35 d beyond (replaces 48 h + 12 h grace) |
-| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too |
+| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too; the stage calls `db.fts.optimize` for each index when it scrubbed anything, before the checkpoint (KI-009, 2026-09-14) |
 | SC-02 | compliance_canary_end_to_end | e2e | M1c | H | changed | scans `data/**`; digest is a route (no file); asserts backup/export file ages (B1) |
 | FR-01 | per_source_freshness_degraded | e2e | M1a | H | shipped | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8); tests/services/test_invariants.py::test_freshness_skips_runs_that_swept_nothing, ::test_freshness_stands_down_on_a_terminal_run |
 | FR-02 | freshness_anchor_uniform_staleness | e2e | M1a | H | cut | anchor cut (adversarial A8: sweep and anchor are the same call); `new_head()` port and `set_live_anchor` go with it; SW-07 zero-yield detection kept |

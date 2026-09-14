@@ -8,11 +8,14 @@ tombstones, and ``integrity-check`` goes red when the index holds a row the view
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, Engine, text
 
-from insightminer.db.fts import fts_membership_count, integrity_check, rebuild
+from insightminer.db.engine import checkpoint_truncate
+from insightminer.db.fts import fts_membership_count, integrity_check, optimize, rebuild
+from insightminer.db.migrate import downgrade_one
 
 PostInserter = Callable[..., int]
 
@@ -214,3 +217,103 @@ def test_author_scrub_reindexes_without_author(engine: Engine, insert_post: Post
         assert _matches(conn, "posts_fts", CANARY) == 1
         assert fts_membership_count(conn, "posts_fts") == 1
         assert integrity_check(conn, "posts_fts")
+
+
+# ------------------------------------------------- KI-009 and KI-012: bytes, not answers
+#
+# The SQLite seat (2026-09-14): the suite asserted the index's answers and never its bytes, so a
+# scrub that left the term in the index's data blocks passed, and update triggers that rewrote
+# every post on every routine sweep passed. These read the blocks and the file.
+
+IDENTICAL_UPSERT = (
+    "UPDATE posts SET title = title, selftext = selftext, author = author, "
+    "content_state = content_state, score = score + 1 WHERE pk = :pk"
+)
+
+
+def _index_bytes(conn: Connection, table: str) -> int:
+    return int(
+        conn.execute(text(f"SELECT coalesce(sum(length(block)), 0) FROM {table}_data")).scalar_one()
+    )
+
+
+def _blocks_holding(conn: Connection, table: str, term: str) -> int:
+    return int(
+        conn.execute(
+            text(f"SELECT count(*) FROM {table}_data WHERE instr(block, :needle) > 0"),
+            {"needle": term.encode()},
+        ).scalar_one()
+    )
+
+
+def test_a_routine_upsert_with_identical_text_leaves_the_index_untouched(
+    engine: Engine, insert_post: PostInserter
+) -> None:
+    """KI-012: the upsert sets title, selftext, author, and content_state on every DO UPDATE;
+    the update trigger fires on the SET list, so without a WHEN clause every sweep rewrote
+    every post's index entry with identical text."""
+    pk = insert_post("p1", title=f"about {CANARY}", selftext="a body")
+    with engine.connect() as conn:
+        before = _index_bytes(conn, "posts_fts")
+    for _ in range(3):
+        with engine.begin() as conn:
+            conn.execute(text(IDENTICAL_UPSERT), {"pk": pk})
+    with engine.connect() as conn:
+        assert _index_bytes(conn, "posts_fts") == before
+        assert _matches(conn, "posts_fts", CANARY) == 1
+        assert integrity_check(conn, "posts_fts")
+    with engine.begin() as conn:  # a real edit still reindexes
+        conn.execute(text("UPDATE posts SET title = 'changedword' WHERE pk = :pk"), {"pk": pk})
+    with engine.connect() as conn:
+        assert _matches(conn, "posts_fts", CANARY) == 0
+        assert _matches(conn, "posts_fts", "changedword") == 1
+
+
+def test_positive_control_the_unconditional_trigger_rewrote_the_index(
+    engine: Engine, insert_post: PostInserter
+) -> None:
+    """The same statements against revision 0002's triggers grow the index: the test above
+    can go red."""
+    pk = insert_post("p1", title=f"about {CANARY}", selftext="a body")
+    downgrade_one(engine)  # 0003 -> 0002: the triggers without the WHEN clause
+    with engine.connect() as conn:
+        before = _index_bytes(conn, "posts_fts")
+    for _ in range(3):
+        with engine.begin() as conn:
+            conn.execute(text(IDENTICAL_UPSERT), {"pk": pk})
+    with engine.connect() as conn:
+        assert _index_bytes(conn, "posts_fts") > before
+
+
+def test_scrub_then_optimize_leaves_no_term_bytes_in_the_index_or_the_file(
+    engine: Engine, insert_post: PostInserter, now: int, db_path: Path, tmp_path: Path
+) -> None:
+    """KI-009: after a scrub the index says "no match" while the delete markers still carry the
+    term; ``optimize`` merges them away and ``secure_delete`` zeroes the pages, so the term is
+    gone from the data blocks, the database file, and a fresh copy."""
+    pk = insert_post("p1", title=f"about {CANARY}", selftext=f"and {CANARY} again")
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE posts SET title = NULL, selftext = NULL, selftext_html = NULL, "
+                "author = NULL, author_fullname = NULL, url = NULL, permalink = NULL, "
+                "content_state = 'deleted_by_author', scrubbed_at = :now, "
+                "raw_json = '{\"tombstone\": true}' WHERE pk = :pk"
+            ),
+            {"now": now, "pk": pk},
+        )
+    with engine.connect() as conn:
+        assert _matches(conn, "posts_fts", CANARY) == 0
+        assert _blocks_holding(conn, "posts_fts", CANARY) > 0  # the control: the term survives
+    with engine.begin() as conn:
+        optimize(conn, "posts_fts")
+    busy, _, _ = checkpoint_truncate(engine)
+    assert busy == 0
+    copy = tmp_path / "copy.sqlite"
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(f"VACUUM INTO '{copy}'")
+    with engine.connect() as conn:
+        assert _blocks_holding(conn, "posts_fts", CANARY) == 0
+        assert integrity_check(conn, "posts_fts")
+    assert CANARY.encode() not in db_path.read_bytes()
+    assert CANARY.encode() not in copy.read_bytes()

@@ -20,6 +20,7 @@ from sqlalchemy.dialects.sqlite import insert
 
 from insightminer.db.engine import engine_for
 from insightminer.db.fts import fts_membership_count, integrity_check
+from insightminer.db.migrate import head_revision
 from insightminer.db.schema import Base, Post
 from insightminer.db.schema_dump import alembic_config, migrate_to_head
 
@@ -167,7 +168,7 @@ def test_revision_fixture_upgrades_clean(fixture_path: Path, tmp_path: Path) -> 
 
         with engine.connect() as conn:
             head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert head == "0002", "revision 0002 has not landed yet"
+            assert head == head_revision(), "the fixture did not reach the current head"
             assert conn.exec_driver_sql("PRAGMA foreign_key_check").all() == []
 
             for table, seeded in manifest.items():

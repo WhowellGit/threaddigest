@@ -576,3 +576,35 @@ def test_a_database_error_that_is_not_lock_contention_ends_the_run_failed(
     assert result.terminal_error.startswith("database: ")
     assert result.subreddits == ()
     assert result.exit_code_override is None  # exit 1
+
+
+def test_a_failed_page_write_keeps_post_text_out_of_the_error_message(
+    fake: Any,
+    add_source: Any,
+    engine: Any,
+    db_path: Any,
+    clock: Any,
+    settings: Any,
+) -> None:
+    """KI-010, through the sweep: the message that becomes ``subreddits.last_error`` and
+    ``run_subreddits.error`` is built from the exception text, which carried the failed
+    statement's parameters, the page's titles and bodies included, until the engine hid them."""
+    from insightminer.services import runs
+
+    canary = "zxqerrorcanary"
+    fake.add_subreddit("premiere")
+    fake.add_post("premiere", title=f"one {canary}", selftext=f"body {canary}", created_utc=BASE)
+    source = add_source("premiere")
+    writer = engine_for(db_path, busy_timeout_ms=300)
+    try:
+        ctx = runs.start_run(writer, kind="run", trigger="cli", clock=clock, settings=settings)
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as lock_conn:
+            fake.on_call("page", 1, lambda: lock_conn.exec_driver_sql("BEGIN IMMEDIATE"))
+            _outcome, exc = sweep._page_loop(ctx, source, gateway=fake)
+            lock_conn.exec_driver_sql("ROLLBACK")
+    finally:
+        writer.dispose()
+    assert isinstance(exc, OperationalError)
+    failure = sweep._classify_failure(exc, source)
+    assert "locked" in failure.message
+    assert canary not in failure.message

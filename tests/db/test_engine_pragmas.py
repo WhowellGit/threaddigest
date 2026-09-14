@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Connection, Engine, inspect, text
+from sqlalchemy import Connection, Engine, create_engine, inspect, text
 from sqlalchemy.exc import DatabaseError, IntegrityError, OperationalError
 
 from insightminer.db.engine import checkpoint_truncate, engine_for
@@ -136,3 +136,28 @@ def test_a_pragma_that_fails_closes_the_dbapi_connection(engine: Engine, db_path
     assert len(opened) == 1, "the failed connect did not create exactly one raw connection"
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         opened[0].execute("select 1")
+
+
+def test_error_text_hides_bound_parameters(db_path: Path) -> None:
+    """KI-010: the sweep stores exception text in error columns no scrub touches, and
+    SQLAlchemy renders the bound parameters into that text unless the engine hides them."""
+    canary = "zxqparamcanary"
+    eng = engine_for(db_path)
+    try:
+        with eng.begin() as conn:
+            conn.exec_driver_sql("CREATE TABLE t (id INTEGER PRIMARY KEY, title TEXT UNIQUE)")
+            conn.execute(text("INSERT INTO t(title) VALUES (:t)"), {"t": canary})
+        with pytest.raises(IntegrityError) as caught, eng.begin() as conn:
+            conn.execute(text("INSERT INTO t(title) VALUES (:t)"), {"t": canary})
+        assert canary not in str(caught.value)
+        assert "UNIQUE constraint failed" in str(caught.value)
+    finally:
+        eng.dispose()
+    # The positive control: an engine made without the flag renders the value.
+    bare = create_engine(f"sqlite:///{db_path}")
+    try:
+        with pytest.raises(IntegrityError) as caught, bare.begin() as conn:
+            conn.execute(text("INSERT INTO t(title) VALUES (:t)"), {"t": canary})
+        assert canary in str(caught.value)
+    finally:
+        bare.dispose()

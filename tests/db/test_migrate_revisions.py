@@ -114,7 +114,7 @@ def test_upgrade_0001_to_0002_keeps_every_run_row_and_every_child(tmp_path: Path
 
         with engine.connect() as conn:
             head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            assert head == "0002", "revision 0002 has not landed yet"
+            assert head == head_revision(), "the upgrade did not reach the current head"
 
             assert _table_count(conn, "runs") == 1
             assert _table_count(conn, "run_subreddits") == 1
@@ -196,7 +196,7 @@ def test_downgrade_rewrites_network_rows_to_failed(tmp_path: Path) -> None:
 
         with engine.connect() as conn:
             head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert head == "0002", "revision 0002 has not landed yet"
+        assert head == head_revision(), "the upgrade did not reach the current head"
 
         t = Base.metadata.tables
         with engine.begin() as conn:
@@ -239,9 +239,23 @@ def test_downgrade_rewrites_network_rows_to_failed(tmp_path: Path) -> None:
 # --- db/migrate.py: current / head / is_at_head / pending (step 2, §10.2) ------------------
 
 
-def test_head_revision_is_0002() -> None:
+def _revision_ids() -> list[str]:
+    """The revision ids in ``migrations/versions/``, from the file names, so no test carries a
+    head literal that every new migration would have to edit (2026-09-14)."""
+    versions = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "insightminer"
+        / "db"
+        / "migrations"
+        / "versions"
+    )
+    return sorted(p.name.split("_", 1)[0] for p in versions.glob("[0-9]*_*.py"))
+
+
+def test_head_revision_is_the_last_migration_file() -> None:
     """``head_revision`` reads the ScriptDirectory, not a constant somebody can forget."""
-    assert head_revision() == "0002"
+    assert head_revision() == _revision_ids()[-1]
 
 
 def test_current_revision_is_none_before_any_migration(tmp_path: Path) -> None:
@@ -256,7 +270,7 @@ def test_current_revision_after_upgrade_equals_head(tmp_path: Path) -> None:
     engine = engine_for(tmp_path / "upgraded.db")
     try:
         upgrade_head(engine)
-        assert current_revision(engine) == head_revision() == "0002"
+        assert current_revision(engine) == head_revision() == _revision_ids()[-1]
     finally:
         engine.dispose()
 
@@ -284,7 +298,7 @@ def test_pending_lists_revisions_between_current_and_head(tmp_path: Path) -> Non
         cfg.attributes["connection"] = engine
         command.downgrade(cfg, "0001")
 
-        assert pending(engine) == ["0002"]
+        assert pending(engine) == _revision_ids()[1:]  # everything after 0001, in order
         upgrade_head(engine)
         assert pending(engine) == []
     finally:
@@ -313,7 +327,7 @@ def test_downgrade_one_steps_back_exactly_one_revision(tmp_path: Path) -> None:
     try:
         upgrade_head(engine)
         downgrade_one(engine)
-        assert current_revision(engine) == "0001"
+        assert current_revision(engine) == _revision_ids()[-2]
     finally:
         engine.dispose()
 

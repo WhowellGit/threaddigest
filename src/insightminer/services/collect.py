@@ -155,14 +155,16 @@ def _collect_persisted(
     _materialize_counters(ctx, gateway)
     ctx.terminal_status = result.terminal_status
     violations = _run_invariants(ctx)
+    violations_json = invariants.to_json(violations)
     status = runs.resolve_status(result.terminal_status, violations, ctx.warnings)
     runs.finish_run_from(
-        ctx,
-        status=status,
-        violations_json=invariants.to_json(violations),
-        error=result.terminal_error,
+        ctx, status=status, violations_json=violations_json, error=result.terminal_error
     )
-    checkpoint_truncate(engine)  # DB-17: after T8 commits, outside every transaction
+    if not _checkpoint_or_warn(ctx):  # DB-17 after T8; KI-013: re-close the row with the warning
+        status = runs.resolve_status(result.terminal_status, violations, ctx.warnings)
+        runs.finish_run_from(
+            ctx, status=status, violations_json=violations_json, error=result.terminal_error
+        )
     _notify_outcome(
         notifier,
         run_pk=ctx.run_pk,
@@ -264,6 +266,31 @@ def _run_invariants(ctx: RunContext) -> list[Violation]:
         )
 
 
+#: KI-013: ``wal_checkpoint(TRUNCATE)`` cannot reset the log while a reader holds a snapshot,
+#: and the web UI is a reader by design. Retry a few times, then record it on the run.
+CHECKPOINT_ATTEMPTS = 3
+CHECKPOINT_RETRY_SECONDS = 0.5
+
+
+def _checkpoint_or_warn(ctx: RunContext) -> bool:
+    """Truncate the write-ahead log after T8 (DB-17); when a reader holds it, retry briefly and
+    then warn (KI-013), because the pages written this run, a scrub's included, stay in the log
+    until a later checkpoint and ``secure_delete`` does not cover the log. True when truncated.
+    """
+    for attempt in range(CHECKPOINT_ATTEMPTS):
+        busy, _log_frames, _checkpointed = checkpoint_truncate(ctx.engine)
+        if not busy:
+            return True
+        if attempt + 1 < CHECKPOINT_ATTEMPTS:
+            ctx.clock.sleep(CHECKPOINT_RETRY_SECONDS)
+    ctx.warn(
+        "wal_checkpoint_busy",
+        "a reader held the write-ahead log at the end of the run; the pages written this run "
+        "stay in it until a later checkpoint",
+    )
+    return False
+
+
 def _finish_cancelled(ctx: RunContext, gateway: RedditGateway) -> CollectOutcome:
     """Close the row ``cancelled`` and report exit 130 (§9).
 
@@ -274,7 +301,10 @@ def _finish_cancelled(ctx: RunContext, gateway: RedditGateway) -> CollectOutcome
     runs.finish_run_from(
         ctx, status=RunStatus.CANCELLED, violations_json=None, error=CANCELLED_ERROR
     )
-    checkpoint_truncate(ctx.engine)
+    if not _checkpoint_or_warn(ctx):  # KI-013: the warning rides in counters_json
+        runs.finish_run_from(
+            ctx, status=RunStatus.CANCELLED, violations_json=None, error=CANCELLED_ERROR
+        )
     return CollectOutcome(
         run_pk=ctx.run_pk,
         status=RunStatus.CANCELLED,

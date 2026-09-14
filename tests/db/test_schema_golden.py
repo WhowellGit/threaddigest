@@ -8,6 +8,7 @@ import difflib
 import pytest
 from sqlalchemy import Engine, text
 
+from insightminer.db.migrate import head_revision
 from insightminer.db.schema_dump import (
     SCHEMA_SQL,
     canonical,
@@ -40,7 +41,9 @@ def test_fingerprint_of_live_db_equals_fingerprint_of_file(engine: Engine) -> No
 
 def test_dump_has_head_and_data_dictionary(engine: Engine) -> None:
     rendered = dump_schema(engine)
-    assert rendered.startswith("-- head: 0002\n"), "revision 0002 has not landed yet"
+    assert rendered.startswith(f"-- head: {head_revision()}\n"), (
+        "the dump is not at the current head"
+    )
     assert "-- COLUMN COMMENTS\n" in rendered
     assert "-- posts.next_check_at: " in rendered
     assert "CREATE VIRTUAL TABLE posts_fts USING fts5(" in rendered

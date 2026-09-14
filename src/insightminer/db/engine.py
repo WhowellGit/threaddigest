@@ -96,7 +96,10 @@ def engine_for(
     minute, and ``mock.patch`` is banned outside ``tests/adapters/`` (design-round5 §10.5).
     """
     pragmas = _pragmas_with_busy_timeout(busy_timeout_ms)
-    engine = create_engine(_sqlite_url(db_path, read_only=read_only))
+    # KI-010: SQLAlchemy renders the bound parameters into every StatementError's text, and
+    # the sweep stores exception text in error columns no scrub touches; hide them here, at
+    # the one place engines are made. raw_json is the reprocessing source, so nothing is lost.
+    engine = create_engine(_sqlite_url(db_path, read_only=read_only), hide_parameters=True)
 
     @event.listens_for(engine, "connect")
     def _on_connect(dbapi_connection: Any, _record: Any) -> None:
@@ -130,18 +133,34 @@ def engine_for(
     return engine
 
 
-def checkpoint_truncate(engine: Engine) -> tuple[int, int, int]:
+#: How long one truncating checkpoint waits for readers to finish. A TRUNCATE checkpoint calls
+#: the busy handler until every reader is gone, so under the engine's default 30 s lock wait a
+#: run whose final checkpoint met a reader would stall for that long per attempt (found while
+#: closing KI-013). The caller retries and then warns; each attempt waits this long instead.
+CHECKPOINT_WAIT_MS = 500
+
+
+def checkpoint_truncate(engine: Engine, wait_ms: int = CHECKPOINT_WAIT_MS) -> tuple[int, int, int]:
     """Run ``PRAGMA wal_checkpoint(TRUNCATE)`` outside any transaction.
 
     Returns SQLite's ``(busy, log_frames, checkpointed_frames)`` triple; ``busy == 1``
-    means another connection held the WAL and the checkpoint could not complete.
+    means another connection held the WAL and the checkpoint could not complete. The
+    connection's lock wait is lowered to ``wait_ms`` for the checkpoint and restored after,
+    because the connection goes back to the pool.
     """
     raw = engine.raw_connection()
     try:
         cursor = raw.cursor()
         try:
-            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            row = cursor.fetchone()
+            cursor.execute("PRAGMA busy_timeout")
+            pragma_row = cursor.fetchone()
+            previous = int(pragma_row[0]) if pragma_row is not None else DEFAULT_BUSY_TIMEOUT_MS
+            cursor.execute(f"PRAGMA busy_timeout = {int(wait_ms)}")
+            try:
+                cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                row = cursor.fetchone()
+            finally:
+                cursor.execute(f"PRAGMA busy_timeout = {previous}")
         finally:
             cursor.close()
     finally:

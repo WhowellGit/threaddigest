@@ -16,7 +16,7 @@ from __future__ import annotations
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import DatabaseError
 
-__all__ = ["FTS_TABLES", "fts_membership_count", "integrity_check", "rebuild"]
+__all__ = ["FTS_TABLES", "fts_membership_count", "integrity_check", "optimize", "rebuild"]
 
 #: The FTS5 tables shipped in schema revision 1.
 FTS_TABLES: tuple[str, ...] = ("posts_fts", "comments_fts")
@@ -43,6 +43,20 @@ def rebuild(conn: Connection, table: str) -> None:
     """Discard the index for ``table`` and re-read it from its live-only content view."""
     name = _checked(table)
     conn.execute(text(f"INSERT INTO {name}({name}) VALUES ('rebuild')"))
+
+
+def optimize(conn: Connection, table: str) -> None:
+    """Merge every segment of ``table`` into one, dropping the delete markers a scrub leaves.
+
+    KI-009: an FTS5 external-content ``'delete'`` appends a marker that carries the term
+    verbatim; after a scrub the index answers "no match" while the term still sits in
+    ``<table>_data`` and rides into every file copy. ``optimize`` merges the markers away, and
+    with ``secure_delete`` on (``db/engine.py``) the freed pages are zeroed, so the term is
+    gone from the file as well. Run it at the end of any run that scrubbed, before the
+    checkpoint; it is a full merge, so it is not run on every run.
+    """
+    name = _checked(table)
+    conn.execute(text(f"INSERT INTO {name}({name}) VALUES ('optimize')"))
 
 
 def integrity_check(conn: Connection, table: str) -> bool:
