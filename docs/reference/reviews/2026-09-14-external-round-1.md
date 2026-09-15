@@ -305,11 +305,55 @@ mechanism; medium on the migration's shape until written.
    nowhere), they cost nothing at runtime, and Wes's standing rule is that nothing in the gate is
    advisory. Confidence high.
 
-## Cannot tell from this session
+## Cannot tell from this session, resolved the same day
 
-Reddit's terms and wiki text and dates (C-13, B's E-series): the pages refuse the fetch tool. Wes
-opens them and pastes the deletion clause, the forty-eight-hour language and the revision dates into
-the decisions log; the runbook's triage step now says so.
+Reddit's terms and wiki text and dates (C-13, B's E-series) were unreachable through the fetch tool
+and were then read through the browser pane and a plain HTTPS fetch:
+`docs/reference/reddit-policy-facts-2026-09-14.md`. C's clauses and dates were right: the wiki
+(page timestamp 2026-05-11) makes removal of deleted content an obligation and forty-eight hours a
+strong recommendation, and says anonymizing does not license retention; the Data API Terms were
+last revised 2026-07-20. One new fact for the plan: the Responsible Builder Policy requires an
+explicit access approval before any data is accessed through the API, so the access request is a
+tranche B prerequisite.
+
+With the text in hand, ruling 1 above is sharpened. A retained backup that predates a learned
+deletion is deleted content in the collector's possession. The recommendation becomes: every
+backup is taken after reconcile, so it is a scrubbed snapshot; retain two dailies (forty-eight
+hours) rather than seven plus a weekly, because a restore needs the latest good copy and a
+collector re-harvests the rest; pre-migration copies are pruned by the existing keep-count. The
+weekly tier goes. Confidence moderate-high; the residual risk is a deletion learned between two
+backups, which the next post-reconcile backup and the two-day pruning close.
+
+## Round two: what to aim at, and when
+
+When: after the round-one branch lands and the probe day has produced fixtures, at tranche B's
+design freeze (already on the status page). Not before: a second run on the same packet finds
+the same things, which the resuming fourth run will demonstrate.
+
+Aim the brief at, in this order:
+
+1. The fixes: KI-015 to KI-020 and revision 0004, one new claim per fix in `templates/claims.md`,
+   with the brief telling reviewers the previous round's conclusions are the target.
+2. The M1b and M1c designs, judged as designs: comment-tree harvesting (the more-node budget,
+   100-child chunking, continue-thread nodes), and the reconcile and scrub protocol across every
+   surface (live rows, index, write-ahead log, raw JSON, rejects, error columns, exports, backups)
+   as one deletion-boundary matrix with an owner, a mechanism and a witness test per surface.
+3. The real adapter's contract against the captured fixtures: deletion signals, private,
+   quarantined and banned subreddits through `info()`, cap behaviour, the rate-limit headers.
+4. Operator workflows and the UI plan: question 7 drew the thinnest coverage in round one.
+5. The analytic layer's validation design: distinct authors against distinct people, and how the
+   reading week is scored.
+
+Change the packet: carry the policy facts file and the SQLite facts so reviewers attack code
+against known facts instead of re-fetching them; require every location to be a packet part and a
+line, and state that a finding whose quoted location is not in the packet is discarded (reviewer
+A's pattern); ask for a code-executing seat wherever a provider offers one, since that seat
+carried round one.
+
+Not worth a pass: unattended operation on the Mac (the between-run controls are queued and the
+answers are known), the enforcement harness (C's coverage was thorough and the remaining limit is
+stated in the ledger), SQLite internals (two panels and this round covered them; secure-delete is
+the last lever).
 
 ## What changed as a result
 

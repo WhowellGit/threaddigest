@@ -84,6 +84,7 @@
 
 - `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit miner: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
 - `reference/AGENT_BRIEF.md` — the template every sub-agent brief follows (purpose, tier, read-first rows, rules that bite, scope, contract, verification, don'ts). Read when: writing or reviewing a brief.
+- `reference/reddit-policy-facts-2026-09-14.md` — Reddit's Data API wiki, Data API Terms, Developer Terms, and Responsible Builder Policy as read from the live pages on 2026-09-14: the deletion obligations, the forty-eight-hour recommendation, the approval-before-access rule, the commercial-use boundary, the rate limit, with revision dates. Read when: designing reconcile, scrub, backups, or exports; before the tranche B access request; and at each quarterly review (re-read the pages).
 
 `reference/earlier-project-retrospectives/` — three of the earlier database project's eight retrospective documents, kept redacted as narrative source material (the other five live only in the archive at `~/repos/insightminer-desktop-archive/Reddit/Database_Key_Learnings/`, readable by agents on this machine; disposition decided 2026-09-13, see `REDACTION_NOTE.md` there and `learnings/LEARNINGS_TRANSFER.md` §7):
 
