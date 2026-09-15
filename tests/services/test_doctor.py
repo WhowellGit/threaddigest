@@ -159,6 +159,27 @@ def test_check_settings_valid_is_ok_for_a_good_environment() -> None:
     assert check.severity == doctor.CheckSeverity.ERROR
 
 
+def test_check_sqlite_version_is_ok_on_the_runtime_library() -> None:
+    """KI-009, rev 0004: the runtime SQLite (3.53 here, well past 3.42) satisfies the
+    secure-delete format floor."""
+    check = doctor.check_sqlite_version()
+    assert check.ok is True
+    assert check.name == "sqlite_version"
+    assert check.severity == doctor.CheckSeverity.ERROR
+
+
+def test_check_sqlite_version_is_an_error_below_the_secure_delete_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control: an older SQLite cannot read a secure-delete FTS5 index, so it is an ERROR,
+    not drift."""
+    monkeypatch.setattr(doctor.db_backup, "sqlite_version", lambda: (3, 41, 0))
+    check = doctor.check_sqlite_version()
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert "3.41.0" in check.detail and "3.42" in check.detail
+
+
 def test_check_settings_valid_is_not_ok_for_a_broken_static_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -662,6 +683,7 @@ def test_run_checks_covers_every_documented_check_name(
     names = [check.name for check in report.checks]
     assert names == [
         "settings_valid",
+        "sqlite_version",
         "data_dir_writable",
         "data_dir_outside_tcc",
         "database_present",
@@ -803,6 +825,7 @@ def test_check_free_disk_is_not_ok_when_free_space_cannot_be_read(
 #: read as healthy.
 EVERY_CHECK_NAME = [
     "settings_valid",
+    "sqlite_version",
     "data_dir_writable",
     "data_dir_outside_tcc",
     "database_present",

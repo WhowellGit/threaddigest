@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 __all__ = [
     "BACKUP_SUFFIXES",
+    "MIN_SQLITE_VERSION",
     "BackupResult",
     "foreign_key_check",
     "integrity_check",
@@ -31,7 +32,21 @@ __all__ = [
     "remove_sidecars",
     "restore",
     "sha256_of",
+    "sqlite_version",
 ]
+
+#: The oldest SQLite the database format needs (KI-009, revision 0004): once a row has been
+#: deleted from an FTS5 index with the persistent ``secure-delete`` option set, the index may
+#: not be read or written by FTS5 older than 3.42.0 (SQLite FTS5 docs). ``services/doctor.py``
+#: checks the runtime version against this; the M4 container image must satisfy it. It lives
+#: here, with the one allowed ``import sqlite3`` (``tests/gates/test_sqlite3_confined.py``).
+MIN_SQLITE_VERSION: Final = (3, 42, 0)
+
+
+def sqlite_version() -> tuple[int, ...]:
+    """The runtime SQLite library version as an integer tuple, for ``doctor``'s version check."""
+    return tuple(int(part) for part in sqlite3.sqlite_version.split("."))
+
 
 #: The sidecar files SQLite keeps next to a WAL database. A stale one beside a restored
 #: main file is a silently corrupt database, so :func:`restore` removes both.

@@ -275,6 +275,7 @@ def test_positive_control_the_unconditional_trigger_rewrote_the_index(
     """The same statements against revision 0002's triggers grow the index: the test above
     can go red."""
     pk = insert_post("p1", title=f"about {CANARY}", selftext="a body")
+    downgrade_one(engine)  # 0004 -> 0003
     downgrade_one(engine)  # 0003 -> 0002: the triggers without the WHEN clause
     with engine.connect() as conn:
         before = _index_bytes(conn, "posts_fts")
@@ -285,26 +286,60 @@ def test_positive_control_the_unconditional_trigger_rewrote_the_index(
         assert _index_bytes(conn, "posts_fts") > before
 
 
-def test_scrub_then_optimize_leaves_no_term_bytes_in_the_index_or_the_file(
-    engine: Engine, insert_post: PostInserter, now: int, db_path: Path, tmp_path: Path
-) -> None:
-    """KI-009: after a scrub the index says "no match" while the delete markers still carry the
-    term; ``optimize`` merges them away and ``secure_delete`` zeroes the pages, so the term is
-    gone from the data blocks, the database file, and a fresh copy."""
-    pk = insert_post("p1", title=f"about {CANARY}", selftext=f"and {CANARY} again")
+_SCRUB = (
+    "UPDATE posts SET title = NULL, selftext = NULL, selftext_html = NULL, "
+    "author = NULL, author_fullname = NULL, url = NULL, permalink = NULL, "
+    "content_state = 'deleted_by_author', scrubbed_at = :now, "
+    "raw_json = '{\"tombstone\": true}' WHERE pk = :pk"
+)
+
+
+def _set_fts_secure_delete(engine: Engine, table: str, on: bool) -> None:
     with engine.begin() as conn:
         conn.execute(
-            text(
-                "UPDATE posts SET title = NULL, selftext = NULL, selftext_html = NULL, "
-                "author = NULL, author_fullname = NULL, url = NULL, permalink = NULL, "
-                "content_state = 'deleted_by_author', scrubbed_at = :now, "
-                "raw_json = '{\"tombstone\": true}' WHERE pk = :pk"
-            ),
-            {"now": now, "pk": pk},
+            text(f"INSERT INTO {table}({table}, rank) VALUES ('secure-delete', :v)"),
+            {"v": 1 if on else 0},
         )
+
+
+def test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize(
+    engine: Engine, insert_post: PostInserter, now: int, db_path: Path, tmp_path: Path
+) -> None:
+    """KI-009, revision 0004: FTS5's persistent ``secure-delete`` option is on at head, so the
+    scrub trigger's ``'delete'`` removes the term's bytes as it runs. No ``optimize`` is needed
+    for compliance: the term is gone from the data blocks, the database file, and a fresh copy
+    immediately after the scrub. This is SC-01's byte-level guarantee."""
+    pk = insert_post("p1", title=f"about {CANARY}", selftext=f"and {CANARY} again")
+    with engine.begin() as conn:
+        conn.execute(text(_SCRUB), {"now": now, "pk": pk})
     with engine.connect() as conn:
         assert _matches(conn, "posts_fts", CANARY) == 0
-        assert _blocks_holding(conn, "posts_fts", CANARY) > 0  # the control: the term survives
+        assert _blocks_holding(conn, "posts_fts", CANARY) == 0  # gone without an optimize
+        assert integrity_check(conn, "posts_fts")
+    busy, _, _ = checkpoint_truncate(engine)
+    assert busy == 0
+    copy = tmp_path / "copy.sqlite"
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(f"VACUUM INTO '{copy}'")
+    assert CANARY.encode() not in db_path.read_bytes()
+    assert CANARY.encode() not in copy.read_bytes()
+
+
+def test_positive_control_without_secure_delete_the_term_survives_a_scrub_until_optimize(
+    engine: Engine, insert_post: PostInserter, now: int, db_path: Path, tmp_path: Path
+) -> None:
+    """The control that makes the test above meaningful: with the option turned back off, a
+    scrub leaves the term in the delete markers (search says "no match" but the bytes remain),
+    and only ``optimize`` plus the core ``secure_delete`` pragma clears the file. This is the
+    behaviour KI-009 had before revision 0004, and why the option, not ``optimize``, is the
+    compliance mechanism."""
+    _set_fts_secure_delete(engine, "posts_fts", on=False)
+    pk = insert_post("p1", title=f"about {CANARY}", selftext=f"and {CANARY} again")
+    with engine.begin() as conn:
+        conn.execute(text(_SCRUB), {"now": now, "pk": pk})
+    with engine.connect() as conn:
+        assert _matches(conn, "posts_fts", CANARY) == 0
+        assert _blocks_holding(conn, "posts_fts", CANARY) > 0  # the term survives the scrub
     with engine.begin() as conn:
         optimize(conn, "posts_fts")
     busy, _, _ = checkpoint_truncate(engine)

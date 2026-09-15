@@ -40,7 +40,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-12 | pragmas_effective_on_public_write_connection | db | M0 | H | planned | |
 | DB-13 | foreign_keys_enforced_behaviorally | db | M1a | H | shipped | tests/db/test_engine_pragmas.py::test_foreign_keys_are_enforced |
 | DB-14 | busy_timeout_waits_then_fails_cleanly | db | M1a | M | shipped | tests/db/test_repo_busy_timeout.py::test_second_writer_waits_then_page_fails_with_nothing_committed |
-| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1a | H | shipped | pulled forward 2026-09-14 (KI-009): `tests/db/test_fts.py::test_scrub_then_optimize_leaves_no_term_bytes_in_the_index_or_the_file` asserts the term absent from the index's data blocks, the database file, and a `VACUUM INTO` copy after scrub and `optimize`; the first byte-level assertion, the class the methodology seat asked for |
+| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1a | H | shipped | pulled forward 2026-09-14 (KI-009), strengthened by revision 0004 (2026-09-15): `tests/db/test_fts.py::test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize` asserts the term absent from the index's data blocks, the database file, and a `VACUUM INTO` copy immediately after the scrub; the first byte-level assertion, the class the methodology seat asked for |
 | DB-16 | read_only_paths_cannot_write | db/web | M2 | H | changed | web `mode=ro` read session cut (one rw engine behind the writer-map repository, DB-52); Datasette `mode=ro` launcher assertion kept |
 | DB-17 | wal_truncated_at_end_of_run | e2e | M1a | L | shipped | tests/e2e/test_run_happy_path.py::test_wal_is_truncated_at_end_of_run |
 | DB-18 | settings_refuse_default_data_dir_under_pytest | unit/gate | M0 | H | planned | |
@@ -87,6 +87,8 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DL-01 | a_hold_on_a_returned_item_does_not_count_toward_gone | unit | M1a | H | shipped | KI-021, 2026-09-14: `tests/unit/test_deletion.py::test_a_bodyless_return_then_one_omission_is_still_an_unconfirmed_hold`; the parametrized hold rows carry the corrected miss counts |
 | NM-12 | crosspost_parent_text_never_stored_on_any_surface | unit+service | M1a | H | shipped | KI-016, 2026-09-14: `tests/unit/test_normalize.py::test_canonical_raw_keeps_only_the_parent_pointer_of_a_crosspost`, `::test_a_rejected_crosspost_keeps_no_parent_text_either`, `tests/services/test_sweep_writes.py::test_a_crosspost_row_keeps_no_copy_of_the_parent_text_or_author` |
 | DB-59 | restore_copies_before_it_deletes | db | M1a | H | shipped | KI-015, 2026-09-14: `tests/db/test_backup.py::test_a_restore_whose_copy_fails_leaves_the_live_database_and_its_log_untouched` (a crash-left log survives a restore whose copy fails) |
+| DB-61 | secure_delete_clears_the_term_without_an_optimize | db | M1a | H | shipped | KI-009 / revision 0004, 2026-09-15: `tests/db/test_fts.py::test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize`; control `::test_positive_control_without_secure_delete_the_term_survives_a_scrub_until_optimize` |
+| DB-62 | sqlite_version_meets_the_secure_delete_floor | service | M1a | M | shipped | KI-009 / revision 0004, 2026-09-15: `tests/services/test_doctor.py::test_check_sqlite_version_is_ok_on_the_runtime_library`; control `::test_check_sqlite_version_is_an_error_below_the_secure_delete_floor` |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
 
@@ -122,7 +124,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RC-04 | author_deletion_terminal_mod_removal_returns | service | M1c | H | planned | |
 | RC-05 | account_deletion_scrubs_author_only | service | M1c | H | planned | |
 | RC-06 | reconcile_cadence_invariant_and_tier_fallback | service+digest | M1c/M3 | M | changed | invariant is per tier: 60 h ≤ 30 d, 8 d to 1 y, 35 d beyond (replaces 48 h + 12 h grace) |
-| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too; the stage calls `db.fts.optimize` for each index when it scrubbed anything, before the checkpoint (KI-009, 2026-09-14) |
+| SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too; FTS5 persistent secure-delete (revision 0004) removes the term bytes as the scrub trigger runs, so `db.fts.optimize` is periodic maintenance, not the compliance step (KI-009, revised 2026-09-15) |
 | SC-02 | compliance_canary_end_to_end | e2e | M1c | H | changed | scans `data/**`; digest is a route (no file); asserts backup/export file ages (B1) |
 | FR-01 | per_source_freshness_degraded | e2e | M1a | H | shipped | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8); tests/services/test_invariants.py::test_freshness_skips_runs_that_swept_nothing, ::test_freshness_stands_down_on_a_terminal_run |
 | FR-02 | freshness_anchor_uniform_staleness | e2e | M1a | H | cut | anchor cut (adversarial A8: sweep and anchor are the same call); `new_head()` port and `set_live_anchor` go with it; SW-07 zero-yield detection kept |

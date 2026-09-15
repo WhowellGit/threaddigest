@@ -17,6 +17,7 @@ from insightminer.db.engine import db_path_for, engine_for
 #: 15.2's twelve, plus ``hooks_installed`` wired in as the thirteenth).
 EXPECTED_CHECKS = {
     "settings_valid",
+    "sqlite_version",
     "data_dir_writable",
     "data_dir_outside_tcc",
     "database_present",

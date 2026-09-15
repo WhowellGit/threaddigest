@@ -1,7 +1,8 @@
 """The no-network check list and the ``Check`` contract ``/system`` will share.
 
-Twelve checks (design-round5 §15.2), each a function of its own so both branches -- ok and
-not-ok -- are reachable from a test without staging a whole invocation. *A check with only
+The §15.2 checks, plus ``sqlite_version`` (KI-009, rev 0004) and ``enabled_sources`` (KI-017),
+each a function of its own so both branches -- ok and not-ok -- are reachable from a test
+without staging a whole invocation. *A check with only
 an ok branch tested is not a check*, so every function here answers one question and returns
 one :class:`Check` rather than folding several into a verdict.
 
@@ -69,6 +70,7 @@ __all__ = [
     "check_quick_check",
     "check_schema_fingerprint",
     "check_settings_valid",
+    "check_sqlite_version",
     "parse_duration",
     "repo_root_from",
     "run_checks",
@@ -299,6 +301,25 @@ def check_quick_check(db_path: Path) -> Check:
         name="quick_check",
         ok=verdict == "ok",
         detail=f"PRAGMA quick_check: {verdict}",
+        severity=CheckSeverity.ERROR,
+    )
+
+
+def check_sqlite_version() -> Check:
+    """The runtime SQLite is new enough for the FTS5 secure-delete format (KI-009, rev 0004).
+
+    ERROR, not WARNING: once a row has been deleted from a secure-delete FTS5 index, an older
+    SQLite cannot read or write the index at all, so a downgrade of the interpreter's SQLite
+    (a rebuilt Python, a slimmer container base) would break the database, not merely drift.
+    """
+    version = db_backup.sqlite_version()
+    ok = version >= db_backup.MIN_SQLITE_VERSION
+    shown = ".".join(str(p) for p in version)
+    floor = ".".join(str(p) for p in db_backup.MIN_SQLITE_VERSION)
+    return Check(
+        name="sqlite_version",
+        ok=ok,
+        detail=f"SQLite {shown} (needs >= {floor} for the FTS5 secure-delete format)",
         severity=CheckSeverity.ERROR,
     )
 
@@ -707,6 +728,7 @@ def run_checks(
     present = check_database_present(db_path)
     checks: list[Check] = [
         check_settings_valid(),
+        check_sqlite_version(),
         check_data_dir_writable(settings.data_dir),
         check_data_dir_outside_tcc(settings.data_dir),
         present,
