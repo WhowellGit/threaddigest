@@ -1,8 +1,8 @@
 #!/bin/bash
 # deploy/launchd/run.sh: the wrapper launchd invokes for every scheduled Insight Miner job.
 #
-#   run.sh run      the collector run       (com.wesmax.insightminer.run: 06:30, 12:30, 18:30)
-#   run.sh doctor   the dead-man's switch   (com.wesmax.insightminer.doctor: hourly at :15)
+#   run.sh run      the collector run       (com.wesmax.insightminer.run: Monday and Thursday 06:30, D-30)
+#   run.sh doctor   the staleness check     (com.wesmax.insightminer.doctor: hourly at :15, --alert-if-stale 5d)
 #
 # What it guarantees (docs/PLAN.md § Deployment path, § Resilience to outages):
 #   - the repo root comes from this file's location, never from the caller's cwd or PATH;

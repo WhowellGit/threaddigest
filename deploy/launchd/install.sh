@@ -133,11 +133,11 @@ cat <<EOF
 verify (look for "state =" and "last exit code ="; a fresh install shows no exit code yet):
   launchctl print $DOMAIN/com.wesmax.insightminer.run
   launchctl print $DOMAIN/com.wesmax.insightminer.doctor
-trigger a run now instead of waiting for 06:30 / 12:30 / 18:30:
+trigger a run now instead of waiting for Monday or Thursday 06:30:
   launchctl kickstart $DOMAIN/com.wesmax.insightminer.run
 logs:
   $ROOT/data/logs/launchd-run.log       timestamped wrapper lines plus the run's output
-  $ROOT/data/logs/launchd-doctor.log    the hourly dead-man's switch
+  $ROOT/data/logs/launchd-doctor.log    the hourly staleness check
   $ROOT/data/logs/launchd-*.std*.log    anything printed before the wrapper opened its log
 remove:
   $SCRIPT_DIR/uninstall.sh

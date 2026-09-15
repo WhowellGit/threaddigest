@@ -141,6 +141,15 @@ class DoctorReport:
         return 0 if self.ok else 1
 
 
+#: The default for ``--alert-if-stale``: longer than the longest gap between scheduled runs
+#: (Thursday to Monday, four days, D-30), so a bare ``doctor`` is quiet when healthy and red once
+#: a run is genuinely overdue. The launchd wrapper passes the same value explicitly, and
+#: ``tests/deploy/test_schedule_contract.py`` holds the constant, the CLI option, the service
+#: parameter, the wrapper, and the schedule together (KI-024: the cadence sweep moved the wrapper
+#: to five days while the CLI and service defaults kept the daily-cadence thirty-six hours).
+DEFAULT_ALERT_IF_STALE = "5d"
+
+
 def parse_duration(text: str) -> int:
     """``"36h"`` / ``"90m"`` / ``"2d"`` / ``"45s"`` -> seconds; :class:`ValueError` otherwise.
 
@@ -701,7 +710,7 @@ def run_checks(
     settings: Settings,
     clock: Clock,
     gateway: RedditGateway | None = None,
-    alert_if_stale: str = "36h",
+    alert_if_stale: str = DEFAULT_ALERT_IF_STALE,
     no_network: bool = True,
 ) -> DoctorReport:
     """Every §15.2 check, in the order that table lists them, plus ``hooks_installed``.

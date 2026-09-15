@@ -58,7 +58,7 @@ The earlier system, for transfer judgement: a solo-operator-plus-agents bug-inte
 | Recommendation | Verdict | Reason |
 |---|---|---|
 | Windows fallback for the lock (`msvcrt`) | Declined | Windows is out of scope unless a coworker needs it; `fcntl` stays behind a clear error |
-| `caffeinate` for scheduled runs | Scoped | Only wraps the interactive first backfill; the daily run is about ten minutes |
+| `caffeinate` for scheduled runs | Scoped *(superseded 2026-09-15: the launchd wrapper wraps every scheduled job, D-30)* | Only wraps the interactive first backfill; the daily run is about ten minutes *(daily-era note)* |
 | Reimplement PRAW's more-children expansion to get wire-only JSON for trees | Deferred | The parity test (rank 14) is the cheap proof; reimplementation is a later provenance upgrade |
 | Zero-context review for every PR | Scoped | Only for deletion, scrub, migrations, and the upsert repository; elsewhere CI is the gate |
 | A `jobs` table for multi-service coordination now | Deferred to M5 | One writer today; the flock plus `runs` rows suffice |

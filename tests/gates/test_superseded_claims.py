@@ -65,6 +65,26 @@ def violations(docs: Path) -> list[str]:
     return found
 
 
+#: Source and deploy files scanned the same way (widened 2026-09-15: the plan-version-two review
+#: found the retired daily schedule alive in a code comment, a constant, and a wrapper header).
+SOURCE_GLOBS = ("src/**/*.py", "deploy/**/*.sh", "deploy/**/*.plist", "deploy/**/*.md")
+
+
+def source_violations(root: Path) -> list[str]:
+    """Every source or deploy line that states a retired phrase without a retirement marker."""
+    claims = retired_claims((root / "docs" / DECISIONS_REL).read_text(encoding="utf-8"))
+    found: list[str] = []
+    for pattern in SOURCE_GLOBS:
+        for path in sorted(root.glob(pattern)):
+            rel = path.relative_to(root).as_posix()
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                lowered = line.lower()
+                for phrase, _ in claims:
+                    if phrase.lower() in lowered and not MARKER.search(line):
+                        found.append(f"{rel}:{number}: states retired claim `{phrase}`")
+    return found
+
+
 def unresolved_decision_ids(decisions_text: str) -> list[str]:
     """Ids cited in the Retired claims table that appear nowhere else in the decisions log."""
     claims = retired_claims(decisions_text)
@@ -87,6 +107,14 @@ def test_no_live_document_states_a_retired_claim() -> None:
     assert not found, "retired claims stated as live:\n" + "\n".join(found)
 
 
+def test_no_source_or_deploy_file_states_a_retired_claim() -> None:
+    """KI-025: `core/retry.py` kept the daily three-slot schedule (a constant, a comment citing
+    the plan for the three times, a deferral rule) after D-30 retired it, because the scan
+    covered documents only. Code comments and constants are mirrors too."""
+    found = source_violations(ROOT)
+    assert not found, "retired claims stated in source or deploy files:\n" + "\n".join(found)
+
+
 def _docs_tree(tmp_path: Path, live_line: str) -> Path:
     docs = tmp_path / "docs"
     (docs / "decisions").mkdir(parents=True)
@@ -106,6 +134,19 @@ def test_positive_control_stale_claim_is_red_and_annotated_claim_is_green(tmp_pa
     assert violations(stale) == ["PLAN.md:3: states retired claim `widget`"]
     annotated = _docs_tree(tmp_path / "b", "The widget runs nightly (cut 2026-01-01, N-99).")
     assert violations(annotated) == []
+
+
+@pytest.mark.gate
+def test_positive_control_a_retired_phrase_in_source_is_red(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    _docs_tree(root, "clean")
+    (root / "src" / "pkg").mkdir(parents=True)
+    (root / "src" / "pkg" / "mod.py").write_text(
+        "#: the widget fires at dawn\nSLOTS = 3\n", encoding="utf-8"
+    )
+    (root / "deploy").mkdir()
+    (root / "deploy" / "run.sh").write_text("# widget (retired, N-99)\n", encoding="utf-8")
+    assert source_violations(root) == ["src/pkg/mod.py:1: states retired claim `widget`"]
 
 
 @pytest.mark.gate

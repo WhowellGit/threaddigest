@@ -1,6 +1,6 @@
 # Test strategy — v1 (2026-09-13)
 
-> A router, not a copy. Every spec below is specified in full (given/when/then, fixture, positive control) in one of the five raw panel reports under `docs/reference/reviews/2026-09-13-*.md`; the plan's `Testing strategy` and `Robustness` sections are canonical for policy. This file lists what exists, where it lives, its layer, phase, priority, and whether the adversarial review or the plan's "Adversarial review: what changed" section cut or altered it. Status vocabulary: `planned` (as specified by the panel), `changed` (kept with the alteration in the last column), `cut` (not built; reason given). Flip `planned` to `shipped` with the node id as tests land. Priority vocabularies are the panels' own: DB and ingest H/M/L; enforcement P1 (M0) / P2 (M1) / P3 (optional); UI P0 (blocks M2 operator-complete) / P1 / P2.
+> A router, not a copy. Every spec below is specified in full (given/when/then, fixture, positive control) in one of the five raw panel reports under `docs/reference/reviews/2026-09-13-*.md`; the plan's `Testing strategy` and `Robustness` sections are canonical for policy. This file lists what exists, where it lives, its layer, phase, priority, and whether the adversarial review (`docs/reference/reviews/2026-09-13-adversarial-review.md`; its adoptions are in `docs/decisions/DECISIONS.md` § 3 and the 2026-09-13 entries) cut or altered it. Status vocabulary: `planned` (as specified by the panel), `changed` (kept with the alteration in the last column), `cut` (not built; reason given). Flip `planned` to `shipped` with the node id as tests land. Priority vocabularies are the panels' own: DB and ingest H/M/L; enforcement P1 (M0) / P2 (M1) / P3 (optional); UI P0 (blocks M2 operator-complete) / P1 / P2.
 
 ## 1. Policy
 
@@ -11,7 +11,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | Kind | What it proves | Tools / where | Source |
 |---|---|---|---|
 | Unit (`core/`) | normalize, deletion state table, paging/stop/gap, ladder, budget, theme rules incl. regex timeout, digest golden, UA | pytest, hypothesis with stated properties (NM-01) | ingest §B.9, B.12; DB §A1 |
-| Service / e2e against the fake | whole `run` and each stage through `CliRunner` with the scenario-builder fake (`add_post`, `delete`, `remove`, `vanish`, `fail_page`, `rate_limit_next`, …; unconsumed injections fail the test) and a temp DB | `FakeRedditGateway`, `FakeClock`, `FakeRawSink`, `FakeNotifier`, `tmp_path` | ingest §A, §B |
+| Service / e2e against the fake | whole `run` and each stage through `CliRunner` with the scenario-builder fake (`add_post`, `delete`, `remove`, `vanish`, `fail_page`, `rate_limit_next`, …; unconsumed injections fail the test) and a temp DB | `FakeRedditGateway`, `FakeClock`, `FakeNotifier`, `tmp_path` | ingest §A, §B |
 | Adapter: cassette + `responses` + contract | happy paths from recorded cassettes (test subreddit only, `--record-mode=none`); failure paths with exact request counts; the same cases against fake and PRAW so the fake stays honest | pytest-recording, `responses`, one fixture schema | ingest §B.14, §C probes P-01…17 |
 | Migration with per-revision fixtures | `schema.sql` golden, models == DDL, single head, up/down; every prior revision's fixture DB upgrades clean with FTS (`_docsize`) == live, canaries checked | pytest-alembic, `tests/fixtures/db/<rev>.sqlite` + manifest, generated from pre-change code | DB §A1, §A8, §B, §C |
 | Gate positive controls | each CI gate/ratchet made red from a constructed bad state in `tmp_path`, asserting the tool's own message; config-borne gates proven by running pytest as CI runs it | `tests/gates/`, `@pytest.mark.gate("<ID>")` | enforcement §B; adversarial A3 split |
@@ -61,7 +61,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-33 | scrubbed_rows_have_no_content_columns | gate | M1c | H | planned | |
 | DB-34 | compressed_jsonl_verified_before_plain_deleted | unit/e2e | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
 | DB-35 | partial_trailing_jsonl_line_tolerated_db_authoritative | unit | M1c | M | cut | per-run JSONL sidecar cut 2026-09-13 |
-| DB-36 | daily_vacuum_into_backup_recorded_and_verified | e2e | M1c | H | planned | |
+| DB-36 | per_run_vacuum_into_backup_recorded_and_verified | e2e | M1c | H | planned | one copy per scheduled run, after reconcile (D-30, D-31); renamed from the daily-era name 2026-09-15 |
 | DB-37 | pre_migrate_backup_order_and_post_checks | migration/e2e | M1a | H | shipped | tests/services/test_migrate_service.py::test_backup_precedes_migration_and_records_a_row, ::test_quick_check_failure_aborts_before_migrating, ::test_post_checks_run_after_upgrade |
 | DB-38 | transaction_per_migration_no_half_state | migration | M1a | H | shipped | tests/e2e/test_db_commands.py::test_failed_upgrade_restores_and_finishes_the_run_row_failed; tests/services/test_migrate_service.py::test_a_failed_integrity_check_also_restores |
 | DB-39 | destructive_ops_require_recent_verified_backup | gate/e2e | M1c/M2 | H | changed | gate takes a `Confirmation` value object (UI phrase or CLI flag) checked inside the service; `backups` table ships in rev 1 so the UI gate is live at M2 |
@@ -176,7 +176,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G10 | Suppression ratchet | gate | M0 | P1 | changed | also counts mypy `[[tool.mypy.overrides]]` (declared with a reason) |
 | G11 | Coverage ratchet (hard floor, 0.5 slack) | gate | M0 | P1 | planned | |
 | G12 | Test-count and assertion floors | gate | M0 | P1 | changed | collected-test floor cut by the adversarial review and the plan; the assert-count floor under the loosening protocol was adopted from this panel; the plan carries both statements — Wes to confirm |
-| G13 | One-way protocol vs `main` (three comparisons) | gate | M0 | P1 | planned | fallback without environment reviewers: required label + auto-opened issue |
+| G13 | One-way protocol vs `main` (three comparisons) | gate | M0 | P1 | shipped | the three-way compare lives in `tools/ratchet.py compare` and is covered by the ratchet ledger rows (G10, G11, G51) rather than a row of its own; the approval fallback (required label + auto-opened issue) waits for a GitHub remote |
 | G14 | Guard-count ceiling | gate | M0 | P2 | planned | |
 | G15 | Schema snapshot | gate | M0 | P1 | planned | |
 | G16 | Models == DDL | gate | M0 | P1 | planned | |
@@ -187,9 +187,9 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G21 | Size caps | gate | M0 | P1 | changed | `C901` and `PLR0915` only (plan); the file-length test and `PLR0913` not adopted |
 | G22 | Cross-platform | gate | M0, M1 | P1 | planned | |
 | G23 | Hard-block hooks | hook | M0 | P1 | shipped | three hooks since 2026-09-14: H1 `no_bypass_git`, H3 `enforcement_files_script_only`, and `read_before_touch` (log-first; N-16 amended); H2 `no_prod_db_writes` cut (command-text list-policing, A6); the two hard blocks fail closed on internal error |
-| G24 | Hook wiring currency | gate | M0 | P1 | shipped | every registered command names an executable script (`tests/gates/test_hooks.py`); `tools/hooks_status.py` prints which scripts are not registered, because registration is a human edit |
-| G25 | `make check` summary | gate | M0 | P1 | planned | |
-| G26 | PR-body gate | CI | M0 | P2 | planned | deferrable to M1 if the two-day box overruns |
+| G24 | Hook wiring currency | gate | M0 | P1 | shipped | every registered command names an executable script (`tests/gates/test_hooks.py`); `tools/hooks_status.py` prints which scripts are not registered, because registration is a human edit; folded into the ledger's G23 row rather than a row of its own |
+| G25 | `make check` summary | gate | M0 | P1 | planned | the pasted summary block is printed by the ratchet tool today; a structured summary artifact gets its own ledger row when built |
+| G26 | PR-body gate | CI | M0 | P2 | planned | needs a GitHub remote (milestone MB defers GitHub); a ledger row when built |
 | G27 | Changed-tests sticky comment | CI | M0 | P2 | planned | |
 | G28 | Portability | CI | M0 | P1 | planned | external control: "last seen red" line in `GUARDS.md` |
 | G29 | pre-commit hooks | commit | M0 | P1 | shipped | installed 2026-09-14 (`make hooks`); a pre-push stage runs `make check` |

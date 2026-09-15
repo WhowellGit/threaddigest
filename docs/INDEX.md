@@ -8,6 +8,7 @@
 | I am about to… | Read | Then |
 |---|---|---|
 | Start a session | `recent/STATUS.md` | `CLAUDE.md` § The irreversible few |
+| Explain the system, or read about it for the first time | `OVERVIEW.md` | `INSIGHTMINER_HARNESS.md` for the working method; `PLAN.md` for the design |
 | Touch the schema, migrations, upserts, search index, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2 | `runbook/RUNBOOK.md` § Migrate; `.claude/rules/db.md` loads automatically |
 | Change the collector (fetch, budget, revisit, reconcile, invariants) | `PLAN.md` § Collector algorithm | `decisions/DECISIONS.md` 2026-09-13 entries; `.claude/rules/services.md` |
 | Touch deletion, scrubbing, or anything compliance-related | `PLAN.md` § Data model (state machine) | `runbook/KNOWN_ISSUES.md` |
@@ -23,7 +24,7 @@
 
 | Folder | What lives here | Update policy | Read when |
 |---|---|---|---|
-| `docs/` (root) | `PLAN.md` (the plan; canonical for design and decisions), `TEST_STRATEGY.md` (router into the test specs), this file | Plan revised in place with dated corrections; strategy rewritten per version | Plan: before any design change. Strategy: before writing or changing tests |
+| `docs/` (root) | `PLAN.md` (the plan; canonical for design), `OVERVIEW.md` (the system in ten minutes), `INSIGHTMINER_HARNESS.md` (the working method, with a generated inventory), `TEST_STRATEGY.md` (router into the test specs), this file | Plan corrected in place between versions and rewritten as a new version once annotations accrete (v2 on 2026-09-15), with history kept in the decisions log; overview and harness prose prune-stale; strategy rewritten per version | Plan: before any design change. Overview: to explain the system. Harness: before adding a mechanism. Strategy: before writing or changing tests |
 | `insights/` | Dated captures of strategy discussions and the reasoning behind decisions | Append-only, dated entries | Starting a new phase, or when a decision is being questioned |
 | `learnings/` | Hard-earned lessons: dated "applied" notes now; a canonical curated learnings file is added when the first project-native lesson lands | Append-only; canonical file curated | Before touching the area the lesson is about (routing table says which) |
 | `decisions/` | `DECISIONS.md`: settled choices, settled negatives, compliance bounds, Postgres-exit triggers, threat model, each with a "revisit when" | Append-only; dated entries | Before proposing an alternative to something already decided |
@@ -39,7 +40,7 @@
 | Write or change any test, or decide what to test first | `TEST_STRATEGY.md` (spec table and status), then the panel report it points at |
 | Touch the database schema, migrations, upserts, FTS, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2, `reference/reviews/2026-09-13-panel-db-integrity.md` (§A specs, §C migration checklist, §D fingerprint), `runbook/RUNBOOK.md` § 4 |
 | Touch deletion, scrubbing, reconcile, or anything compliance-related | Plan § Data model (content-state machine), `decisions/DECISIONS.md` § 2 (compliance bounds), `reference/reviews/2026-09-13-panel-ingest.md` §B.6–B.7, `runbook/KNOWN_ISSUES.md` |
-| Add, change, loosen, or retire a gate, ratchet, invariant, or hook | Plan § Robustness → "Guard design rules" and "Adversarial review: what changed", `reference/reviews/2026-09-13-panel-enforcement.md` §B–§D, `runbook/GUARDS.md`, `runbook/RUNBOOK.md` § 6 |
+| Add, change, loosen, or retire a gate, ratchet, invariant, or hook | Plan § Robustness → "Guard design rules" and "Gates and ratchets", `INSIGHTMINER_HARNESS.md`, `reference/reviews/2026-09-13-panel-enforcement.md` §B–§D, `runbook/GUARDS.md`, `runbook/RUNBOOK.md` § 6 |
 | Change the collector's fetch, budget, revisit, reconcile, or search behavior | Plan § Collector algorithm, `reference/reviews/2026-09-13-panel-ingest.md` §A (fake API) and §B, `reference/reviews/2026-09-12-collector-design-review.md` §1 |
 | Change the web UI, middleware, or an operator flow | Plan § Web UI, `reference/reviews/2026-09-13-panel-ui.md` (§A specs, §B operator checklist, §C setup threat model), `reference/reviews/2026-09-12-ui-design-review.md` |
 | Fix a bug | `runbook/KNOWN_ISSUES.md` (add the row; failing test first) |
@@ -52,7 +53,9 @@
 
 ### Root
 
-- `PLAN.md` — the plan: context and decisions table, architecture, module map, data model, collector algorithm, CLI, web UI, testing strategy, robustness and enforcement (with the panel corrections and the adversarial changes), release practices, deployment, milestones, open items, appendices. Read when: any design question; it is canonical.
+- `PLAN.md` — the plan, version 2 (2026-09-15): intent and the question the system answers, how the data becomes insight, architecture and module map, data model and state machine, collector algorithm and cadence, workspaces, CLI and web UI, testing strategy, robustness and enforcement, release and deployment, milestones, things only Wes can do. Read when: any design question; it is canonical. History lives in `decisions/DECISIONS.md` and the review records, not here.
+- `OVERVIEW.md` — the system in ten minutes for a reader who will not read the plan: what it is, the one question, how the data becomes insight (our own ranking, authored themes, the discovery signals, denominators), workspaces, what it is not. Read when: explaining the system, or before the plan.
+- `INSIGHTMINER_HARNESS.md` — the working method: the four parts of the harness (memory and context, documentation, enforcement, agent discipline), how they hold each other, what is deliberately absent, and a generated inventory of every mechanism in the tree (gated, G54). Read when: adding or changing a mechanism, or explaining how the project keeps an agent-built codebase honest.
 - `TEST_STRATEGY.md` — v1 router into the five panel reports: layered policy, kinds of tests and sweeps, every spec ID with layer/phase/priority/status (cut list applied), the M0 gate set and M1a invariants, guard design rules, open owner questions. Read when: writing tests or deciding test order.
 - `INDEX.md` — this router.
 
@@ -111,6 +114,7 @@
 - `reference/reviews/2026-09-14-packet-brief-panel.md` — the internal panel on the review packet and its brief before the first external send: what each seat was given, seventeen packet findings and their outcomes, two verdicts held for Wes, eight system findings from the dry run (two reproduced)
 - `reference/reviews/2026-09-14-testing-and-workflow-panel.md` — the five-seat panel on the testing methodology, operator workflows, unattended failure modes, the change workflow, and SQLite: what changed the same day, what is queued by area, and five rulings requested
 - `reference/reviews/2026-09-14-external-round-1.md` — the first external round: three deep-research reports and one partial code-executing run on the packet at 616f9b9, every finding re-run against the tree; six defects confirmed (KI-015 to KI-020), secure-delete proposed, seven claims refuted, four rulings held for Wes. Read when: triaging the next external round, or before touching restore, the crosspost path, the sweep's stop reasons, or the hooks.
+- `reference/reviews/2026-09-15-plan-v2-review.md` — the refute pass on plan version two against version one: what the rewrite had lost, what it stated falsely against the tree, the two cadence residues found in code (KI-025, KI-026), the gate widenings, and what changed. Read when: rewriting a document as a version, or judging what a review seat that reads the code finds that a document-reading seat does not.
 - `reference/reviews/2026-09-15-round-one-fix-panel.md` — the internal panel on the round-one fixes: three Opus seats (test-methodology, adversarial correctness, hooks/migration) reviewed `a0d8e8a..HEAD`; four hook holes and four correctness follow-ups closed, no fix reverted. Read when: touching the hooks, the crosspost or deletion paths, the doctor source check, or the fake's tree expansion.
 - `reference/reviews/2026-09-13-harness-assessment.md` — the evidence-first assessment of the earlier project's personal harness (memory and context model, documentation system, enforcement, agent discipline): a mechanism catalogue with birth incident, evidence, cost, and a transfer call each; what to keep and what to simplify with high confidence; what only Wes can settle; revised after a steelman pass that defended the original harness. Read when: deciding whether to adopt a practice from the earlier project, or pruning the reference material.
 - `reference/reviews/2026-09-13-documentation-practices-assessment.md` — which of the earlier project's documentation and memory practices to adopt, adapt, or leave, from a usage census of 1,127 transcripts and a reading of its documentation system: the day-one set for any new project, the skip list with the measured costs, and eight decisions. Read when: adding a document class, a register, or a memory mechanism.

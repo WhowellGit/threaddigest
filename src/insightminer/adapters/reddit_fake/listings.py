@@ -1,4 +1,5 @@
-"""``/new`` paging, the freshness anchor and search: the listing side of the gateway.
+"""``/new`` paging, the freshness anchor (cut from the product, N-08; the fake keeps the
+listing-side seam) and search: the listing side of the gateway.
 
 The setters at the top shape what a listing does (page lengths, overlap, sticky order,
 a frozen snapshot, the live anchor); the iterators below cut the underlying set into

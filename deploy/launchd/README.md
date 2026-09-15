@@ -15,7 +15,7 @@ rhythm, the target subreddits produce far fewer than 1,000 posts between runs, s
 cap is never in play, and the seven-digest reading week finishes in about seven weeks. A run
 that cannot reach Reddit exits `network`; the next scheduled run retries it, and the sweep is
 idempotent so a double-covered window costs nothing. The hourly `doctor` is the local
-dead-man's switch: `--alert-if-stale 5d` is longer than the normal 4-day gap between a Thursday
+staleness check (the external dead-man ping arrives at M1d, N-12): `--alert-if-stale 5d` is longer than the normal 4-day gap between a Thursday
 run and the next Monday, so it stays quiet when healthy and goes red once a run is genuinely
 overdue (a missed run doubles the gap past five days).
 

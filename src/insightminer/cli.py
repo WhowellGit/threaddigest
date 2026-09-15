@@ -541,7 +541,12 @@ def _print_run_summary(outcome: collect_service.CollectOutcome) -> None:
 @app.command()
 def doctor(
     no_network: bool = typer.Option(True, "--no-network/--network", help="Make no request."),
-    alert_if_stale: str = typer.Option("36h", "--alert-if-stale", help='e.g. "36h", "2d".'),
+    alert_if_stale: str = typer.Option(
+        doctor_service.DEFAULT_ALERT_IF_STALE,
+        "--alert-if-stale",
+        help='Last-run age that counts as stale, e.g. "5d", "36h"; the default outlasts the '
+        "longest gap between scheduled runs.",
+    ),
     json_output: bool = typer.Option(False, "--json/--no-json", help="Machine-readable output."),
 ) -> None:
     """Check this installation and report every check by name."""

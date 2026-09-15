@@ -46,3 +46,58 @@ def test_wrapper_uses_the_five_day_staleness_threshold() -> None:
     run_sh = (LAUNCHD / "run.sh").read_text(encoding="utf-8")
     assert "--alert-if-stale 5d" in run_sh
     assert "--alert-if-stale 36h" not in run_sh  # the old daily-cadence value is gone
+
+
+def _longest_gap_seconds(schedule: list[dict[str, int]]) -> int:
+    """The longest interval between consecutive weekly slots, wrapping round the week."""
+    weekdays = sorted(entry["Weekday"] for entry in schedule)
+    gaps = [b - a for a, b in zip(weekdays, weekdays[1:], strict=False)]
+    gaps.append(7 - weekdays[-1] + weekdays[0])
+    return max(gaps) * 86400
+
+
+def test_reconcile_bounds_fit_the_schedule() -> None:
+    """KI-026: the shipped reconcile-age bound for items under thirty days was the daily-era
+    figure (sixty hours), shorter than the Thursday-to-Monday gap, so the M1c invariant it
+    drives could never hold after one missed run. The bounds are bound to the schedule: a full
+    sweep is due on every scheduled run, and the freshest tier's age bound outlasts the longest
+    gap plus a run's wall-clock ceiling."""
+    import yaml
+
+    schedule = _rendered_plist("com.wesmax.insightminer.run")["StartCalendarInterval"]
+    assert isinstance(schedule, list)
+    weekdays = sorted(entry["Weekday"] for entry in schedule)
+    gaps_days = [b - a for a, b in zip(weekdays, weekdays[1:], strict=False)]
+    gaps_days.append(7 - weekdays[-1] + weekdays[0])
+    settings = yaml.safe_load((REPO_ROOT / "config" / "settings.yaml").read_text(encoding="utf-8"))
+    reconcile = settings["reconcile"]
+    assert reconcile["full_sweep_every_hours"] <= min(gaps_days) * 24, (
+        "every scheduled run must be a full sweep while it fits the budget"
+    )
+    ceiling = settings["run"]["wall_clock_ceiling_hours"]
+    assert reconcile["tier_max_age_hours"]["under_30d"] >= max(gaps_days) * 24 + ceiling, (
+        "the freshest tier's age bound must outlast the longest gap plus a run"
+    )
+
+
+def test_doctor_default_threshold_outlasts_the_longest_gap_and_matches_the_wrapper() -> None:
+    """KI-024: the cadence sweep moved the wrapper to ``5d`` while the CLI option and the
+    service parameter kept the daily-cadence default of thirty-six hours, so a bare
+    ``insightminer doctor`` alarmed on every normal Thursday-to-Monday gap. One constant is
+    the home of the default; both entry points use it; it outlasts the schedule's longest gap;
+    and the wrapper passes the same value, so the three can never disagree again."""
+    import inspect
+
+    from insightminer import cli
+    from insightminer.services import doctor
+
+    data = _rendered_plist("com.wesmax.insightminer.run")
+    schedule = data["StartCalendarInterval"]
+    assert isinstance(schedule, list)
+    default = doctor.DEFAULT_ALERT_IF_STALE
+    assert doctor.parse_duration(default) > _longest_gap_seconds(schedule)
+    assert inspect.signature(doctor.run_checks).parameters["alert_if_stale"].default == default
+    option = inspect.signature(cli.doctor).parameters["alert_if_stale"].default
+    assert option.default == default, "the CLI option must default to the shared constant"
+    run_sh = (LAUNCHD / "run.sh").read_text(encoding="utf-8")
+    assert f"--alert-if-stale {default}" in run_sh

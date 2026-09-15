@@ -1,6 +1,6 @@
 # Insight Miner: working agreement
 
-Personal, rules-compliant Reddit harvester. Plan: `docs/PLAN.md`. Doc router: `docs/INDEX.md`.
+Personal, rules-compliant Reddit harvester. Plan: `docs/PLAN.md`. Overview: `docs/OVERVIEW.md`. Working method: `docs/INSIGHTMINER_HARNESS.md`. Doc router: `docs/INDEX.md`.
 Everything runs through `uv`: `make setup` once, then `make check` before every PR.
 This file applies to every agent and human working in the repo.
 
@@ -42,7 +42,7 @@ that only goes down.
 | Rule | Enforced by |
 |---|---|
 | Never weaken, skip, or delete a test to make a change pass | PR body "Tests changed" table (one reason per file); skip/xfail ratchet, each needing `reason="#issue …"`; assert-count, collected-test, and coverage floors in `.ratchets/`; `xfail_strict` |
-| Never `git commit --no-verify`; never push to `main`; never merge into `main` a tree `make check` has not stamped green | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; the stamp `tools/check_stamp.py` writes as the last step of `make check`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; required CI in `.github/workflows/ci.yml` |
+| Never `git commit --no-verify`; never push to `main`; never merge into `main` a tree `make check` has not stamped green | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; the stamp `tools/check_stamp.py` writes as the last step of `make check`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; the CI workflow in `.github/workflows/ci.yml`, which runs once a GitHub remote exists (none yet, MB) |
 | Never catch a broad exception without recording it on the run row | ruff `E722`, `BLE001`, `S110`, `S112`, `B904`, `TRY*`; a run with any warning is `partial`, never `ok` |
 | Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | `tests/gates/test_known_issues_cite_collected_tests.py` (a row's node id must name a test that exists); that a fix has a row at all is review of the PR body; the `harden` skill is the checklist |
 | Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/insightminer/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema`; the committed fixtures are upgraded by `tests/db/test_alembic.py`; that a new revision adds its own fixture is review |
@@ -62,6 +62,7 @@ that only goes down.
 | `docs/recent/STATUS.md` is stamped within two days of HEAD, capped, carries the four resume headings, and restates no counts | `tests/gates/test_status_page.py` |
 | Every gate file and every `gate` marker id has a `docs/runbook/GUARDS.md` row; every commit hash cited in a document resolves; Active rows without a positive control are a ceiling | `tests/gates/test_known_issues_cite_collected_tests.py`; `.ratchets/review_only_rules.txt` |
 | One memory home; the committed snapshot is never behind live memory | `tools/memory_snapshot.py` `check` and `diff` in `make check`; `tests/gates/test_memory_snapshot.py` |
+| The harness page's inventory of mechanisms is generated from the tree, never typed | `tools/harness_page.py` (`--check`, `--write`); `tests/gates/test_harness_page.py` |
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
 | Never edit a file a rule file governs without reading the documents it names first | `tools/hooks/read_before_touch.sh` (log-first; ledger `.build/hooks/read_before_touch.jsonl`, reviewed 2026-09-28; mode in `tools/hooks/read_before_touch.mode`); `tests/gates/test_hooks.py` |
 | Every commit on a review-required surface since 2026-09-15 has a review register row with a record | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md` |
@@ -84,6 +85,8 @@ that only goes down.
 | Decide whether to adopt a practice from the earlier project | `docs/reference/earlier-project/EARLIER_PROJECT_REFERENCE.md` first (the self-contained entry point), then `docs/reference/reviews/2026-09-13-documentation-practices-assessment.md` and `docs/reference/reviews/2026-09-13-harness-assessment.md` § 7 |
 | Run a retrospective, or judge whether a lesson from the earlier project held | `docs/learnings/LEARNINGS_TRANSFER.md` (§5 predictions; §6 how to evolve it) |
 | Fix a bug, or harden a resolution so it cannot regress | `.claude/skills/harden/SKILL.md` (the checklist), then `docs/runbook/KNOWN_ISSUES.md` and `docs/runbook/GUARDS.md` |
+| Add or change a harness mechanism (a hook, gate, ratchet, tool, rule file, skill), or explain the working method | `docs/INSIGHTMINER_HARNESS.md`, then `docs/runbook/GUARDS.md`; regenerate the inventory with `tools/harness_page.py` |
+| Explain the system, or read about it before the plan | `docs/OVERVIEW.md` |
 
 ## PR protocol
 

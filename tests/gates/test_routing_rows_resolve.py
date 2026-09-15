@@ -103,13 +103,19 @@ def _cut(text: str) -> str:
     return (text[: m.start()] if m else text).strip()
 
 
+QUOTED = re.compile(r'["“”]([^"“”]+)["“”]')
+
+
 def clean_ref(ref: str) -> str:
     """Cut commentary off a section reference: ``Robustness → "Guard design rules"`` keeps
-    the arrow's target as a second reference; ``Swept with how it was checked`` keeps ``Swept``.
+    the arrow's target as a second reference, and every quoted target after the arrow is kept
+    (widened 2026-09-15: a router row named a retired section as its second quoted target and
+    only the first was checked); ``Swept with how it was checked`` keeps ``Swept``.
     """
     if "→" in ref:
         head, target = ref.split("→", 1)
-        return _cut(head) + "\x00" + _cut(target)
+        targets = QUOTED.findall(target) or [target]
+        return "\x00".join([_cut(head), *(_cut(t) for t in targets)])
     return _cut(ref)
 
 
@@ -353,6 +359,10 @@ def test_positive_control_the_matcher_accepts_codes_ranges_text_and_arrows() -> 
     assert clean_ref("Data model (content-state machine)") == "Data model"
     assert clean_ref("settled negatives first (do not rebuild)") == "settled negatives"
     assert clean_ref('Robustness → "Guard design rules",') == "Robustness\x00Guard design rules"
+    assert (
+        clean_ref('Robustness → "Guard design rules" and "Adversarial review: what changed"')
+        == "Robustness\x00Guard design rules\x00Adversarial review"  # cut at the colon, as ever
+    )
     assert clean_ref("Collector algorithm and") == "Collector algorithm"
 
 

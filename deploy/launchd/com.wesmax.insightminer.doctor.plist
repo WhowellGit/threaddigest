@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The local dead-man's switch: `insightminer doctor` with the stale-run alert (36 h), every
+	<!-- The local staleness check: `insightminer doctor` with the stale-run alert (5 d, longer
+	     than the Thursday-to-Monday gap of the twice-weekly schedule, D-30), every
 	     hour at :15 (the run job fires at :30, so the two never start together). This file is a
 	     template: deploy/launchd/install.sh replaces the root placeholder with the repository's
 	     absolute path. (No double hyphen in this comment: XML forbids it.) -->

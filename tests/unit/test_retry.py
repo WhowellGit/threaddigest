@@ -15,7 +15,6 @@ from insightminer.core.retry import (
     DEFAULT_LADDER_SECONDS,
     DEFAULT_RATE_LIMIT_WAIT_SECONDS,
     EXIT_CODES,
-    INTERVALS_PER_DAY,
     MAX_RATE_LIMIT_WAIT_SECONDS,
     ExitCode,
     Outcome,
@@ -25,7 +24,6 @@ from insightminer.core.retry import (
     classify,
     exit_code,
     plan_rate_limit_wait,
-    should_defer_run,
 )
 
 # ------------------------------------------------------------------ retry ladder
@@ -389,46 +387,9 @@ def test_no_ceiling_left_means_exit(ceiling: float) -> None:
     assert decision.exit_status == RunStatus.RATE_LIMITED
 
 
-# ----------------------------------------------------------- deferring a run
-
-
-def test_three_intervals_a_day() -> None:
-    assert INTERVALS_PER_DAY == 3
-
-
-def test_network_down_day_narrative() -> None:
-    # 06:30 fails -> defer to 12:30; 12:30 fails -> defer to 18:30; 18:30 fails -> the day is lost.
-    assert should_defer_run(consecutive_network_failures=1, attempts_today=1) is True
-    assert should_defer_run(consecutive_network_failures=2, attempts_today=2) is True
-    assert should_defer_run(consecutive_network_failures=3, attempts_today=3) is False
-
-
-def test_nothing_to_defer_without_a_network_failure() -> None:
-    assert should_defer_run(consecutive_network_failures=0, attempts_today=1) is False
-
-
-def test_last_interval_of_the_day_never_defers() -> None:
-    assert should_defer_run(consecutive_network_failures=1, attempts_today=3) is False
-    assert should_defer_run(consecutive_network_failures=1, attempts_today=7) is False
-
-
-def test_an_outage_older_than_a_day_stops_deferring_quietly() -> None:
-    # Day 2, 06:30: three or more failures in a row already happened; escalate instead.
-    assert should_defer_run(consecutive_network_failures=3, attempts_today=1) is False
-    assert should_defer_run(consecutive_network_failures=4, attempts_today=2) is False
-
-
-def test_a_fresh_failure_after_a_recovery_defers_again() -> None:
-    assert should_defer_run(consecutive_network_failures=1, attempts_today=2) is True
-
-
-@pytest.mark.parametrize(
-    ("failures", "attempts"),
-    [(-1, 1), (1, 0), (1, -1)],
-)
-def test_defer_rejects_impossible_counts(failures: int, attempts: int) -> None:
-    with pytest.raises(ValueError, match="attempts_today|consecutive_network_failures"):
-        should_defer_run(consecutive_network_failures=failures, attempts_today=attempts)
+# The same-day deferral rule of the daily era (three slots a day) was removed with D-30 and
+# KI-025: a ``network`` run is retried at the next scheduled slot, and the schedule lives only
+# in the launchd templates (``tests/deploy/test_schedule_contract.py``).
 
 
 # ---------------------------------------------------------------- hypothesis
@@ -550,14 +511,3 @@ def test_rate_limit_wait_is_bounded_or_exits(retry_after: float | None, ceiling:
         assert decision.seconds == 0
         assert decision.stage is None
         assert decision.exit_status == RunStatus.RATE_LIMITED
-
-
-@settings(max_examples=200)
-@given(st.integers(min_value=0, max_value=50), st.integers(min_value=1, max_value=50))
-def test_defer_only_while_intervals_remain_today(failures: int, attempts: int) -> None:
-    deferred = should_defer_run(consecutive_network_failures=failures, attempts_today=attempts)
-    if attempts >= INTERVALS_PER_DAY or failures == 0:
-        assert deferred is False
-    if deferred:
-        assert 1 <= failures < INTERVALS_PER_DAY
-        assert attempts < INTERVALS_PER_DAY

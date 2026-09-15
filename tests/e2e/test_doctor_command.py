@@ -90,7 +90,8 @@ def _plant_successful_run(db_path: Path, *, finished_at: int) -> None:
 def test_doctor_alert_if_stale_flips(cli_runner, db_at_head: Path) -> None:
     """The same successful run reads as fresh under a generous threshold and stale under a
     tight one: ``--alert-if-stale`` genuinely controls ``last_run_age``, not a hard-coded
-    36h (section 15.1's contract, Q5's default).
+    value (section 15.1's contract; the default itself is pinned by the schedule contract in
+    ``tests/deploy/test_schedule_contract.py``, KI-024).
     """
     import time
 

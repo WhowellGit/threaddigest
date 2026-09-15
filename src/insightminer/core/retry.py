@@ -8,7 +8,8 @@ hierarchy and by duck-typed attributes, so the domain exceptions in
 classify here without ``core`` knowing any of them.
 
 Sources: docs/PLAN.md "Resilience to outages" (the 30 s / 2 min / 5 min outer ladder,
-the ``network`` status retried at two later intervals the same day, the ``Retry-After``
+the ``network`` status left for the next scheduled run to retry (D-30, twice a week; the
+same-day deferral rule of the daily era was removed with KI-025), the ``Retry-After``
 pause capped by the wall-clock ceiling), the failure-mode matrix (429: sleep
 ``min(retry_after, 300)``), the ingest panel's D-6 (exit codes) and D-7 (a heartbeat
 stage such as ``rate_wait:37s`` is written before every sleep so a pause is never
@@ -30,7 +31,6 @@ __all__ = [
     "DEFAULT_LADDER_SECONDS",
     "DEFAULT_RATE_LIMIT_WAIT_SECONDS",
     "EXIT_CODES",
-    "INTERVALS_PER_DAY",
     "MAX_RATE_LIMIT_WAIT_SECONDS",
     "ExitCode",
     "Outcome",
@@ -40,7 +40,6 @@ __all__ = [
     "classify",
     "exit_code",
     "plan_rate_limit_wait",
-    "should_defer_run",
 ]
 
 # ----------------------------------------------------------------- retry ladder
@@ -394,36 +393,4 @@ def plan_rate_limit_wait(
         )
     return WaitDecision(
         should_wait=False, seconds=0.0, stage=None, exit_status=RunStatus.RATE_LIMITED
-    )
-
-
-# ------------------------------------------------------------- deferring a run
-
-#: launchd runs the collector at 06:30, 12:30 and 18:30 (docs/PLAN.md, Resilience).
-INTERVALS_PER_DAY: Final = 3
-
-
-def should_defer_run(consecutive_network_failures: int, attempts_today: int) -> bool:
-    """True when a run that cannot reach Reddit should end now as ``network`` and leave the
-    work to a later interval today, instead of hammering the ladder in this process.
-
-    ``consecutive_network_failures`` counts the network-down failures in a row *including*
-    this one (0 means nothing to defer). ``attempts_today`` counts today's scheduled runs
-    including this one (1 at 06:30, 2 at 12:30, 3 at 18:30).
-
-    Deferral is quiet by design (the later interval makes the earlier one a near no-op),
-    so it is only the right call while a later interval remains today and the outage is
-    younger than a day's worth of intervals. On the day's last interval, or once
-    ``INTERVALS_PER_DAY`` failures have accumulated, the run still ends ``network`` but
-    the caller escalates (notification, digest line) rather than waiting for a scheduler
-    that has already run out of chances.
-    """
-    if consecutive_network_failures < 0:
-        msg = f"consecutive_network_failures must be >= 0, got {consecutive_network_failures}"
-        raise ValueError(msg)
-    if attempts_today < 1:
-        msg = f"attempts_today includes the current run and must be >= 1, got {attempts_today}"
-        raise ValueError(msg)
-    return (
-        1 <= consecutive_network_failures < INTERVALS_PER_DAY and attempts_today < INTERVALS_PER_DAY
     )
