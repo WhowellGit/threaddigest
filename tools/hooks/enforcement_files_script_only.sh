@@ -93,10 +93,13 @@ def segments(command):
 
 def tokens(segment):
     cleaned = re.sub(r"[(){}]", " ", segment)
+    lexer = shlex.shlex(cleaned, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"  # a trailing `# comment` is not part of the command
     try:
-        return shlex.split(cleaned, posix=True)
+        return list(lexer)
     except ValueError:
-        return cleaned.split()
+        return [tok for tok in cleaned.split() if not tok.startswith("#")]
 
 
 def command_word(toks):

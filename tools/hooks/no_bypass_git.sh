@@ -102,10 +102,13 @@ def segments(command):
 
 def tokens(segment):
     cleaned = re.sub(r"[(){}]", " ", segment)
+    lexer = shlex.shlex(cleaned, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"  # a trailing `# comment` is not two positional arguments
     try:
-        return shlex.split(cleaned, posix=True)
+        return list(lexer)
     except ValueError:
-        return cleaned.split()
+        return [tok for tok in cleaned.split() if not tok.startswith("#")]
 
 
 def is_no_verify(tok):

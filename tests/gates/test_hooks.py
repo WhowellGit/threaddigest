@@ -156,6 +156,11 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("python3 - <<'PYEOF'\nprint('no git here')\nPYEOF\ngit add -A && git commit -q -m ok", 0),
     ('python3 -c "print(1)"; git commit -m ok', 0),
     ("node -e \"require('child_process').execSync('git commit --no-verify -m x')\"", 2),
+    # a trailing shell comment is not part of the command: it must neither smuggle a bypass
+    # past a check nor inflate an argument count (the tokenizer strips it)
+    ("git commit --no-verify -m x  # oops", 2),
+    ("git commit -m ok  # fine", 0),
+    ("git push origin HEAD:main  # sneaky", 2),
 ]
 
 
