@@ -5,7 +5,11 @@ description = "Personal, rules-compliant Reddit harvester that surfaces Premiere
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-  "praw>=7.8",
+  # Pinned to the tested major (KI, external round one, reviewer C-11): PRAW 8's `replace_more`
+  # discovers up to 100 comments per request where PRAW 7 discovered 20, and the collector's
+  # budgeting assumes the tested behaviour. A major upgrade is deliberate: bump the ceiling
+  # after replaying the adapter contract fixtures on the probe day.
+  "praw>=8,<9",
   "sqlalchemy>=2.0.36",
   "alembic>=1.14",
   "pydantic>=2.9",

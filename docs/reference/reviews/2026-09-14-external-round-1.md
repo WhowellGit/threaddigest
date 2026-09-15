@@ -134,16 +134,16 @@ an environment-variable hooks-path override on a commit; both fold into KI-020's
    periodic review, because their failure mode is drift, not data loss. **Ruling**: declined,
    recommendation below.
 8. `rank_posts()` leaves complete ties in input order, so a query ordering change reorders the visible
-   list; add a deterministic final key. **Confirmed by reading**: `_rank_key` has three keys. Cheap;
-   on the fix branch (created time, then post id, as the last keys).
+   list; add a deterministic final key. **Confirmed by reading**: `_rank_key` had three keys. Fixed on
+   the branch by appending `post_id` (unique, stable) as the final key; creation time is deliberately
+   not used, since recency is not a ranking signal (D-09). `tests/unit/test_digest.py::test_rank_posts_breaks_full_ties_by_post_id_deterministically`.
 9. Distinct authors are not distinct people with the problem (helpers, spectators); the reading week
    is the validation. **Known**: D-09 and the acceptance criterion.
 10. `post_themes.rule_pk` is `NOT NULL`, so a manual tag cannot be represented with its own
     provenance. **Known**: the rev-2 design item in the hardening queue.
 11. `praw>=7.8` has no upper bound while PRAW 7 and 8 differ in how many comments one
-    `replace_more` step discovers. **Partly**: `uv.lock` pins 8.0.3, so an upgrade is deliberate;
-    the adapter's budgeting will assume 8's behaviour, so the bound is tightened to `>=8,<9` on the
-    fix branch (cheap).
+    `replace_more` step discovers. **Fixed**: the bound is now `praw>=8,<9`, so a major upgrade is a
+    deliberate change gated behind replaying the adapter fixtures on the probe day; `uv.lock` holds 8.0.3.
 12. KI-010, KI-012 and KI-013 are well founded. **Known**, fixed in `a0d8e8a` before the reports
     arrived.
 13. Reddit's guidance requires removing deleted content including titles, bodies and URLs, strongly

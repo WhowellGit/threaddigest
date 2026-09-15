@@ -120,16 +120,24 @@ class Rankable(Protocol):
     @property
     def score(self) -> int: ...
 
+    @property
+    def post_id(self) -> str: ...
 
-def _rank_key(item: Rankable) -> tuple[int, int, int]:
-    return (-item.distinct_author_count, -item.comment_count, -item.score)
+
+def _rank_key(item: Rankable) -> tuple[int, int, int, str]:
+    return (-item.distinct_author_count, -item.comment_count, -item.score, item.post_id)
 
 
 def rank_posts[T: Rankable](items: Iterable[T]) -> list[T]:
-    """Order posts by distinct authors, then comment count, then score, all descending.
+    """Order posts by distinct authors, then comment count, then score, all descending, then by
+    ``post_id`` ascending.
 
     Never by raw post count or recency: one prolific poster cannot manufacture a trend
-    (DECISIONS.md D-09). The sort is stable, so full ties keep their input order.
+    (DECISIONS.md D-09). The final ``post_id`` key is a tie-break for determinism, not a ranking
+    signal (KI, external round one, reviewer C-8): a stable sort left full ties in input order,
+    so a change in the order the database returned rows reordered the visible list. ``post_id``
+    is unique and stable, so the order is now fully determined by the row's own values; creation
+    time is deliberately not used, because recency is not a signal here.
     """
     return sorted(items, key=_rank_key)
 

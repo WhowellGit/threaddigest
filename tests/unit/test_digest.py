@@ -402,21 +402,25 @@ def test_rank_posts_key_is_distinct_authors_then_comments_then_score() -> None:
     assert rank_posts([d, c, b, a]) == [a, b, c, d]
 
 
-def test_rank_posts_ties_keep_input_order() -> None:
-    first = _post(1, "first", "s", 3, 3, 3)
-    second = _post(2, "second", "s", 3, 3, 3)
+def test_rank_posts_breaks_full_ties_by_post_id_deterministically() -> None:
+    """C-8 (external round one): a stable sort left full ties in input order, so the visible
+    order followed whatever order the database returned. The order is now fixed by ``post_id``,
+    the same whichever way the input arrives."""
+    first = _post(1, "first", "s", 3, 3, 3)  # post_id 1abc1
+    second = _post(2, "second", "s", 3, 3, 3)  # post_id 1abc2
     assert rank_posts([first, second]) == [first, second]
-    assert rank_posts([second, first]) == [second, first]
+    assert rank_posts([second, first]) == [first, second]  # input order no longer decides
 
 
 def test_rank_posts_accepts_any_rankable_and_returns_a_new_list() -> None:
     class Row:
-        def __init__(self, authors: int, comments: int, score: int) -> None:
+        def __init__(self, authors: int, comments: int, score: int, post_id: str) -> None:
             self.distinct_author_count = authors
             self.comment_count = comments
             self.score = score
+            self.post_id = post_id
 
-    rows = [Row(1, 1, 1), Row(2, 0, 0)]
+    rows = [Row(1, 1, 1, "b"), Row(2, 0, 0, "a")]
     ranked = rank_posts(rows)
     assert ranked == [rows[1], rows[0]]
     assert ranked is not rows
@@ -742,10 +746,15 @@ def test_rank_posts_is_a_stable_permutation_sorted_by_the_key(items: list[PostIt
     # Equal models compare equal, so track input positions by identity, not by value.
     position = {id(item): index for index, item in enumerate(items)}
     for earlier, later in zip(ranked, ranked[1:], strict=False):
-        key_a = (-earlier.distinct_author_count, -earlier.comment_count, -earlier.score)
-        key_b = (-later.distinct_author_count, -later.comment_count, -later.score)
+        key_a = (
+            -earlier.distinct_author_count,
+            -earlier.comment_count,
+            -earlier.score,
+            earlier.post_id,
+        )
+        key_b = (-later.distinct_author_count, -later.comment_count, -later.score, later.post_id)
         assert key_a <= key_b
-        if key_a == key_b:
+        if key_a == key_b:  # identical values AND post_id: only then does input order decide
             assert position[id(earlier)] < position[id(later)]
 
 
