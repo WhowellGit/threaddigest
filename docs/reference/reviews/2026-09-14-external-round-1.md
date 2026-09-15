@@ -54,6 +54,54 @@ registered), **cannot tell**, **ruling** (a design choice held for Wes).
    plain merge on a diverged `main` and the `-s ours` merge each produced a tree the check never saw.
    → KI-019.
 
+### Reviewer D, the full report (arrived later on 2026-09-14)
+
+Thirteen findings, a reproduction script, and an evidence file, all against the same packet. The
+script was read, not run; every new claim was reproduced with the session's own code. Findings 1,
+2, 3, 6 and 8 are the five above (KI-016, KI-015 fixed the same day, ruling 1, KI-018, KI-019).
+The rest:
+
+4. One expansion of a `more` node in the fake reveals every hidden child for one request and
+   marks the tree complete, while Reddit returns at most a hundred new comments per request.
+   **Confirmed**: a tree of 202 comments clamped to one showed 201 stubbed children; one
+   expansion returned all 202, charged one request, and reported complete. The fake's budget
+   model is too cheap for M1b. → KI-023.
+5. The freshness window keeps the last successful fetch forever once the only source is
+   disabled, because runs with no per-source rows are filtered out of the window. **Confirmed**,
+   the mechanism behind KI-017; its fix adds a `doctor` check for at least one enabled source,
+   since a partial run alone does not notify.
+7. The index membership invariant compares counts only, so replacing one live row's index entry
+   with a phantom (same count) passes it while a search finds the phantom and not the post; the
+   `rank = 1` integrity check refuses the same index. **Confirmed** by reproduction. → KI-022.
+9. The built digest models carry the ranking count but no identity population, identified row
+   count, or tree completeness, although the plan's ranking row requires identity coverage and
+   tree completeness beside the count. **Confirmed by reading**: a model-contract gap to close
+   when the M1d assembler is built, with a golden where equal author counts differ in coverage.
+   Queued under the M1d design items.
+10. A returned observation with no body increments the same miss counter as an omission, so one
+    later real omission reaches the threshold and scrubs. **Confirmed**: live → bodyless return
+    (`gone_unconfirmed`, one miss) → one omission (`gone`, scrub). The docstring says gone needs
+    consecutive `info()` omissions; the code counts holds too. → KI-021.
+11. The setup checklist lacks the access-approval step. **Confirmed** (found the same day from
+    the policy pages); runbook § 1 step 2 now carries it.
+12. A dry run creates the data directories and the read-only engine's sidecars before the
+    dry-run branch, so claim C-05 ("writes nothing anywhere") overstates it and the CLI's
+    message says the same. **Confirmed by reading**: the claim and the message are narrowed to
+    rows and tables on the fix branch; the directories stay.
+13. The review-only ceiling counts a rule as enforced when its cited path resolves, even to a
+    file containing `pass`. **Known and declined**: the gate's docstring says it verifies
+    existence, not enforcement; the ceiling is a dangling-reference detector and a human reads
+    the table; ruling 4 covers the request to delete the three proxy limits.
+
+Its claims audit: C-05 falsified (above); C-09 holds in-process only, a subprocess escapes the
+socket block, so the claim is reworded; C-12 proved logical removal at the packet's commit and
+now cites the byte-level test shipped in `a0d8e8a`. Its owner questions: the approval scope is
+Wes's access request; the test community for the probe day is already the plan's recommendation
+(a personal restricted subreddit) and becomes the probe-day plan; which curation records must
+survive a failed restore or reset is added to the M2 design items. Its evidence file also records
+two hook shapes not in the report: a stream editor's write command aimed at a protected path, and
+an environment-variable hooks-path override on a commit; both fold into KI-020's fix.
+
 ## Reviewer C
 
 1. The fake gateway is an executable specification, not a validated model; the sequencing (real

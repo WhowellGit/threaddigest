@@ -7,7 +7,7 @@
 Target: under 10 minutes from clone to first run; the weekly portability CI job proves it on a clean Ubuntu container.
 
 1. Prerequisites on a Mac: Homebrew; `brew install uv gh`; git identity `Wes Howell <wes@weshowell.com>`; `uv python install 3.13`.
-2. Reddit side (Wes only): dedicated account with verified email; script app at reddit.com/prefs/apps (type **script**, redirect `http://localhost:8765`); accept the Data API terms; keep `client_id`, `client_secret`, username.
+2. Reddit side (Wes only): dedicated account with verified email; script app at reddit.com/prefs/apps (type **script**, redirect `http://localhost:8765`); accept the Data API terms; request API access through the form linked from the Data API wiki and keep the approval (the Responsible Builder Policy requires explicit approval before any data is accessed; `docs/reference/reddit-policy-facts-2026-09-14.md`); keep `client_id`, `client_secret`, username.
 3. `git clone <repo> ~/repos/insightminer` — the path must be outside `~/Desktop`, `~/Documents`, `~/Downloads`, `/Volumes/*` (launchd/TCC) and contain no spaces. `doctor` checks this.
 4. `make setup` — installs `uv` if missing (Homebrew, else the official installer), `uv python install 3.13`, `uv sync --all-groups`, copies `.env.example` to `.env` if absent, `uv run pre-commit install`. `db init` arrives with the CLI in M1a.
 5. Put credentials in `.env` (owner-only permissions; never committed) or, from M2, use the browser `/setup` wizard (paste credentials, **Test connection**, choose subreddits, first sweep).
