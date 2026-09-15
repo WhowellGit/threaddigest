@@ -151,7 +151,11 @@ def canonicalize(raw: Mapping[str, Any]) -> dict[str, Any]:
     * drops private ``_*`` keys, PRAW-only attributes, and ``replies`` (children are their own
       rows; the nested listing would duplicate the tree into every row);
     * ``author`` given as ``{"name": ...}`` becomes the name; ``subreddit`` given as
-      ``{"display_name": ...}`` becomes the display name.
+      ``{"display_name": ...}`` becomes the display name;
+    * every entry of ``crosspost_parent_list`` is reduced to ``{"id", "subreddit"}`` (KI-016):
+      the canonical dict is what ``posts.raw_json`` and ``raw_rejects.raw_json`` store, and
+      the parent's text and author must never be stored, because the parent lives in an
+      unmonitored subreddit and is never reconciled (``docs/decisions/DECISIONS.md``).
 
     Values that are neither plain data nor mappings (e.g. a live PRAW object) are left untouched
     and rejected later by type, never probed with ``getattr``.
@@ -172,7 +176,21 @@ def canonicalize(raw: Mapping[str, Any]) -> dict[str, Any]:
     subreddit = out.get("subreddit")
     if isinstance(subreddit, Mapping):
         out["subreddit"] = subreddit.get("display_name")
-    return out
+    return _strip_crosspost_parents(out)
+
+
+def _strip_crosspost_parents(data: dict[str, Any]) -> dict[str, Any]:
+    """Reduce each crosspost parent record to its pointer, in place; a non-list value or a
+    non-mapping entry is left for the normalizer to reject by type."""
+    parents = data.get("crosspost_parent_list")
+    if isinstance(parents, list):
+        data["crosspost_parent_list"] = [
+            {"id": parent.get("id"), "subreddit": parent.get("subreddit")}
+            if isinstance(parent, Mapping)
+            else parent
+            for parent in parents
+        ]
+    return data
 
 
 # --- typed coercers: wire value -> column value, or _InvalidFieldError ----------------------
@@ -302,8 +320,10 @@ def _crosspost_parent(data: Mapping[str, Any]) -> CrosspostParent | None:
 
 
 def _reject_raw(raw: object) -> dict[str, Any]:
+    """The item as ``raw_rejects.raw_json`` keeps it: whole, apart from the crosspost parent
+    text, which is never stored on any surface (KI-016)."""
     if isinstance(raw, Mapping):
-        return {str(key): value for key, value in raw.items()}
+        return _strip_crosspost_parents({str(key): value for key, value in raw.items()})
     return {"repr": repr(raw)[:1000]}
 
 

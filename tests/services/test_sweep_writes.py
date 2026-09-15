@@ -11,8 +11,9 @@ from typing import Any
 
 from sqlalchemy import select, update
 
+from insightminer.core.retry import RunStatus
 from insightminer.db.schema import Base
-from insightminer.services import sweep
+from insightminer.services import collect, sweep
 
 BASE = 1_757_700_000  # matches tests/conftest.py's ``seeded`` fixture
 
@@ -267,3 +268,38 @@ def test_a_removal_seen_on_a_later_sweep_counts_one_scrub_transition(
     assert row["removed_by_category"] == "moderator"  # stored raw, never coerced
     assert row["selftext"] == "[removed]"  # tranche A never redacts; scrubbed_at stays NULL
     assert row["scrubbed_at"] is None
+
+
+def _raw_json_of(engine: Any, reddit_id: str) -> str:
+    with engine.connect() as conn:
+        return conn.exec_driver_sql(
+            "SELECT raw_json FROM posts WHERE reddit_id = ?", (reddit_id,)
+        ).scalar_one()
+
+
+def test_a_crosspost_row_keeps_no_copy_of_the_parent_text_or_author(
+    fake: Any, add_source: Any, engine: Any, clock: Any, settings: Any, notifier: Any
+) -> None:
+    """KI-016 (external round one): the stored raw copy, not only the normalized row, must
+    drop the parent's text and author; the parent is never reconciled."""
+    fake.add_subreddit("premiere")
+    fake.add_subreddit("elsewhere")
+    parent = fake.add_post(
+        "elsewhere",
+        title="parent title",
+        selftext="parent-body-zq7 never to be stored",
+        author="parent-author-zq7",
+        created_utc=BASE,
+    )
+    cross = fake.add_crosspost("premiere", parent, created_utc=BASE + 60)
+    add_source("premiere")
+
+    outcome = collect.collect(
+        engine, settings=settings, clock=clock, gateway=fake, notifier=notifier
+    )
+
+    assert outcome.status is RunStatus.OK
+    raw = _raw_json_of(engine, cross[3:])
+    assert "parent-body-zq7" not in raw
+    assert "parent-author-zq7" not in raw
+    assert '"crosspost_parent_list":[{"id":"' in raw  # the pointer survives for reprocessing

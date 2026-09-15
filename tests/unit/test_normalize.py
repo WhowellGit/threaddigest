@@ -359,6 +359,38 @@ def test_empty_crosspost_parent_list_falls_back_to_fullname() -> None:
     assert post(raw).crosspost_parent == CrosspostParent(id="zzz111", subreddit=None)
 
 
+def test_canonical_raw_keeps_only_the_parent_pointer_of_a_crosspost() -> None:
+    """KI-016: the canonical dict is what ``posts.raw_json`` stores, so the parent's text
+    and author must already be gone here, not only on the normalized row."""
+    raw = load("post_self.json")
+    raw["crosspost_parent"] = "t3_zzz111"
+    raw["crosspost_parent_list"] = [
+        {
+            "id": "zzz111",
+            "subreddit": "premiere",
+            "title": "parent-title-zq7",
+            "selftext": "parent-body-zq7",
+            "selftext_html": "<p>parent-body-zq7</p>",
+            "author": "parent-author-zq7",
+        }
+    ]
+    out = canonicalize(raw)
+    assert out["crosspost_parent_list"] == [{"id": "zzz111", "subreddit": "premiere"}]
+    assert "zq7" not in repr(out)
+    assert post(raw).crosspost_parent == CrosspostParent(id="zzz111", subreddit="premiere")
+
+
+def test_a_rejected_crosspost_keeps_no_parent_text_either() -> None:
+    raw = load("post_self.json")
+    del raw["created_utc"]  # a required field missing: the item becomes a reject
+    raw["crosspost_parent_list"] = [
+        {"id": "zzz111", "subreddit": "premiere", "selftext": "parent-body-zq7"}
+    ]
+    reject = reject_post(raw)
+    assert "zq7" not in repr(reject.raw)
+    assert reject.raw["crosspost_parent_list"] == [{"id": "zzz111", "subreddit": "premiere"}]
+
+
 def test_crosspost_parent_list_of_wrong_shape_rejects() -> None:
     raw = load("post_link.json")
     raw["crosspost_parent_list"] = "t3_zzz111"
