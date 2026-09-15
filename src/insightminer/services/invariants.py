@@ -198,21 +198,33 @@ def no_other_running_rows(ctx: InvariantContext) -> Violation | None:
 
 
 def fts_membership_equals_live(ctx: InvariantContext) -> Violation | None:
-    """DB-26: the search index holds exactly the live rows.
+    """DB-26: the search index holds exactly the live rows, and each indexed entry matches its
+    content row.
 
-    Membership comes from the ``_docsize`` shadow table, never ``count(*)`` on the FTS table
-    itself: on an external-content table that reads the content source and can never
-    disagree (``db.fts``).
+    Two checks, because a count is not enough (KI-022, external round one): membership from the
+    ``_docsize`` shadow table catches a missing or extra entry, but a delete-then-insert that
+    swaps one row's tokens for another's leaves the count unchanged while search returns the
+    wrong document. FTS5's ``integrity-check`` in the ``rank = 1`` form (``db.fts``) compares
+    the index against the content view and catches exactly that substitution. Membership comes
+    from ``_docsize``, never ``count(*)`` on the FTS table itself: on an external-content table
+    that reads the content source and can never disagree.
     """
     live = repo.live_counts(ctx.conn)
     for table in INDEXED_TABLES:
-        membership = fts.fts_membership_count(ctx.conn, f"{table}_fts")
+        fts_table = f"{table}_fts"
+        membership = fts.fts_membership_count(ctx.conn, fts_table)
         live_rows = live[f"{table}_live"]
         if membership != live_rows:
             return _violation(
                 fts_membership_equals_live,
                 Severity.WARNING,
                 f"{table}: fts membership {membership} != {table}_live {live_rows}",
+            )
+        if not fts.integrity_check(ctx.conn, fts_table):
+            return _violation(
+                fts_membership_equals_live,
+                Severity.WARNING,
+                f"{table}: fts index does not match its content rows (integrity-check failed)",
             )
     return None
 

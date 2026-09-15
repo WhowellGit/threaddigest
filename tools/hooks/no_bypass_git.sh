@@ -424,8 +424,13 @@ def check_segment(toks, cwd, segment):
         inner = xargs_command(rest)
         if inner:
             check_segment(inner, cwd, " ".join(inner))
-    elif base in INTERPRETERS and GIT_WORD.search(COMMAND_TEXT) and RISKY.search(COMMAND_TEXT):
-        block("%s would run git (%s) from a string this hook cannot judge; call git directly, or write the script with the Write tool and run it by path" % (base, RISKY.search(COMMAND_TEXT).group(0)))
+    elif base in INTERPRETERS:
+        # An interpreter's inline code (-c / -e string) that runs git is judged from that
+        # string alone, extracted quote-aware in main() (interpreter_inline_git), never from
+        # the whole command: a plain `git commit` in another part of the line is judged
+        # directly, and a heredoc/stdin script the interpreter reads is the documented blind
+        # spot (a script the agent writes and runs), not an inline string this hook can see.
+        pass
 
 
 def judge_command(command, cwd):
@@ -449,7 +454,32 @@ def main():
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     global COMMAND_TEXT
     COMMAND_TEXT = command
+    interpreter_inline_git(command)
     judge_command(command, cwd)
+
+
+def interpreter_inline_git(command):
+    """Refuse an interpreter one-liner whose own -c/-e code string runs git with a risky
+    subcommand (KI-020). Quote-aware, so the code string is read whole even when it holds a
+    `;`; scoped to the code string, so a plain git command elsewhere on the line is untouched,
+    and a heredoc/stdin script (no -c string) is the documented blind spot."""
+    try:
+        toks = shlex.split(command, posix=True)
+    except ValueError:
+        return
+    code_flags = {"-c", "-e", "-W", "--eval", "--command"}
+    for idx, tok in enumerate(toks):
+        if os.path.basename(tok) not in INTERPRETERS:
+            continue
+        for j in range(idx + 1, len(toks)):
+            arg = toks[j]
+            code = None
+            if arg in code_flags and j + 1 < len(toks):
+                code = toks[j + 1]
+            elif arg[:2] in ("-c", "-e") and len(arg) > 2:
+                code = arg[2:]
+            if code and GIT_WORD.search(code) and RISKY.search(code):
+                block("an interpreter would run git (%s) from an inline string this hook cannot judge; call git directly, or write the script with the Write tool and run it by path" % RISKY.search(code).group(0))
     # The trailer scan is judged on the WHOLE command text, not per segment: a -m message may
     # contain newlines and segments() splits on those, so a per-segment scan would miss a trailer
     # sitting on its own line. The -F files are read per segment (check_git), so a -F belonging to

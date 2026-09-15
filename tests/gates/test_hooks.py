@@ -151,6 +151,11 @@ GIT_ROWS: list[tuple[str, int]] = [
     ('echo "git merge --ff-only feature"', 0),
     ("uv run pytest tests/gates/test_hooks.py -k merge", 0),
     ("uv run python tools/review_packet.py --desktop", 0),
+    # KI-020: the interpreter check is scoped to the interpreter's own -c code, so a plain git
+    # command elsewhere on the line, and a heredoc/stdin script, are not false positives
+    ("python3 - <<'PYEOF'\nprint('no git here')\nPYEOF\ngit add -A && git commit -q -m ok", 0),
+    ('python3 -c "print(1)"; git commit -m ok', 0),
+    ("node -e \"require('child_process').execSync('git commit --no-verify -m x')\"", 2),
 ]
 
 

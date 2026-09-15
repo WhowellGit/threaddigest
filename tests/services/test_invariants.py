@@ -319,6 +319,51 @@ def test_fts_membership_equals_live_flags_a_membership_mismatch(
     assert "posts" in violation.detail
 
 
+def test_fts_membership_equals_live_flags_an_equal_count_substitution(
+    run_context: runs.RunContext, add_source: Any, engine: Engine, now: int
+) -> None:
+    """KI-022 (external round one): swap one live row's index entry for a phantom, keeping the
+    count constant. The membership count still matches, so only the content check
+    (``integrity-check`` at ``rank = 1``) catches it. Search would return the phantom, not the
+    post, while the old count-only invariant reported nothing."""
+    source = add_source("premiere")
+    pk, title, selftext, author = _insert_bare_post(
+        engine,
+        reddit_id="p1",
+        subreddit_pk=source.pk,
+        created_utc=now - 10,
+        first_seen_at=now,
+        last_fetched_at=now,
+    )
+    with engine.begin() as conn:
+        # Remove the real entry with its exact values, then add a phantom: count unchanged.
+        conn.exec_driver_sql(
+            "INSERT INTO posts_fts(posts_fts, rowid, title, selftext, author) "
+            "VALUES ('delete', ?, ?, ?, ?)",
+            (pk, title, selftext, author),
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO posts_fts(rowid, title, selftext, author) "
+            "VALUES (?, 'phantomcanary', 'wrongbody', 'wrongauthor')",
+            (pk + 9000,),
+        )
+    with engine.connect() as conn:
+        # The count-only half is satisfied; the content check must still object.
+        from insightminer.db import fts as _fts
+
+        assert _fts.fts_membership_count(conn, "posts_fts") == 1
+        violation = invariants.fts_membership_equals_live(_inv_ctx(conn, run_context))
+        phantom = list(
+            conn.exec_driver_sql(
+                "SELECT rowid FROM posts_fts WHERE posts_fts MATCH 'phantomcanary'"
+            ).scalars()
+        )
+    assert violation is not None
+    assert violation.severity == invariants.Severity.WARNING
+    assert "does not match its content rows" in violation.detail
+    assert phantom == [pk + 9000]  # the substitution was real: search finds the phantom
+
+
 # --- rows_carry_current_normalizer_version (DB-48, unit half) ----------------------------
 
 
