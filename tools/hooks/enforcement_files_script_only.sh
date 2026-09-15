@@ -14,8 +14,13 @@
 #   pipeline segment that does must be `make ratchet-bump|ratchet-loosen`, an invocation
 #   of tools/ratchet.py, a read-only command (cat, grep, diff, ls, jq, ...), or a
 #   read-only or staging git subcommand (diff, show, log, status, blame, add, commit,
-#   ...). Redirects into a protected path, sed -i, tee, cp, mv, rm, python -c, git
-#   checkout/restore and everything else are blocked.
+#   ...). Redirects into a protected path, sed -i or sed's w command, tee, cp, mv, rm,
+#   python -c, git checkout/restore and everything else are blocked.
+# Indirection (KI-020, external round one, 2026-09-14): a command that assigns a variable and
+#   then writes through an expansion (a redirect target, a writing command's argument) is
+#   refused whenever the command names a fragment of a protected path anywhere, because the
+#   hook cannot resolve what the variable holds. A script file the agent writes and then runs
+#   is outside this hook's sight by design (docs/runbook/GUARDS.md, G23).
 set -euo pipefail
 trap 'echo "enforcement_files_script_only: internal error at: ${BASH_COMMAND}; failing closed" >&2; exit 2' ERR
 
@@ -36,6 +41,26 @@ PROTECTED_DIR = ".ratchets"
 PROTECTED_FILE = (".claude", "settings.json")
 REFERENCE = re.compile(r"\.ratchets(?![\w-])|\.claude/settings\.json")
 REDIRECT = re.compile(r">{1,2}\s*[\"']?[^\s\"'|;&]*(\.ratchets|\.claude/settings\.json)")
+# Indirection (KI-020, external round one, 2026-09-14): a protected path can reach a write
+# through a variable set earlier in the same command, whole or in pieces. When the command
+# holds a bare assignment AND names a fragment of a protected path anywhere, a write whose
+# target or argument is an expansion is refused: the hook cannot resolve it, so it fails closed.
+FRAGMENT = re.compile(r"ratch|settings|\.claude|hooks", re.IGNORECASE)
+EXPANSION = re.compile(r"\$[A-Za-z_{(]")
+
+
+def assigns(toks):
+    """True when the segment starts with an assignment (after wrappers), whatever follows: a
+    command substitution tokenizes as an assignment followed by a command, so this is the
+    test, never "no command word"."""
+    for tok in toks:
+        if os.path.basename(tok) in WRAPPERS:
+            continue
+        return ASSIGNMENT.match(tok) is not None
+    return False
+REDIRECT_TO_EXPANSION = re.compile(r">{1,2}\s*[\"']?\$")
+# sed's w / W commands and the s///w flag write a file without a redirect or -i.
+SED_WRITE = re.compile(r"(^|[;{}\s/])([wW])\s+(\S+)")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 WRAPPERS = {"command", "exec", "time", "nice", "nohup", "sudo", "env", "builtin"}
 FILE_TOOLS = {"Edit", "Write", "MultiEdit"}
@@ -116,6 +141,10 @@ def check_bash_segment(segment):
     if cmd in READ_ONLY:
         if cmd == "sed" and any(a.startswith("-i") or a == "--in-place" for a in args):
             block("sed -i on %s; only tools/ratchet.py writes there" % target)
+        for arg in args:
+            for written in (m.group(3) for m in SED_WRITE.finditer(arg)) if cmd == "sed" else ():
+                if REFERENCE.search(written) or written.startswith("$"):
+                    block("sed's w command writes %s; only tools/ratchet.py writes there" % target)
         if cmd in ("awk", "gawk") and "-i" in args:
             block("awk -i on %s; only tools/ratchet.py writes there" % target)
         return
@@ -152,8 +181,36 @@ def main():
     command = tool_input.get("command")
     if not isinstance(command, str) or not command.strip():
         return
-    for segment in segments(command):
+    segs = segments(command)
+    for segment in segs:
         check_bash_segment(segment)
+    check_indirection(segs, command)
+
+
+def check_indirection(segs, command):
+    """KI-020: a bare assignment plus a write through an expansion, in a command that names a
+    fragment of a protected path anywhere, is refused as unresolvable."""
+    if not FRAGMENT.search(command):
+        return
+    if not any(assigns(tokens(seg)) for seg in segs):
+        return
+    for seg in segs:
+        toks = tokens(seg)
+        idx = command_word(toks)
+        if idx is None or not EXPANSION.search(seg):
+            continue
+        cmd = os.path.basename(toks[idx])
+        writes = REDIRECT_TO_EXPANSION.search(seg) is not None
+        if not writes:
+            exempt = cmd in READ_ONLY or cmd in ("git", "make") or any(
+                tok.endswith("tools/ratchet.py") for tok in toks
+            )
+            writes = not exempt or (cmd == "sed" and any(SED_WRITE.search(a) for a in toks[idx + 1:]))
+        if writes:
+            block(
+                "%s writes through a shell variable set in this command, which names a protected "
+                "path fragment; spell the path out so the hook can judge it" % cmd
+            )
 
 
 main()

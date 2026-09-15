@@ -20,6 +20,16 @@
 #     on main is refused for the same reason. A `git switch main` or `git checkout main` earlier
 #     in the same command counts: the branch the merge lands on is the one the command will be
 #     on, not the one it started on (the principal-engineer seat's hole, 2026-09-14).
+#   git merge into main in any form but --ff-only (a merge commit on a diverged main, --no-ff,
+#     a strategy, a squash: the result would not be the stamped tree), and a --ff-only merge
+#     while main has commits the branch lacks (KI-019, external round one, 2026-09-14).
+#   Indirection (KI-020, same round): the command word given as a variable is resolved from
+#     assignments earlier in the command; a shell's -c string, eval and xargs are judged
+#     recursively; an unresolvable command word in a command that names git, an interpreter
+#     one-liner that names git with a risky subcommand, and GIT_CONFIG_* / GIT_DIR environment
+#     overrides are refused. A script file the agent writes and then runs is outside this
+#     hook's sight by design: the trust boundary against a deliberate bypass is pre-commit,
+#     CI, review and the remote's branch protection (docs/runbook/GUARDS.md, G23).
 #   git commit whose command text, or whose -F/--file message file, carries an attribution
 #     trailer (Wes's rule: a commit message ends at its last content line, and never names the
 #     model that wrote it). A message file that cannot be read, and -F - (message on stdin, which
@@ -44,9 +54,36 @@ def block(reason):
 
 
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-ENV_BYPASS = re.compile(r"^(SKIP|PRE_COMMIT_ALLOW_NO_CONFIG)=")
+# SKIP / PRE_COMMIT_ALLOW_NO_CONFIG bypass pre-commit; the GIT_CONFIG_* family, GIT_DIR and
+# GIT_WORK_TREE can point git at another configuration or repository, hooksPath included
+# (reviewer D's evidence file, 2026-09-14, KI-020).
+ENV_BYPASS = re.compile(
+    r"^(SKIP|PRE_COMMIT_ALLOW_NO_CONFIG|GIT_CONFIG(_COUNT|_KEY_\d+|_VALUE_\d+|_PARAMETERS|_GLOBAL|_SYSTEM|_NOSYSTEM)?"
+    r"|GIT_DIR|GIT_COMMON_DIR|GIT_WORK_TREE)="
+)
 SHORT_CLUSTER_WITH_N = re.compile(r"^-[A-Za-z]*n[A-Za-z]*$")
 WRAPPERS = {"command", "exec", "time", "nice", "nohup", "sudo", "env", "export", "builtin"}
+# Indirection (KI-020): a shell that runs a string, eval, xargs, and the command word given as
+# a variable are judged by what they resolve to; an interpreter or unknown command whose text
+# names git with a risky subcommand is refused, because the hook cannot see what it runs.
+SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+READ_ONLY = {
+    "cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "rg", "diff", "cmp",
+    "wc", "ls", "stat", "file", "md5", "md5sum", "shasum", "sha256sum", "sort", "uniq",
+    "jq", "yq", "bat", "find", "echo", "printf", "test", "[", "true", "od", "hexdump",
+    "xxd", "tr", "cut", "awk", "sed", "column", "nl", "tac", "rev", "realpath",
+    "readlink", "basename", "dirname", "du", "tree", "which", "type", "pwd", "date",
+}
+INTERPRETERS = {
+    "python", "python3", "python3.13", "perl", "ruby", "node", "php", "uv", "uvx", "pipx", "npx",
+    "deno", "osascript", "expect", "ssh",
+}
+SIMPLE_EXPANSION = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
+GIT_WORD = re.compile(r"(?<![./\w-])git(?![\w-])")
+RISKY = re.compile(r"\b(commit|push|merge|pull|config|rebase)\b|no-verify|hookspath", re.IGNORECASE)
+MERGE_REFUSED_OPTS = {"--no-ff", "--squash", "-s", "--strategy", "-X", "--strategy-option", "--no-commit"}
+ASSIGNED = {}  # variable -> value seen earlier in this command; None when it cannot be resolved
+COMMAND_TEXT = ""  # the whole tool call, for the fail-closed checks
 GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
 COMMIT_VALUE_OPTS = {
     "-m", "--message", "-F", "--file", "-C", "-c", "--reuse-message", "--reedit-message",
@@ -200,6 +237,14 @@ def check_merge_into_main(rest, cwd):
     if len(sources) != 1:
         block("git merge into main must name exactly one branch (got %d)" % len(sources))
     source = sources[0]
+    # KI-019: the stamp names the branch's tree, so the merge must land exactly that tree. Any
+    # other form (a merge commit on a diverged main, a strategy, a squash) produces a tree the
+    # check never saw.
+    for tok in rest:
+        if tok in MERGE_REFUSED_OPTS or tok.startswith(("--strategy=", "--strategy-option=")):
+            block("git merge %s into main is refused: the result would not be the stamped tree; use --ff-only" % tok)
+    if "--ff-only" not in rest:
+        block("git merge into main must be --ff-only, so main receives exactly the tree the check stamped")
     top = git_out(["rev-parse", "--show-toplevel"], cwd) or cwd
     try:
         with open(os.path.join(top, STAMP), encoding="utf-8") as handle:
@@ -210,6 +255,17 @@ def check_merge_into_main(rest, cwd):
     tree = git_out(["rev-parse", "--verify", "--quiet", source + "^{tree}"], cwd)
     if tree is None:
         block("cannot resolve %s to a tree; failing closed" % source)
+    try:
+        ancestry = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", "main", source],
+            cwd=cwd, capture_output=True, text=True, timeout=5,
+        ).returncode
+    except (OSError, subprocess.SubprocessError):
+        ancestry = -1
+    if ancestry == 1:
+        block("main has commits %s lacks, so this is not a fast-forward; bring the branch up to date, run make check, then merge" % source)
+    if ancestry != 0:
+        block("cannot tell whether main is an ancestor of %s; failing closed" % source)
     if tree != stamped:
         block("the green check stamp is for a different tree than %s; run make check on it before merging into main" % source)
 
@@ -293,7 +349,36 @@ def check_git(toks, cwd):
         check_push(rest, git_cwd)
 
 
-def check_segment(toks, cwd):
+def resolve_word(tok):
+    """The command word after variable resolution: the token itself, the value a simple
+    `$name` was assigned earlier in this command, or None when it cannot be resolved."""
+    if not tok.startswith("$"):
+        return tok
+    match = SIMPLE_EXPANSION.match(tok)
+    if match is None:
+        return None
+    return ASSIGNED.get(match.group(1))
+
+
+def string_after_dash_c(args):
+    """The string a shell's -c (or a cluster containing c, such as -ec) would run."""
+    for idx, tok in enumerate(args):
+        if tok.startswith("-") and not tok.startswith("--") and "c" in tok[1:] and idx + 1 < len(args):
+            return args[idx + 1]
+    return None
+
+
+def xargs_command(args):
+    """The command tokens xargs would run, after xargs' own options."""
+    with_value = {"-I", "-n", "-P", "-d", "-s", "-L", "-E", "-a", "--max-args", "--max-procs", "--delimiter"}
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 2 if args[i] in with_value else 1
+    return args[i:]
+
+
+def check_segment(toks, cwd, segment):
+    global ASSUMED_BRANCH
     for idx, tok in enumerate(toks):
         if os.path.basename(tok) == "pre-commit" and "uninstall" in toks[idx + 1:]:
             block("pre-commit uninstall removes the commit gate")
@@ -301,16 +386,54 @@ def check_segment(toks, cwd):
     while k < len(toks):
         tok = toks[k]
         if ASSIGNMENT.match(tok):
+            name, value = tok.split("=", 1)
             if ENV_BYPASS.match(tok):
-                block("%s bypasses pre-commit" % tok.split("=", 1)[0])
+                block("%s bypasses pre-commit or redirects git's configuration" % name)
+            if "hookspath" in tok.lower():
+                block("%s carries a hooksPath override" % name)
+            # A value holding an expansion or a substitution cannot be resolved here.
+            ASSIGNED[name] = None if ("$" in value or chr(96) in value) else value  # 96: backtick
             k += 1
             continue
         if os.path.basename(tok) in WRAPPERS:
             k += 1
             continue
         break
-    if k < len(toks) and os.path.basename(toks[k]) == "git":
-        check_git(toks[k:], cwd)
+    if k >= len(toks):
+        return
+    word = resolve_word(toks[k])
+    if word is None:
+        if GIT_WORD.search(COMMAND_TEXT):
+            block("the command word %s is a shell expansion this hook cannot resolve, in a command that names git; spell git out" % toks[k])
+        return
+    base = os.path.basename(word)
+    rest = toks[k + 1:]
+    if base == "git":
+        git_toks = [word, *rest]
+        check_git(git_toks, cwd)
+        landed = branch_switch(git_toks)
+        if landed is not None:
+            ASSUMED_BRANCH = landed
+    elif base in SHELLS:
+        inner = string_after_dash_c(rest)
+        if inner is not None:
+            judge_command(inner, cwd)
+    elif base == "eval":
+        judge_command(" ".join(rest), cwd)
+    elif base == "xargs":
+        inner = xargs_command(rest)
+        if inner:
+            check_segment(inner, cwd, " ".join(inner))
+    elif base in INTERPRETERS and GIT_WORD.search(COMMAND_TEXT) and RISKY.search(COMMAND_TEXT):
+        block("%s would run git (%s) from a string this hook cannot judge; call git directly, or write the script with the Write tool and run it by path" % (base, RISKY.search(COMMAND_TEXT).group(0)))
+
+
+def judge_command(command, cwd):
+    """Judge every segment of one command string; recursion point for -c strings and eval."""
+    for segment in segments(command):
+        toks = tokens(segment)
+        if toks:
+            check_segment(toks, cwd, segment)
 
 
 def main():
@@ -324,13 +447,9 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
-    global ASSUMED_BRANCH
-    for segment in segments(command):
-        toks = tokens(segment)
-        check_segment(toks, cwd)
-        landed = branch_switch(toks)
-        if landed is not None:
-            ASSUMED_BRANCH = landed
+    global COMMAND_TEXT
+    COMMAND_TEXT = command
+    judge_command(command, cwd)
     # The trailer scan is judged on the WHOLE command text, not per segment: a -m message may
     # contain newlines and segments() splits on those, so a per-segment scan would miss a trailer
     # sitting on its own line. The -F files are read per segment (check_git), so a -F belonging to

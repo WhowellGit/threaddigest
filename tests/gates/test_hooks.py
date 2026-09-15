@@ -118,6 +118,39 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("cd sub && git commit --no-verify -m 'msg'", 2),
     ("(git commit --no-verify -m 'msg')", 2),
     ("ls | git commit -n -F -", 2),
+    # KI-020 (external round one, 2026-09-14): indirection is resolved or refused
+    ('g=git; "$g" commit --no-verify -m unchecked', 2),
+    ('g=git; "$g" push origin HEAD:main', 2),
+    ('bash -c "git commit --no-verify -m unchecked"', 2),
+    ("sh -c 'git push origin HEAD:main'", 2),
+    ('eval "git commit --no-verify -m unchecked"', 2),
+    ("echo x | xargs git commit --no-verify -m", 2),
+    (
+        "python3 -c \"import subprocess; subprocess.run(['git','commit','--no-verify','-m','x'])\"",
+        2,
+    ),
+    (
+        'uv run python -c "import subprocess; subprocess.run('
+        "['git', 'push', 'origin', 'HEAD:main'])\"",
+        2,
+    ),
+    ('c=$(which git); "$c" commit -m ok', 2),  # unresolvable command word in a git command
+    (
+        "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath "
+        "GIT_CONFIG_VALUE_0=/dev/null git commit -m probe",
+        2,
+    ),
+    ("GIT_DIR=/tmp/other/.git git commit -m probe", 2),
+    ("GIT_CONFIG_GLOBAL=/tmp/cfg git commit -m probe", 2),
+    # KI-020 twins: resolution only bites when the resolved command is one this hook blocks
+    ('g=git; "$g" status', 0),
+    ('g=git; "$g" commit -m ok', 0),
+    ("bash -c 'git log --oneline -n 3'", 0),
+    ("cat tools/hooks/no_bypass_git.sh", 0),
+    ("grep -rn 'git commit' docs/", 0),
+    ('echo "git merge --ff-only feature"', 0),
+    ("uv run pytest tests/gates/test_hooks.py -k merge", 0),
+    ("uv run python tools/review_packet.py --desktop", 0),
 ]
 
 
@@ -276,6 +309,22 @@ BASH_ROWS: list[tuple[str, int]] = [
     ("cat .ratchets/coverage.txt; rm .ratchets/coverage.txt", 2),
     ("make clean .ratchets", 2),
     ('cat > "$CLAUDE_PROJECT_DIR/.ratchets/coverage.txt" <<EOF\nline_percent=1\nEOF', 2),
+    # KI-020 (external round one, 2026-09-14): a path reached through a variable, whole or in
+    # pieces, and sed's write command
+    ("target=.ratchets/coverage.txt; printf '0\\n' > \"$target\"", 2),
+    ("target=$(echo .ratchets/coverage.txt); printf '0\\n' > \"$target\"", 2),
+    ('d=.ratch; f="${d}ets/coverage.txt"; printf \'0\\n\' > "$f"', 2),
+    ('s=.claude/settings.json; cp /dev/null "$s"', 2),
+    ('cmd="printf 0 > .ratchets/coverage.txt"; bash -c "$cmd"', 2),
+    ("printf '0\\n' | sed -n 'w .ratchets/coverage.txt'", 2),
+    ("sed -n 's/1/0/w .ratchets/coverage.txt' /tmp/in", 2),
+    # KI-020 twins: a variable is fine when nothing writes through it, or nothing protected is named
+    ('f=.ratchets/coverage.txt; cat "$f"', 0),
+    ('h=tools/hooks/no_bypass_git.sh; cat "$h"', 0),
+    ('h=tools/hooks/no_bypass_git.sh; bash -n "$h"', 2),  # fail closed: bash could write
+    ('log=/tmp/check.log; make check > "$log"', 0),
+    ('f=docs/x.md; cp "$f" /tmp/', 0),
+    ("sed -n 'w /tmp/copy' .ratchets/coverage.txt", 0),
 ]
 
 
@@ -608,6 +657,34 @@ def test_merge_elsewhere_than_main_needs_no_stamp(project: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     proc = run_hook(NO_BYPASS, bash_payload("git pull", project), project)
     assert proc.returncode == 0, proc.stderr
+
+
+def test_merge_into_main_must_be_a_fast_forward(project: Path) -> None:
+    """KI-019 (external round one, 2026-09-14): the stamp names the branch's tree, so only a
+    fast-forward lands that tree. Every other form produced a tree the check never saw."""
+    tree = repo_with_feature(project)
+    write_stamp(project, tree)
+    for command in (
+        "git merge feature",
+        "git merge --no-ff feature",
+        "git merge -s ours feature",
+        "git merge --strategy=ours feature",
+        "git merge -X theirs feature",
+        "git merge --squash feature",
+        "git merge --no-commit --ff-only feature",
+    ):
+        refused = run_hook(NO_BYPASS, bash_payload(command, project), project)
+        assert refused.returncode == 2, (command, refused.stderr)
+        assert "--ff-only" in refused.stderr or "refused" in refused.stderr, refused.stderr
+    allowed = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert allowed.returncode == 0, allowed.stderr
+
+    # main moves on: the same stamped branch is no longer a fast-forward.
+    (project / "c.txt").write_text("main moved on\n", encoding="utf-8")
+    git_in(project, "add", "-A")
+    git_in(project, "commit", "-q", "-m", "main moved")
+    diverged = run_hook(NO_BYPASS, bash_payload("git merge --ff-only feature", project), project)
+    assert diverged.returncode == 2 and "not a fast-forward" in diverged.stderr, diverged.stderr
 
 
 def run_stamp(root: Path) -> subprocess.CompletedProcess[str]:
