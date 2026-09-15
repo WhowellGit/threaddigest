@@ -1,10 +1,15 @@
+---
+purpose: The system in ten minutes for a reader who will not read the plan; restates no numbers.
+update-policy: prune-stale
+mirrors: [docs/PLAN.md]
+verified-at: M1a-A
+---
 # Insight Miner in ten minutes
 
 > **Who this is for.** A reader who wants to understand what the system is, what it answers, how, and
 > what it deliberately does not do, without reading the plan. Every design fact here is stated in full
 > in `docs/PLAN.md`, which is canonical; this page points at its sections and restates no numbers.
-> **Update policy:** prune-stale, rewritten in place. What is built right now is on
-> `docs/recent/STATUS.md`.
+> Its policy is in its front matter. What is built right now is on `docs/recent/STATUS.md`.
 
 ## What it is
 

@@ -68,6 +68,14 @@ NO_LIVE_DIR = "memory: no live memory directory at {path}"
 #: One index entry: ``- [Title](file.md) — hook``.
 INDEX_LINK = re.compile(r"^\s*[-*]\s*\[[^\]]*\]\(([^)]+)\)")
 
+#: Memory routes; it does not restate (Wes, 2026-09-15). A topic file is capped so state that
+#: has a document home cannot accrete there, and a project memory must name at least one
+#: repository path that exists, because its job is to say where to look.
+TOPIC_MAX_BYTES = 2500
+REPO_PATH = re.compile(
+    r"`((?:docs|src|tools|tests|deploy|config|\.claude)/[^`\s]+|CLAUDE\.md|Makefile)`"
+)
+
 
 # --------------------------------------------------------------------------------------
 # locating things
@@ -235,7 +243,31 @@ def second_home_findings(memory_dir: Path, projects_root: Path) -> list[str]:
     return findings
 
 
-def check_memory(memory_dir: Path, projects_root: Path | None = None) -> tuple[list[str], str]:
+def routing_findings(memory_dir: Path, topics: list[str], repo_root: Path | None) -> list[str]:
+    """Over-cap topic files, and project memories that route to no existing repository path."""
+    findings: list[str] = []
+    for rel in topics:
+        path = memory_dir / rel
+        size = len(path.read_bytes())
+        if size > TOPIC_MAX_BYTES:
+            findings.append(
+                f"memory: over budget {rel}: {size} bytes (max {TOPIC_MAX_BYTES}); memory routes,"
+                " it does not restate state that has a document home"
+            )
+        fields = parse_frontmatter(path.read_text(encoding="utf-8")) or {}
+        if fields.get("metadata.type") == "project" and repo_root is not None:
+            named = REPO_PATH.findall(path.read_text(encoding="utf-8"))
+            if not any((repo_root / n.split("#", 1)[0]).exists() for n in named):
+                findings.append(
+                    f"memory: {rel}: a project memory names no repository path that exists"
+                    " (memory routes to documents; state lives in the tree)"
+                )
+    return findings
+
+
+def check_memory(
+    memory_dir: Path, projects_root: Path | None = None, repo_root: Path | None = None
+) -> tuple[list[str], str]:
     """Audit the live memory directory: one line per finding, plus a summary line."""
     findings: list[str] = []
     topics = [
@@ -270,6 +302,7 @@ def check_memory(memory_dir: Path, projects_root: Path | None = None) -> tuple[l
         for rel in topics
         if (problems := frontmatter_problems(memory_dir / rel))
     ]
+    findings += routing_findings(memory_dir, topics, repo_root)
     if projects_root is not None:
         findings += second_home_findings(memory_dir, projects_root)
     verdict = f"FAILED - {len(findings)} findings" if findings else "OK"
@@ -378,11 +411,11 @@ def print_plan(plan: Sync, label: str, add: str = "added", update: str = "update
 # --------------------------------------------------------------------------------------
 # subcommands
 # --------------------------------------------------------------------------------------
-def cmd_check(memory_dir: Path) -> int:
+def cmd_check(memory_dir: Path, repo_root: Path | None = None) -> int:
     if not memory_dir.is_dir():
         print(NO_LIVE_DIR.format(path=memory_dir))
         return 0
-    findings, summary = check_memory(memory_dir, projects_root_for(memory_dir))
+    findings, summary = check_memory(memory_dir, projects_root_for(memory_dir), repo_root)
     for finding in findings:
         print(finding)
     print(summary)
@@ -454,14 +487,15 @@ def build_parser(default_memory: Path, default_snapshot: Path) -> argparse.Argum
 
 
 def main(argv: list[str] | None = None) -> int:
-    memory_default, snapshot_default = default_paths(Path(__file__).resolve().parents[1])
+    tree = Path(__file__).resolve().parents[1]
+    memory_default, snapshot_default = default_paths(tree)
     parser = build_parser(memory_default, snapshot_default)
     args = parser.parse_args(argv)
     memory_dir = Path(str(args.memory_dir)).expanduser()
     snapshot_dir = Path(str(args.snapshot_dir)).expanduser()
     command = str(args.command)
     if command == "check":
-        return cmd_check(memory_dir)
+        return cmd_check(memory_dir, tree)
     if command == "export":
         return cmd_export(memory_dir, snapshot_dir)
     if command == "diff":

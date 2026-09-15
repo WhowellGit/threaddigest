@@ -1,3 +1,9 @@
+---
+purpose: The router from every spec item to the test that proves it, with layer, phase, priority, and status.
+update-policy: prune-stale
+mirrors: [docs/PLAN.md, docs/runbook/GUARDS.md, docs/runbook/KNOWN_ISSUES.md]
+verified-at: M1a-A
+---
 # Test strategy — v1 (2026-09-13)
 
 > A router, not a copy. Every spec below is specified in full (given/when/then, fixture, positive control) in one of the five raw panel reports under `docs/reference/reviews/2026-09-13-*.md`; the plan's `Testing strategy` and `Robustness` sections are canonical for policy. This file lists what exists, where it lives, its layer, phase, priority, and whether the adversarial review (`docs/reference/reviews/2026-09-13-adversarial-review.md`; its adoptions are in `docs/decisions/DECISIONS.md` § 3 and the 2026-09-13 entries) cut or altered it. Status vocabulary: `planned` (as specified by the panel), `changed` (kept with the alteration in the last column), `cut` (not built; reason given). Flip `planned` to `shipped` with the node id as tests land. Priority vocabularies are the panels' own: DB and ingest H/M/L; enforcement P1 (M0) / P2 (M1) / P3 (optional); UI P0 (blocks M2 operator-complete) / P1 / P2.

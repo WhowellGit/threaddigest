@@ -38,6 +38,10 @@ newline). Direction says which way a value may move without approval.
         file:line on every run. ``tests/gates/test_rules_name_their_enforcer.py`` is the
         gate: a row that neither resolves nor says "review" fails there, and this ceiling
         is what keeps the review-only count going down and never up.
+    docs.txt          dated_annotations      down  slack 0
+        read from .build/doc_policy.json, which tools/doc_policy.py writes: the dated
+        parenthetical annotations in prune-stale, rewritten, and versioned documents (an
+        accreting annotation count means a rewrite is due, never another annotation)
     code_health.txt   cognitive_over_15      down  slack 0
                       cyclomatic_over_15     down  slack 0
                       mi_below_a             down  slack 0
@@ -114,6 +118,7 @@ LEDGER_HEADER = "| Date | Key | From | To | Reason | PR |"
 LEDGER_SEPARATOR = "|---|---|---|---|---|---|"
 COVERAGE_JSON = Path(".build") / "coverage.json"
 CODE_HEALTH_JSON = Path(".build") / "code_health.json"
+DOC_POLICY_JSON = Path(".build") / "doc_policy.json"
 MAIN_REF_ENV = "RATCHET_MAIN_REF"
 DEFAULT_MAIN_REFS = ("main", "origin/main")
 
@@ -182,6 +187,7 @@ SPECS: tuple[Spec, ...] = (
     Spec("code_health", "dead_code", DOWN),
     Spec("code_health", "dead_code_whitelisted", DOWN),
     Spec("code_health", "duplicate_blocks", DOWN),
+    Spec("docs", "dated_annotations", DOWN),
 )
 FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
 
@@ -381,7 +387,34 @@ def measure_code_health(path: Path, hits: list[str]) -> dict[str, Number]:
     return values
 
 
-def measure(root: Path, coverage_json: Path, code_health_json: Path | None = None) -> Measurement:
+def measure_docs(path: Path, hits: list[str]) -> dict[str, Number]:
+    """The counts ``tools/doc_policy.py`` measured, with each dated annotation as a hit.
+
+    Like the code-health report: missing or partial is an error, never a zero.
+    """
+    if not path.is_file():
+        fail(f"ratchet: doc policy report {path} missing; run make doc-policy (make check does)")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        values: dict[str, Number] = {
+            spec.key: int(data["values"][spec.key]) for spec in specs_for("docs")
+        }
+    except (ValueError, KeyError, TypeError) as exc:
+        msg = f"ratchet: doc policy report {path} unreadable: {exc!r}"
+        raise SystemExit(msg) from exc
+    reported = data.get("hits", [])
+    if not isinstance(reported, list):
+        fail(f"ratchet: doc policy report {path} unreadable: hits is not a list")
+    hits.extend(f"{hit} [doc-policy]" for hit in reported)
+    return values
+
+
+def measure(
+    root: Path,
+    coverage_json: Path,
+    code_health_json: Path | None = None,
+    doc_policy_json: Path | None = None,
+) -> Measurement:
     notes: list[str] = []
     hits: list[str] = []
     counts = {"noqa": 0, "type_ignore": 0, "pragma_no_cover": 0, "filterwarnings_ignore": 0}
@@ -423,6 +456,7 @@ def measure(root: Path, coverage_json: Path, code_health_json: Path | None = Non
             "guards_without_control": measure_guards(root, hits, notes),
         },
         "code_health": measure_code_health(code_health_json or root / CODE_HEALTH_JSON, hits),
+        "docs": measure_docs(doc_policy_json or root / DOC_POLICY_JSON, hits),
     }
     return Measurement(values=values, hits=hits, notes=notes)
 
@@ -1144,6 +1178,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=f"default <root>/{CODE_HEALTH_JSON.as_posix()}",
     )
+    parser.add_argument(
+        "--doc-policy-json",
+        type=Path,
+        default=None,
+        help=f"default <root>/{DOC_POLICY_JSON.as_posix()}",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     measure_p = sub.add_parser("measure", help="print the measured values as JSON")
     measure_p.add_argument("--write", type=Path, default=None, help="also write the JSON here")
@@ -1164,7 +1204,8 @@ def main(argv: list[str] | None = None) -> int:
     root: Path = args.root.resolve()
     coverage_json: Path = args.coverage_json or root / COVERAGE_JSON
     code_health_json: Path = args.code_health_json or root / CODE_HEALTH_JSON
-    measurement = measure(root, coverage_json, code_health_json)
+    doc_policy_json: Path = args.doc_policy_json or root / DOC_POLICY_JSON
+    measurement = measure(root, coverage_json, code_health_json, doc_policy_json)
 
     if args.command == "measure":
         payload = json.dumps(measurement.to_json(), indent=2, sort_keys=True) + "\n"

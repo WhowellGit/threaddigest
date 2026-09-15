@@ -1,3 +1,8 @@
+---
+purpose: The documentation drift found in this corpus, each finding with a way to scan for it elsewhere.
+update-policy: append-only
+mirrors: []
+---
 # Documentation drift found in our own corpus on 2026-09-13, written as a scan list
 
 > **Purpose.** Wes asked for the stale references and drift found during the 2026-09-13 sweeps to be written up as a document he can take to his earlier system and scan it for the same problems. Each finding below says what we found, why it happened, how to look for it somewhere else, and what we did or plan to do about it here. Append-only; add dated findings at the end. `last-verified: 2026-09-13`.

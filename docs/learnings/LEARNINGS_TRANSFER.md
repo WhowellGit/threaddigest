@@ -1,3 +1,9 @@
+---
+purpose: What this project took from the earlier project, the predictions to score, and dated notes on how the method evolved.
+update-policy: append-only
+mirrors: []
+exempt-sections: ['## 5.']
+---
 # Learnings transfer: what Insight Miner took from the earlier project, and how to judge it later
 
 > **Update policy:** append dated sections; never rewrite an earlier judgement. The only prune-stale part is the *Outcome* column of the retrospective table in §5, filled in at each milestone. `last-verified: 2026-09-13`.
@@ -245,3 +251,7 @@ The refute pass on the finished rewrite then found what the inventory had not: t
 A third, smaller one: the harness page for this project is the earlier project's approach document with the failure designed out. Its content was the most valuable in that corpus and it was never opened again, so here the prose is short and the inventory of mechanisms is rendered from the tree and gated, which is the only way a document of that kind stays true.
 
 Prediction to score at the M1d retrospective: version two will need no dated inline annotation before M1d lands; if it does, the trigger for version three ("annotations accrete") was set too loosely and should be a count.
+
+### 2026-09-15 (evening): the writing side of the documents, mechanized
+
+Wes's diagnosis of the earlier corpus, given after the plan rewrite: the documents were maintained by his own requests rather than by a mechanism, agents appended where a targeted rewrite was due and stacked new text on superseded text, dated annotations accreted, and memory grew stale entries because every fix wanted a new memory. The reading side of this project's corpus was already mechanical (the router, the routing gates, the rule files, the read-before-touch hook); the writing side was still review. It now has a contract per document (purpose, update policy, mirrors, verification milestone), append-only held by the diff, an accretion ceiling in the ratchet files, a milestone lag that forces the heavy pass at boundaries, a dangling-reference check, a live-facts table as the forward direction of the retired-claims table, and a memory cap with a routing rule. The transferable lesson is the shape: **a document's policy is data the tools read, not a sentence in its header**, and the move for a changed fact is decided by that policy, never by what is easiest to type. The prediction to score at the M1d retrospective: the accretion count stays at or below today's measurement and no rewritten document lags a milestone, without Wes asking for a documentation pass.

@@ -63,6 +63,9 @@ that only goes down.
 | Every gate file and every `gate` marker id has a `docs/runbook/GUARDS.md` row; every commit hash cited in a document resolves; Active rows without a positive control are a ceiling | `tests/gates/test_known_issues_cite_collected_tests.py`; `.ratchets/review_only_rules.txt` |
 | One memory home; the committed snapshot is never behind live memory | `tools/memory_snapshot.py` `check` and `diff` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | The harness page's inventory of mechanisms is generated from the tree, never typed | `tools/harness_page.py` (`--check`, `--write`); `tests/gates/test_harness_page.py` |
+| Every living document under `docs/` declares its purpose, update policy, mirrors (existing, declared from both sides), and verification milestone; an append-only document never loses a line it had at the merge base with `main`, and a reference record is never edited; a rewritten document lags the status page's milestone by at most one and is never stamped ahead of it; a document path with a directory, named in a rewritten document, resolves | `tools/doc_policy.py --check` in `make check`; `tests/gates/test_doc_policy.py` |
+| A fact listed in the live-facts table has one home and one literal that every listed mirror states; dated annotations in the prose of rewritten documents are a ceiling that only goes down, a pressure the milestone pass reads (rewrite the section, do not annotate it) | the live-facts table in `docs/decisions/DECISIONS.md`, read by `tools/doc_policy.py`; `.ratchets/docs.txt` through `tools/ratchet.py` |
+| Memory routes to documents and never restates state that has a document home: a topic file is capped by bytes and a project memory names at least one existing repository path (that it routes rather than restates is review) | `tools/memory_snapshot.py` `check` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
 | Never edit a file a rule file governs without reading the documents it names first | `tools/hooks/read_before_touch.sh` (log-first; ledger `.build/hooks/read_before_touch.jsonl`, reviewed 2026-09-28; mode in `tools/hooks/read_before_touch.mode`); `tests/gates/test_hooks.py` |
 | Every commit on a review-required surface since 2026-09-15 has a review register row with a record | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md` |
@@ -87,6 +90,7 @@ that only goes down.
 | Fix a bug, or harden a resolution so it cannot regress | `.claude/skills/harden/SKILL.md` (the checklist), then `docs/runbook/KNOWN_ISSUES.md` and `docs/runbook/GUARDS.md` |
 | Add or change a harness mechanism (a hook, gate, ratchet, tool, rule file, skill), or explain the working method | `docs/INSIGHTMINER_HARNESS.md`, then `docs/runbook/GUARDS.md`; regenerate the inventory with `tools/harness_page.py` |
 | Explain the system, or read about it before the plan | `docs/OVERVIEW.md` |
+| Update the documents after a change, retire a document, or review memory | `.claude/skills/docs-sweep/SKILL.md` (the checklist), then `docs/runbook/RUNBOOK.md` § 8 |
 
 ## PR protocol
 
@@ -137,8 +141,14 @@ recommendation and a confidence level. Applies to chat, PR bodies, and document 
   A count, percentage, or date range an agent reports gets one spot-check against the data before it
   is written into a document. The operator is never the first to question a load-bearing claim.
 - **Every mirror in the same change.** A decision that changes a settled fact is not complete until
-  every document stating the old fact is annotated in the same PR, and the PR body names the
-  documents swept.
+  every document stating the old fact is corrected in the same PR, and the PR body names the
+  documents swept. The list to sweep is declared since 2026-09-15: the `mirrors` in a document's
+  front matter (checked to exist and to be declared from both sides), the live-facts table, and
+  the code defaults behind a configured value (KI-024). What is mechanical: the facts table's
+  literal in every mirror, the retired-claims scan, and the append-only diff; whether a mirror's
+  prose still agrees with its source is review, done through the `docs-sweep` skill. In a
+  rewritten document the move is a targeted rewrite of the affected section, never an appended
+  paragraph or a dated annotation; annotations belong in the append-only logs.
 - **Swept and clean.** A suspicion investigated and found not to be a bug is recorded in
   `docs/runbook/KNOWN_ISSUES.md` § Swept with how it was checked, so no later session re-investigates it.
 - **Partial findings early.** On work spanning more than one stage or touching a core surface

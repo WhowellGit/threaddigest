@@ -1,3 +1,9 @@
+---
+purpose: Every fixed bug with its root cause and the regression test that proves it, and every suspicion swept and found clean; rows are never deleted.
+update-policy: prune-stale
+mirrors: [docs/recent/STATUS.md, docs/TEST_STRATEGY.md, docs/runbook/GUARDS.md]
+verified-at: M1a-A
+---
 # Known issues — fixed bugs and their regression tests
 
 > Policy (plan § Reference corpus, working agreement): every bug fix starts with a failing test, and every fixed bug lands one row here pointing at that test. The `Regression test` column must resolve to a collected pytest node id; the doc-currency test checks it. Rows are never deleted; a regressed issue gets a new row citing the old id. Open issues that have no fix yet may be listed with status `open` and an empty test column until the failing test exists.

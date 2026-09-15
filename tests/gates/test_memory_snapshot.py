@@ -256,6 +256,36 @@ def test_check_is_green_on_a_clean_memory_directory(
 
 
 @pytest.mark.gate
+def test_check_reports_an_over_cap_topic_and_a_project_memory_that_routes_nowhere(
+    tmp_path: Path,
+) -> None:
+    """Wes, 2026-09-15: memory routes, it does not restate. A topic file over the byte cap and a
+    project memory that names no existing repository path are each their own finding."""
+    memory = live_memory(tmp_path)
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "docs" / "PLAN.md").write_text("# plan\n", encoding="utf-8")
+    (memory / "project-x.md").write_text(
+        topic("project-x", "project") + "state restated at length " * 200, encoding="utf-8"
+    )
+    (memory / "project-y.md").write_text(
+        topic("project-y", "project").replace("body", "see `docs/PLAN.md`"), encoding="utf-8"
+    )
+    (memory / INDEX).write_text(
+        (memory / INDEX).read_text(encoding="utf-8")
+        + "- [X](project-x.md) — x\n- [Y](project-y.md) — y\n",
+        encoding="utf-8",
+    )
+    findings, _ = ms.check_memory(memory, None, repo)
+    assert len(findings) == 2, findings
+    assert findings[0].startswith("memory: over budget project-x.md: ")
+    assert findings[1] == (
+        "memory: project-x.md: a project memory names no repository path that exists"
+        " (memory routes to documents; state lives in the tree)"
+    )
+
+
+@pytest.mark.gate
 def test_check_reports_unreachable_dangling_over_budget_and_broken_frontmatter(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -280,8 +310,11 @@ def test_check_reports_unreachable_dangling_over_budget_and_broken_frontmatter(
         f"memory: unreachable project-orphan.md (no {INDEX} line links it)",
         'memory: frontmatter feedback-style.md: metadata.type "bogus" not in '
         "{feedback, project, reference, user}",
+        # since 2026-09-15: a project memory must route to a repository path that exists
+        "memory: project-orphan.md: a project memory names no repository path that exists"
+        " (memory routes to documents; state lives in the tree)",
     ]
-    assert findings[-1].startswith("memory: check FAILED - 4 findings; 3 topic files, 3 index")
+    assert findings[-1].startswith("memory: check FAILED - 5 findings; 3 topic files, 3 index")
 
 
 @pytest.mark.gate

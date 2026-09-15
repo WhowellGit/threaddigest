@@ -1,3 +1,8 @@
+---
+purpose: The ranked adoption of the earlier project's database lessons, with what was declined and why.
+update-policy: append-only
+mirrors: [docs/PLAN.md, docs/runbook/GUARDS.md]
+---
 # Database learnings applied — 2026-09-12 (ranked)
 
 > What changed in the Insight Miner plan after reading the earlier project's retrospectives, ranked by how much each item deserves to drive our work. Append dated sections below as the implementation evolves; do not rewrite history.

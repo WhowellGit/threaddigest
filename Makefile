@@ -14,6 +14,7 @@ BUILD_DIR := .build
 SUMMARY := $(BUILD_DIR)/check-summary.json
 RATCHET := $(UV) run python tools/ratchet.py
 CODE_HEALTH := $(BUILD_DIR)/code_health.json
+DOC_POLICY := $(BUILD_DIR)/doc_policy.json
 
 .PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html \
         memory-check memory-export code-health
@@ -64,6 +65,7 @@ check: | $(BUILD_DIR)
 	$(UV) run lint-imports
 	$(UV) run pytest -m "$(MARKEXPR)" --cov --cov-report=term --cov-report=json:$(BUILD_DIR)/coverage.json -p no:cacheprovider
 	$(UV) run python tools/code_health.py --write $(CODE_HEALTH)
+	$(UV) run python tools/doc_policy.py --write $(DOC_POLICY) --check
 	$(RATCHET) measure --write $(SUMMARY)
 	$(RATCHET) compare
 	@echo "<!-- make-check-summary:begin -->"
@@ -92,10 +94,22 @@ memory-export:
 code-health: | $(BUILD_DIR)
 	$(UV) run python tools/code_health.py --write $(CODE_HEALTH)
 
-ratchet-bump: code-health
+# Document contracts (Wes, 2026-09-15): purpose, update policy, mirrors, milestone stamp, the
+# append-only diff, dangling document references, the live-facts table, and the accretion count
+# the docs ratchet reads. bump and loosen depend on it like they depend on code-health.
+doc-policy: | $(BUILD_DIR)
+	$(UV) run python tools/doc_policy.py --write $(DOC_POLICY) --check
+
+# ruff's autofixes and the formatter on the tree: run before tests so a new file never fails
+# the check on an import order or a long line.
+lint-fix:
+	$(UV) run ruff check --fix src tests tools
+	$(UV) run ruff format src tests tools
+
+ratchet-bump: code-health doc-policy
 	$(RATCHET) bump
 
-ratchet-loosen: code-health
+ratchet-loosen: code-health doc-policy
 	@if [ -z "$(KEY)" ] || [ -z "$(REASON)" ]; then \
 	  echo 'usage: make ratchet-loosen KEY=<key> REASON="<why>"' >&2; exit 2; fi
 	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)" $(if $(HARD_AFTER),HARD_AFTER=$(HARD_AFTER),)

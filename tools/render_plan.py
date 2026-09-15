@@ -123,9 +123,13 @@ def take_heading(m: re.Match[str], doc: Doc) -> None:
         doc.toc.append((level, sid, re.sub(r"[`*]", "", text)))
 
 
+FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
 def render(src: str) -> Doc:
-    """Walk the markdown once, dispatching each block type to a small handler."""
-    lines = src.splitlines()
+    """Walk the markdown once, dispatching each block type to a small handler. The document
+    contract's front matter (2026-09-15) is metadata for the gates, not part of the page."""
+    lines = FRONT_MATTER.sub("", src, count=1).splitlines()
     doc = Doc()
     i = 0
     while i < len(lines):

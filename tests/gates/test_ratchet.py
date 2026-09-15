@@ -91,6 +91,7 @@ EXPECTED = {
         "dead_code_whitelisted": 0,
         "duplicate_blocks": 0,
     },
+    "docs": {"dated_annotations": 0},
 }
 
 
@@ -111,6 +112,16 @@ def write_code_health(root: Path, values: dict[str, int], hits: list[str] | None
     )
 
 
+def write_doc_policy(root: Path, count: int, hits: list[str] | None = None) -> None:
+    """The report tools/doc_policy.py would write; the ratchet reads it like code_health.json."""
+    build = root / ".build"
+    build.mkdir(exist_ok=True)
+    (build / "doc_policy.json").write_text(
+        json.dumps({"values": {"dated_annotations": count}, "hits": hits or [], "problems": {}}),
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "proj"
@@ -121,6 +132,7 @@ def project(tmp_path: Path) -> Path:
     (root / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
     write_coverage(root, 80.0)
     write_code_health(root, dict(EXPECTED["code_health"]))
+    write_doc_policy(root, 0)
     return root
 
 
@@ -495,6 +507,23 @@ def test_compare_is_red_when_a_code_health_count_rises(project: Path) -> None:
         "HIT       cognitive_over_15 src/pkg/mod.py tangled cognitive 16 [code-health]"
         in proc.stdout
     )
+
+
+def test_compare_is_red_when_dated_annotations_accrete(project: Path) -> None:
+    """Wes, 2026-09-15: an accreting count of dated annotations in a rewritten document means a
+    targeted rewrite is due, never another annotation; the ceiling only goes down."""
+    assert ratchet(project, "bump").returncode == 0
+    assert read(project, "docs") == "dated_annotations=0\n"
+    write_doc_policy(project, 2, ["dated_annotation docs/PLAN.md:12 (corrected 2026-09-13)"])
+    proc = ratchet(project, "compare", "--main-ref", "none")
+    assert proc.returncode == 1, proc.stdout
+    assert "RED       docs.dated_annotations" in proc.stdout
+    assert "HIT       dated_annotation docs/PLAN.md:12 (corrected 2026-09-13) [doc-policy]" in (
+        proc.stdout
+    )
+    (project / ".build" / "doc_policy.json").unlink()
+    proc = ratchet(project, "measure")
+    assert proc.returncode == 1 and "doc policy report" in proc.stderr
 
 
 def test_measure_fails_without_the_code_health_report(project: Path) -> None:

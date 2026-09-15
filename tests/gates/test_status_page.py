@@ -50,10 +50,14 @@ def head_date(root: Path) -> dt.date:
     return dt.date.fromisoformat(out)
 
 
+FRONT_MATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+
+
 def problems(text: str, head: dt.date) -> list[str]:
-    """Every way the page fails its contract, one line each."""
+    """Every way the page fails its contract, one line each. The document contract's front
+    matter (2026-09-15) sits above the title and is not part of the page's body."""
     found: list[str] = []
-    lines = text.splitlines()
+    lines = FRONT_MATTER.sub("", text, count=1).splitlines()
     if len(lines) > MAX_LINES:
         found.append(f"{len(lines)} lines; the cap is {MAX_LINES}")
     body = [line for line in lines[1:] if line.strip()]
