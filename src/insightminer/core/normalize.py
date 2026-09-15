@@ -180,14 +180,22 @@ def canonicalize(raw: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _strip_crosspost_parents(data: dict[str, Any]) -> dict[str, Any]:
-    """Reduce each crosspost parent record to its pointer, in place; a non-list value or a
-    non-mapping entry is left for the normalizer to reject by type."""
+    """Reduce each crosspost parent record to its pointer, in place.
+
+    A non-mapping entry (a list-in-list or any other shape drift) is reduced to an empty
+    pointer, never passed through: this is the canonical dict stored as ``raw_json``, and a
+    non-mapping entry could otherwise carry the parent's text/author verbatim into the store
+    of an unmonitored, never-reconciled post (KI-016, external round one panel 2026-09-15; the
+    earlier "left for the normalizer to reject" comment was false -- ``_crosspost_parent`` only
+    inspects entry 0 and would silently fall through, storing the rest). A non-list value is
+    left as is for the normalizer to reject by type.
+    """
     parents = data.get("crosspost_parent_list")
     if isinstance(parents, list):
         data["crosspost_parent_list"] = [
             {"id": parent.get("id"), "subreddit": parent.get("subreddit")}
             if isinstance(parent, Mapping)
-            else parent
+            else {"id": None, "subreddit": None}
             for parent in parents
         ]
     return data

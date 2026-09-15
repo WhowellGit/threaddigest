@@ -57,7 +57,17 @@ class _Tree:
         """Reveal up to ``limit`` new comment instances from ``stub``, its direct children in
         order (each child's whole subtree counts toward the limit, as Reddit counts revealed
         instances). If children remain hidden, a replacement stub for them is added and
-        returned, so the next request continues where this one stopped (KI-023)."""
+        returned, so the next request continues where this one stopped (KI-023).
+
+        **Known fidelity limit (external round one panel, 2026-09-15).** Chunking is at
+        direct-child granularity, so a *single* child whose own subtree exceeds ``limit`` is
+        still revealed whole in one request -- the fake cannot partially reveal a cascading
+        subtree, because un-hiding a comment makes its already-un-hidden descendants visible.
+        A real ``morechildren`` would need several requests for that child. This matters only
+        for a comment with a very large reply thread and is pinned by
+        ``test_a_single_more_child_with_a_large_subtree_is_revealed_whole`` so it is a documented
+        gap, not a silent one; the real chunking is validated on the probe day before M1b.
+        """
         self.expanded.append(stub)
         revealed = 0
         leftover: list[str] = []

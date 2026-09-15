@@ -390,28 +390,33 @@ def check_last_run_age(conn: Connection, *, now: int, max_age_seconds: int) -> C
 
 
 def check_enabled_sources(conn: Connection) -> Check:
-    """At least one source is enabled, so a run has something to collect (KI-017).
+    """At least one source is enabled AND collectable, so a run has something to collect (KI-017).
 
-    A collector whose every source has been disabled (quarantine, a redirect, a hand edit)
+    A collector whose every source has been disabled (quarantine, a redirect, a hand edit) or
+    left enabled but permanently failing (a private ``forbidden`` or gone ``not_found`` source)
     closes each run ``partial`` from the sweep's warning, but ``partial`` never notifies and
-    ``last_run_age`` stays green, so this is the check that turns the hourly ``doctor`` red.
-    No source configured at all is a WARNING, like "no successful run yet": a fresh install
-    is not an incident.
+    ``last_run_age`` stays green for up to its alert window, so this is the check that turns the
+    hourly ``doctor`` red immediately. Counting only the ``enabled`` flag missed the
+    all-forbidden-but-enabled case (external round one panel, 2026-09-15); it now counts
+    *collectable* sources. No source configured at all is a WARNING, like "no successful run
+    yet": a fresh install is not an incident.
     """
     name = "enabled_sources"
-    configured, enabled = repo.source_counts(conn, repo.default_workspace_pk(conn))
+    configured, enabled, collectable = repo.source_counts(conn, repo.default_workspace_pk(conn))
     if configured == 0:
         return Check(
             name=name, ok=False, detail="no source configured yet", severity=CheckSeverity.WARNING
         )
-    return Check(
-        name=name,
-        ok=enabled > 0,
-        detail=f"{enabled} of {configured} sources enabled"
-        if enabled
-        else f"every one of {configured} sources is disabled; runs collect nothing",
-        severity=CheckSeverity.ERROR,
-    )
+    if collectable > 0:
+        detail = f"{collectable} of {configured} sources enabled and collectable"
+    elif enabled > 0:
+        detail = (
+            f"all {enabled} enabled sources are private or gone (forbidden/not_found); "
+            "runs collect nothing"
+        )
+    else:
+        detail = f"every one of {configured} sources is disabled; runs collect nothing"
+    return Check(name=name, ok=collectable > 0, detail=detail, severity=CheckSeverity.ERROR)
 
 
 def check_lock_not_stale(

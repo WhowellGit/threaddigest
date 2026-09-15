@@ -391,6 +391,26 @@ def test_a_rejected_crosspost_keeps_no_parent_text_either() -> None:
     assert reject.raw["crosspost_parent_list"] == [{"id": "zzz111", "subreddit": "premiere"}]
 
 
+def test_a_non_mapping_crosspost_parent_entry_keeps_no_parent_text() -> None:
+    """KI-016 shape drift (external round one panel, 2026-09-15): a list entry that is not a
+    mapping (a list-in-list, say) was passed through verbatim, carrying the parent's text and
+    author into `raw_json`. It is now reduced to an empty pointer like any other entry."""
+    raw = load("post_self.json")
+    raw["crosspost_parent_list"] = [
+        [
+            {
+                "id": "zzz111",
+                "subreddit": "premiere",
+                "selftext": "parent-body-zq7",
+                "author": "victim",
+            }
+        ]
+    ]
+    out = canonicalize(raw)
+    assert out["crosspost_parent_list"] == [{"id": None, "subreddit": None}]
+    assert "zq7" not in repr(out) and "victim" not in repr(out)
+
+
 def test_crosspost_parent_list_of_wrong_shape_rejects() -> None:
     raw = load("post_link.json")
     raw["crosspost_parent_list"] = "t3_zzz111"

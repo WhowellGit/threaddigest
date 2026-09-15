@@ -613,6 +613,27 @@ class TestTree:
         assert len(full.comments) == 202
         assert full.requests_used == 4  # base + ceil(201/100) = 3 expansions
 
+    def test_a_single_more_child_with_a_large_subtree_is_revealed_whole(
+        self, fake: FakeRedditGateway
+    ) -> None:
+        """KI-023 known fidelity limit (external round one panel, 2026-09-15): chunking is at
+        direct-child granularity, so one `more` child whose OWN subtree exceeds 100 is revealed
+        whole in a single request -- the fake cannot split a cascading subtree. Reddit would need
+        several requests. This is pinned so the gap is documented, not silent, and is validated
+        against the real adapter on the probe day before M1b."""
+        post = fake.add_post("premiere", title="deep thread", created_utc=T)
+        root = fake.add_comment(post, body="root", author="u", created_utc=T)
+        for i in range(150):  # 150 replies to a single root comment: subtree size 151
+            fake.add_comment(post, body=f"r{i}", author="u", parent=root, created_utc=T + i + 1)
+        fake.add_more(post, None, 151, [root])  # one stub, one child, a 151-instance subtree
+
+        result = fake.fetch_tree(post, more_limit=16)
+
+        assert result.complete is True
+        assert len(result.comments) == 151  # the whole subtree came back...
+        assert result.requests_used == 2  # ...in ONE expansion, though Reddit needs ceil(151/100)=2
+        assert result.more == []
+
     def test_tree_clamp_turns_the_tail_into_stubs(self, fake: FakeRedditGateway) -> None:
         ids = tree_scenario(fake)
         fake.set_tree_clamp(2)

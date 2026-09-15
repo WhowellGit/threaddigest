@@ -258,8 +258,13 @@ def restore(backup: Path, destination: Path) -> None:
     missing or unreadable backup, a full disk), and nothing live is touched until it has
     succeeded: a crash-left ``-wal`` holds committed transactions the next open would have
     recovered, and the earlier order deleted it before copying, so a failed restore lost
-    them. The sidecar removal and the swap then run back to back; the window between them is
-    accepted, being microseconds against a copy that can take minutes.
+    them. After the copy, the sidecar removal and the swap run in sequence; ``_durable_replace``
+    fsyncs the copied file before the rename, so a crash can still fall between removing the
+    destination's own old ``-wal`` and completing the swap. That is acceptable: a restore
+    intends to replace the destination database, so its old ``-wal`` is being discarded anyway,
+    and the crash is recoverable -- both the backup file and the already-fsynced ``.restoring``
+    staging file survive, so re-running the restore completes it (external round one panel,
+    2026-09-15, correcting an earlier "microseconds" characterization).
     """
     staging = destination.with_name(destination.name + ".restoring")
     _remove_file_and_sidecars(staging)

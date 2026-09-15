@@ -57,7 +57,13 @@ REDDIT_REMOVAL_CATEGORIES: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Number of consecutive ``info()`` misses at which an item is declared ``gone``.
+#: Number of ``info()`` omissions at which an item is declared ``gone``. The omissions need
+#: not be strictly consecutive: a bodyless-but-returned observation between two omissions is a
+#: hold that leaves the counter untouched (rules 5/7), so it neither resets nor advances the
+#: count, and the two omissions still escalate. This is the safe direction -- an item Reddit
+#: has stopped returning is treated as gone -- and is pinned by
+#: ``test_two_omissions_around_a_bodyless_return_still_reach_gone`` (external round one panel,
+#: 2026-09-15, clarifying the earlier "consecutive" wording).
 GONE_AT_MISSES: Final = 2
 
 #: States whose content must be purged from the store (a compliance obligation).

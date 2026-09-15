@@ -562,6 +562,20 @@ def test_a_bodyless_return_then_one_omission_is_still_an_unconfirmed_hold() -> N
     assert second == Decision(GONE, KNOWN, True, 2)
 
 
+def test_two_omissions_around_a_bodyless_return_still_reach_gone() -> None:
+    """KI-021 clarification (external round one panel, 2026-09-15): the two `info()` omissions
+    need not be strictly consecutive. A bodyless-but-returned observation between them is a hold
+    that leaves the miss counter untouched, so `[omit, bodyless-return, omit]` still reaches
+    `gone` and scrubs -- the safe direction (an item Reddit stopped returning is gone), and the
+    behavior the docstring now documents rather than the literal "consecutive" it once implied."""
+    first = decide(LIVE, KNOWN, ABSENT, 0)
+    assert first == Decision(UNC, KNOWN, False, 1)  # omission: one miss
+    held = decide(first.content_state, first.author_state, obs(body=None, info=True), first.misses)
+    assert held == Decision(UNC, KNOWN, False, 1)  # bodyless return: hold, miss count unchanged
+    third = decide(held.content_state, held.author_state, ABSENT, held.misses)
+    assert third == Decision(GONE, KNOWN, True, 2)  # second omission escalates and scrubs
+
+
 @settings(max_examples=300)
 @given(priors.filter(lambda s: s is not DEL), authors, miss_counts)
 def test_deleted_markers_are_terminal_from_any_prior(

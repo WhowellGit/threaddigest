@@ -888,8 +888,20 @@ def enabled_subreddits(conn: Connection, workspace_pk: int) -> list[SubredditRow
     return [_subreddit_row(row) for row in rows]
 
 
-def source_counts(conn: Connection, workspace_pk: int) -> tuple[int, int]:
-    """``(configured, enabled)`` sources of the workspace, for ``doctor`` (KI-017)."""
+#: Statuses of an enabled source that will never yield data until an operator acts: a private
+#: (forbidden) or missing (not_found) subreddit is swept every run and fails every time. A
+#: source in one of these is enabled but not *collectable*; ``ok`` and the transient ``error``
+#: are collectable (external round one panel, 2026-09-15, KI-017 forbidden-enabled gap).
+UNCOLLECTABLE_STATUSES: Final[frozenset[str]] = frozenset({"forbidden", "not_found"})
+
+
+def source_counts(conn: Connection, workspace_pk: int) -> tuple[int, int, int]:
+    """``(configured, enabled, collectable)`` sources of the workspace, for ``doctor`` (KI-017).
+
+    ``collectable`` counts enabled sources whose status is not one a run can never collect
+    from (``forbidden`` / ``not_found``), so a workspace whose every enabled source is private
+    or gone is caught even though ``enabled > 0``.
+    """
     subreddits = _table("subreddits")
     total = conn.execute(
         select(func.count())
@@ -901,7 +913,16 @@ def source_counts(conn: Connection, workspace_pk: int) -> tuple[int, int]:
         .select_from(subreddits)
         .where(subreddits.c.workspace_pk == workspace_pk, subreddits.c.enabled.is_(True))
     ).scalar_one()
-    return int(total), int(enabled)
+    collectable = conn.execute(
+        select(func.count())
+        .select_from(subreddits)
+        .where(
+            subreddits.c.workspace_pk == workspace_pk,
+            subreddits.c.enabled.is_(True),
+            subreddits.c.status.notin_(tuple(UNCOLLECTABLE_STATUSES)),
+        )
+    ).scalar_one()
+    return int(total), int(enabled), int(collectable)
 
 
 def all_sources_for_freshness(conn: Connection, workspace_pk: int) -> list[SubredditRow]:

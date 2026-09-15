@@ -504,6 +504,31 @@ def test_check_enabled_sources_is_an_error_when_every_source_is_disabled(
     assert "every one of 2 sources is disabled" in check.detail
 
 
+def test_check_enabled_sources_is_an_error_when_every_enabled_source_is_forbidden(
+    engine: Engine, now: int
+) -> None:
+    """KI-017 forbidden-enabled gap (external round one panel, 2026-09-15): a private
+    (`forbidden`) or gone (`not_found`) source never auto-disables (`disable_at=None`), so it
+    stays `enabled=True` while collecting nothing. Counting only the enabled flag stayed green;
+    the check now counts collectable sources and goes red immediately, not after the stale
+    window."""
+    subreddits = sa.Table("subreddits", sa.MetaData(), autoload_with=engine)
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn,
+            workspace_pk=repo.default_workspace_pk(conn),
+            names=["premiere", "editors"],
+            now=now,
+        )
+        conn.execute(
+            sa.update(subreddits).values(status="forbidden")
+        )  # enabled, but never collects
+    with engine.connect() as conn:
+        check = doctor.check_enabled_sources(conn)
+    assert not check.ok and check.severity is doctor.CheckSeverity.ERROR
+    assert "private or gone" in check.detail
+
+
 # --- no_stale_running_rows: WARNING, the reader-side mirror of §12.2 ---------------------------
 
 
