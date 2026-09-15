@@ -19,6 +19,12 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 DEFAULT_CAP = 1000
+#: The listing page size Reddit serves (``ports.RedditGateway.iter_new_pages``).
+LISTING_PAGE_SIZE = 100
+#: Pages after which an end of listing is indistinguishable from the cap (KI-018): Reddit's
+#: cap counts underlying positions, removed items it no longer shows included, so a capped
+#: listing can end with fewer than ``DEFAULT_CAP`` delivered slots and a null cursor.
+CAP_PAGES = DEFAULT_CAP // LISTING_PAGE_SIZE
 
 
 class StopReason(StrEnum):

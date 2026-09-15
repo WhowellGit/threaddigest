@@ -385,3 +385,43 @@ def test_the_wall_clock_ceiling_stops_the_subreddit_without_a_stop_reason(
     rows = run_subreddit_rows(run_context.run_pk, source.pk)
     assert len(rows) == 1
     assert rows[0]["stop_reason"] is None
+
+
+# --- KI-018 (external round one): an end of listing on the tenth page is the cap --------------
+
+
+def _capped_listing_with_removed_slots(fake: Any, *, total: int, removed: range) -> None:
+    """``total`` posts, newest first; the newest thousand are reachable and ``removed`` of those
+    are moderator-removed, so Reddit's cap is consumed by slots the listing never shows."""
+    fake.add_subreddit("premiere")
+    for i in range(total):
+        extra = {"removed_by_category": "moderator"} if i in removed else {}
+        fake.add_post("premiere", title=f"post {i}", created_utc=BASE + i * 60, **extra)
+
+
+def test_a_listing_ending_at_the_cap_with_filtered_slots_is_a_cap_stop_not_exhausted(
+    fake: Any, add_source: Any, run_context: Any, notifier: Any, subreddit_row: Any
+) -> None:
+    _capped_listing_with_removed_slots(fake, total=1050, removed=range(500, 600))
+    source = add_source("premiere", watermark_created_utc=BASE + 10 * 60)  # far behind
+
+    result = sweep.sweep_subreddit(run_context, source, gateway=fake, notifier=notifier)
+
+    after = subreddit_row(source.pk)
+    assert result.stop_reason is StopReason.CAP
+    assert result.items_seen < 1000 and result.pages == 10
+    assert after.last_complete_poll_at is None  # coverage not proven over a truncated window
+    assert after.gap_suspected_at is not None
+
+
+def test_a_listing_ending_before_its_tenth_page_is_still_exhausted(
+    fake: Any, add_source: Any, run_context: Any, notifier: Any, subreddit_row: Any
+) -> None:
+    """The control: nine pages cannot be the cap, so the end is a real end."""
+    _capped_listing_with_removed_slots(fake, total=850, removed=range(300, 400))
+    source = add_source("premiere", watermark_created_utc=BASE + 10 * 60)
+
+    result = sweep.sweep_subreddit(run_context, source, gateway=fake, notifier=notifier)
+
+    assert result.stop_reason is StopReason.EXHAUSTED and result.pages == 9
+    assert subreddit_row(source.pk).last_complete_poll_at is not None

@@ -44,6 +44,7 @@ from insightminer.core.milestones import next_check
 from insightminer.core.models import PostRow, Reject, count_unknown
 from insightminer.core.normalize import canonicalize, normalize_post
 from insightminer.core.paging import (
+    CAP_PAGES,
     DEFAULT_CAP,
     PageItem,
     StopReason,
@@ -465,7 +466,10 @@ def _page_loop(
             stop_reason = StopReason.CAP
             break
         if page.complete or page.after is None:  # route 2: the port
-            stop_reason = StopReason.EXHAUSTED
+            # KI-018: an end of listing on the tenth full page is indistinguishable from the
+            # cap, because Reddit's cap counts removed slots it no longer shows; recorded
+            # `cap`, which proves coverage only once the watermark was reached.
+            stop_reason = StopReason.CAP if pages >= CAP_PAGES else StopReason.EXHAUSTED
             break
         if page.after == cursor:  # fail-closed guard 2
             # `stop_reason` is left NULL exactly as guard 1 leaves it: a gateway whose cursor
@@ -694,7 +698,8 @@ def _coverage_proven(stop_reason: StopReason, source: repo.SubredditRow, *, gap:
     """Did THIS sweep prove it reached known territory, i.e. may ``last_complete_poll_at`` be
     stamped? (§6.5, round-5 P1-4.)
 
-    ``EXHAUSTED`` always did -- including an empty or sticky-only listing, where coverage of
+    ``EXHAUSTED`` always did (a listing that ended before its tenth page, KI-018) -- including
+    an empty or sticky-only listing, where coverage of
     nothing is still complete coverage. ``CAP`` did only when there WAS known territory to
     reach (``watermark_created_utc IS NOT NULL``) and the window reached it (``not gap``): a
     FIRST capped sweep proves nothing, because ``core.paging.gap_suspected`` returns False for
