@@ -161,6 +161,12 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("git commit --no-verify -m x  # oops", 2),
     ("git commit -m ok  # fine", 0),
     ("git push origin HEAD:main  # sneaky", 2),
+    # a shell redirection is not a command argument: it must not inflate a count or hide a
+    # bypass (the harness appends `2>&1 | tail` to many calls)
+    ("git commit -m ok 2>&1 | tail -1", 0),
+    ("git commit --no-verify -m x 2>&1 | tail -1", 2),
+    ("git push origin HEAD:main 2>&1", 2),
+    ("git commit -m ok > /tmp/out.log", 0),
 ]
 
 

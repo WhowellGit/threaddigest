@@ -100,15 +100,38 @@ def segments(command):
     return [seg for seg in re.split(r"\|\||&&|;|\||\n", command) if seg.strip()]
 
 
+#: A shell redirection token: `2>&1`, `>file`, `>>`, `<in`, `&>log`, `2>`. These are not
+#: command arguments, so leaving them in would let a redirect after a git command (the harness
+#: appends `2>&1 | tail` to many calls) count as, say, a second merge source.
+REDIRECT_TOKEN = re.compile(r"^(?:\d*[<>]{1,2}(?:&\d*)?|&>{1,2})")
+_BARE_REDIRECT = re.compile(r"^(?:\d*[<>]{1,2}|&>{1,2})$")
+
+
+def _without_redirects(toks):
+    """Drop redirection tokens and the target filename of any bare operator (`> file`)."""
+    out = []
+    skip_next = False
+    for tok in toks:
+        if skip_next:
+            skip_next = False
+            continue
+        if REDIRECT_TOKEN.match(tok):
+            skip_next = bool(_BARE_REDIRECT.match(tok))  # `>` `2>` `&>` take the next token
+            continue
+        out.append(tok)
+    return out
+
+
 def tokens(segment):
     cleaned = re.sub(r"[(){}]", " ", segment)
     lexer = shlex.shlex(cleaned, posix=True)
     lexer.whitespace_split = True
     lexer.commenters = "#"  # a trailing `# comment` is not two positional arguments
     try:
-        return list(lexer)
+        raw = list(lexer)
     except ValueError:
-        return [tok for tok in cleaned.split() if not tok.startswith("#")]
+        raw = [tok for tok in cleaned.split() if not tok.startswith("#")]
+    return _without_redirects(raw)
 
 
 def is_no_verify(tok):
