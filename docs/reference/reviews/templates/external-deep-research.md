@@ -1,7 +1,7 @@
 # External review brief: {project} at commit `{commit}` ({date}; packet `{packet_hash}`)
 
 You are reviewing the design and the current implementation of a small personal system that
-harvests Reddit discussion about a video-editing product every day, stores it locally, honours
+harvests Reddit discussion about a video-editing product twice a week, stores it locally, honours
 deletions, and helps its one operator see what people are struggling with. The packet holds the
 committed tree at one commit: the plan, the decisions log, the working agreement and everything
 that enforces it, the source, and the tests. `00-README.md` gives the reading order, and the
@@ -13,7 +13,7 @@ file index at its end maps every file to the upload part that holds it; use it b
 **Why this review exists.** The owner is one person building this system with an agent, and
 the project's own rule is that same-model builders agreeing is not confirmation. This review is
 the first look by a different model family before the next stages (comment trees, reconcile
-and scrub, the daily digest, the web UI) are built on the current design. Its purpose is to find
+and scrub, the twice-weekly digest, the web UI) are built on the current design. Its purpose is to find
 the errors that would cost data, compliance, or a milestone while they are cheap to fix. It is
 not a request for validation, a summary, a redesign, or a comparison with other tools. An
 internal panel has already reviewed this tree; what it found is recorded in

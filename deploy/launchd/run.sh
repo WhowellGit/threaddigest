@@ -122,7 +122,7 @@ case "$JOB" in
     UI_PAGE="$UI_URL/runs"
     ;;
   doctor)
-    set -- "$PY" -m insightminer doctor --alert-if-stale 36h
+    set -- "$PY" -m insightminer doctor --alert-if-stale 5d
     UI_PAGE="$UI_URL/system"
     ;;
 esac

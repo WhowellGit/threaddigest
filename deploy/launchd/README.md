@@ -7,13 +7,17 @@ notifications.
 
 | Agent (Label) | When | Command | Log |
 |---|---|---|---|
-| `com.wesmax.insightminer.run` | 06:30, 12:30, 18:30 daily | `.venv/bin/python -m insightminer run` | `data/logs/launchd-run.log` |
-| `com.wesmax.insightminer.doctor` | every hour at :15 | `.venv/bin/python -m insightminer doctor --alert-if-stale 36h` | `data/logs/launchd-doctor.log` |
+| `com.wesmax.insightminer.run` | 06:30 Monday and Thursday | `.venv/bin/python -m insightminer run` | `data/logs/launchd-run.log` |
+| `com.wesmax.insightminer.doctor` | every hour at :15 | `.venv/bin/python -m insightminer doctor --alert-if-stale 5d` | `data/logs/launchd-doctor.log` |
 
-Three run intervals, not one, is the outage design: a run that cannot reach Reddit exits
-`network` and the later intervals retry it the same day; a successful run makes the later ones
-near no-ops because the sweep is idempotent. The hourly `doctor` is the local dead-man's switch:
-it notices a run that never happened at all.
+Twice a week, Monday and Thursday, is the cadence (D-30, 2026-09-15): Wes reads on his own
+rhythm, the target subreddits produce far fewer than 1,000 posts between runs, so the listing
+cap is never in play, and the seven-digest reading week finishes in about seven weeks. A run
+that cannot reach Reddit exits `network`; the next scheduled run retries it, and the sweep is
+idempotent so a double-covered window costs nothing. The hourly `doctor` is the local
+dead-man's switch: `--alert-if-stale 5d` is longer than the normal 4-day gap between a Thursday
+run and the next Monday, so it stays quiet when healthy and goes red once a run is genuinely
+overdue (a missed run doubles the gap past five days).
 
 ## Files
 
@@ -64,9 +68,9 @@ also where a plist mistake surfaces: a job that never gets a `runs` count or sho
 missed entries coalesce into one run; nothing is lost, only delayed, because the collector's
 queue and watermark are idempotent). To see it happen:
 
-1. Note the next interval (say 12:30) and put the Mac to sleep (or close the lid) before it.
-2. Wake it after 12:30. Within a few seconds `data/logs/launchd-run.log` gains a
-   `[run] start:` line stamped with the wake time, not 12:30, and `launchctl print` shows the
+1. Note the next run (Monday or Thursday 06:30) and put the Mac to sleep (or close the lid) before it.
+2. Wake it after 06:30. Within a few seconds `data/logs/launchd-run.log` gains a
+   `[run] start:` line stamped with the wake time, not 06:30, and `launchctl print` shows the
    new `last exit code`.
 3. `log show --last 1h --predicate 'process == "launchd" AND eventMessage CONTAINS "insightminer"'`
    shows launchd's own record of the spawn, if you want the system's view.

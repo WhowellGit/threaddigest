@@ -273,12 +273,13 @@ def test_plist_runtime_settings(tmp_path: Path, label: str) -> None:
     assert path_entries.index(venv_bin) < path_entries.index("/usr/bin")
 
 
-def test_run_schedule_has_exactly_three_intervals(tmp_path: Path) -> None:
+def test_run_schedule_is_monday_and_thursday_at_0630(tmp_path: Path) -> None:
+    """D-30 (2026-09-15): twice a week, Monday (Weekday 1) and Thursday (Weekday 4) at 06:30."""
     data = _load(RUN_LABEL, REPO_ROOT, tmp_path)
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, list)
-    assert len(schedule) == 3
-    assert [(e["Hour"], e["Minute"]) for e in schedule] == [(6, 30), (12, 30), (18, 30)]
+    assert len(schedule) == 2
+    assert [(e["Weekday"], e["Hour"], e["Minute"]) for e in schedule] == [(1, 6, 30), (4, 6, 30)]
     assert data["ExitTimeOut"] == 10800
 
 
@@ -379,7 +380,7 @@ def test_a_failed_notification_never_changes_the_job_status(deploy: FakeDeploy) 
 def test_doctor_job_runs_doctor_with_the_stale_alert_flag(deploy: FakeDeploy) -> None:
     result = _bash(deploy.launchd / "run.sh", "doctor", env=deploy.env(0))
     assert result.returncode == 0, result.stderr
-    assert deploy.stub_call()["argv"] == ["doctor", "--alert-if-stale", "36h"]
+    assert deploy.stub_call()["argv"] == ["doctor", "--alert-if-stale", "5d"]
     assert deploy.recorded("caffeinate") is not None
     assert "[doctor] doctor ok" in deploy.log("doctor")
     assert not (deploy.root / "data" / "logs" / "launchd-run.log").exists()
