@@ -29,6 +29,20 @@ def test_dry_run_counts_http(
     assert str(loaded_gateway.requests_made) in result.output
 
 
+def test_dry_run_summary_claims_no_rows_written_not_nothing_at_all(
+    cli_runner, db_at_head: Path, loaded_gateway: FakeRedditGateway, demo_fixture_path: Path
+) -> None:
+    """Finding 12 (external round one): the command creates the data directories and the
+    read-only engine's sidecar files, so the summary must claim only that no database rows
+    were written, never that nothing was written at all."""
+    result = cli_runner.invoke(
+        cli.app, ["run", "--dry-run", "--gateway", "fake", "--fixture", str(demo_fixture_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert "no database rows written" in result.output
+    assert "nothing was written" not in result.output
+
+
 def test_a_dry_run_whose_source_is_forbidden_exits_3_and_writes_nothing(
     cli_runner, db_at_head: Path, loaded_gateway: FakeRedditGateway, demo_fixture_path: Path
 ) -> None:

@@ -517,7 +517,12 @@ def _print_run_summary(outcome: collect_service.CollectOutcome) -> None:
         f"rejects: {counters.rejects}  warnings: {counters.warnings}"
     )
     if outcome.run_pk is None:
-        typer.echo("dry run: nothing was written; posts_new and posts_updated are always 0 here")
+        # Precise about the guarantee (KI, external round one, finding 12): a dry run writes no
+        # row to any table and no run row; it does create the data directories and the
+        # read-only engine's -wal/-shm sidecar files, so it does not claim "nothing was written."
+        typer.echo(
+            "dry run: no database rows written; posts_new and posts_updated are always 0 here"
+        )
     if outcome.sweep is not None:
         for source in outcome.sweep.subreddits:
             error = "" if source.error is None else f" error={source.error}"
