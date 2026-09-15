@@ -590,6 +590,29 @@ class TestTree:
         assert [c["body"] for c in tree.comments] == ["a"]
         assert tree.more == [MoreStub(post, 3, [bare(b)])]
 
+    def test_a_large_more_node_reveals_at_most_a_hundred_per_request(
+        self, fake: FakeRedditGateway
+    ) -> None:
+        """KI-023 (external round one, 2026-09-14): Reddit reveals at most a hundred new
+        comments per ``morechildren`` request, so a stub with more behind it takes several
+        requests, each leaving the remainder stubbed. Before this, one expansion revealed the
+        whole tree for one request and reported it complete."""
+        post = fake.add_post("premiere", title="big thread", created_utc=T)
+        for i in range(202):
+            fake.add_comment(post, body=f"c{i}", author="u", created_utc=T + i)
+        fake.set_tree_clamp(1)
+
+        one = fake.fetch_tree(post, more_limit=1)
+        assert len(one.comments) == 1 + 100  # the kept comment plus one chunk
+        assert one.complete is False  # residual work remains
+        assert one.requests_used == 2  # base + one expansion
+        assert one.more and one.more[0].count == 101  # 201 stubbed, 100 revealed, 101 left
+
+        full = fake.fetch_tree(post, more_limit=16)
+        assert full.complete is True
+        assert len(full.comments) == 202
+        assert full.requests_used == 4  # base + ceil(201/100) = 3 expansions
+
     def test_tree_clamp_turns_the_tail_into_stubs(self, fake: FakeRedditGateway) -> None:
         ids = tree_scenario(fake)
         fake.set_tree_clamp(2)

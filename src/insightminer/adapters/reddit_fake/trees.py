@@ -11,6 +11,12 @@ from insightminer.adapters.reddit_fake.recording import _Requests
 from insightminer.adapters.reddit_fake.records import _bare, _More
 from insightminer.ports import GatewayError, MoreStub, RawItem, TreeResult
 
+#: Reddit's ``/api/morechildren`` reveals at most this many new comment instances per request
+#: (KI-023, external round one, 2026-09-14). A stub with more behind it takes several requests,
+#: each leaving the remainder as a fresh stub, so a budget or completeness test cannot pass
+#: against a tree the real adapter could not fetch that cheaply.
+MORE_CHUNK = 100
+
 
 class _Tree:
     """Visibility bookkeeping for one ``fetch_tree`` call."""
@@ -47,9 +53,33 @@ class _Tree:
             return None
         return max(candidates, key=lambda s: (s.count, -self.stubs.index(s)))
 
-    def expand(self, stub: _More) -> None:
+    def expand(self, stub: _More, *, limit: int = MORE_CHUNK) -> _More | None:
+        """Reveal up to ``limit`` new comment instances from ``stub``, its direct children in
+        order (each child's whole subtree counts toward the limit, as Reddit counts revealed
+        instances). If children remain hidden, a replacement stub for them is added and
+        returned, so the next request continues where this one stopped (KI-023)."""
         self.expanded.append(stub)
-        self.hidden -= set(stub.children)
+        revealed = 0
+        leftover: list[str] = []
+        for cid in stub.children:
+            if leftover:  # once stopped, everything after stays hidden, in order
+                leftover.append(cid)
+                continue
+            size = self.subtree_size(cid)
+            if revealed and revealed + size > limit:
+                leftover.append(cid)
+                continue
+            self.hidden.discard(cid)
+            revealed += size
+        if not leftover:
+            return None
+        replacement = _More(
+            stub.parent_fullname,
+            sum(self.subtree_size(cid) for cid in leftover),
+            leftover,
+        )
+        self.stubs.append(replacement)
+        return replacement
 
     def subtree_size(self, cid: str) -> int:
         total = 1

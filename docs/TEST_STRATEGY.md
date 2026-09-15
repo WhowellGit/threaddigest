@@ -100,6 +100,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | SW-06 | sweep_removal_signal_confirmed_via_info | service | M1a/M1c | H | planned | needs the reconcile step's `info()` confirmation (M1c); not built in tranche A |
 | SW-07 | sweep_empty_or_zero_new_ok | service | M1a | M | shipped | its zero-yield counter is the per-source zero-new detection kept in place of the anchor; tests/services/test_sweep_paging.py::test_empty_subreddit_is_ok_and_exhausted, ::test_zero_new_run_records_zero_new_items |
 | SW-08 | end_of_listing_on_the_tenth_page_is_the_cap | service | M1a | H | shipped | KI-018, 2026-09-14: `tests/services/test_sweep_paging.py::test_a_listing_ending_at_the_cap_with_filtered_slots_is_a_cap_stop_not_exhausted`; control `::test_a_listing_ending_before_its_tenth_page_is_still_exhausted` |
+| FK-01 | more_expansion_reveals_at_most_a_hundred_per_request | adapter | M1a | H | shipped | KI-023, 2026-09-14: `tests/adapters/test_fake_gateway.py::TestTree::test_a_large_more_node_reveals_at_most_a_hundred_per_request`; the probe day confirms the real shape |
 | SS-01 | sub_forbidden_others_continue | service | M1a | H | shipped | tests/services/test_sweep_status.py::test_forbidden_marks_the_source_and_others_continue |
 | SS-02 | sub_not_found_banned_policy | service | M1c | M | planned | P-16 fixture may be unresolvable |
 | SS-03 | sub_redirect_auto_disabled_after_n | service | M1a | M | shipped | tests/services/test_sweep_status.py::test_redirect_auto_disables_after_three_runs_with_an_alert |
