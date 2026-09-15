@@ -290,6 +290,28 @@ mechanism; medium on the migration's shape until written.
    successor) asserts the ages. C's stronger reading (retire or regenerate every retained backup as
    soon as a deletion is known) is the alternative if Wes's reading of the terms requires it; it
    costs a regeneration per reconcile. Confidence moderate; the terms' text is Wes's to read (C-13).
+   **Wes, 2026-09-14:** wants a long backup history, collection over years, a practical
+   strategy, and is not focused on purging deleted content from backups; asked for more
+   options. The policy text has no personal-user exemption: the live dataset may be kept for as
+   long as the approved use case runs, and what the wiki forbids is retaining content once it is
+   deleted from Reddit, anonymized or not. Four options, any retention numbers Wes likes:
+
+   - **A. Long history, scrubbed through.** Keep dailies and monthlies for as long as wanted;
+     each reconcile applies its deletion list to every retained backup file (the scrub is one
+     function over a path by SC-01), then re-hashes the file's `backups` row. Compliance:
+     full within the reconcile cadence. Cost: seconds per retained file per reconcile, and a
+     hash update per file.
+   - **B. Long history untouched, scrub on restore.** Backups kept as they are; a deletion
+     ledger (ids and dates, already implied by `scrubbed_at`) travels with them, and a restore
+     re-applies every deletion since the backup's date before the database is used.
+     Compliance: the bytes stay in the collector's possession, which the wiki's text calls a
+     violation; nothing deleted ever returns to use. Cost: the lowest; no old file is touched.
+   - **C. Long dataset, short backups.** Two post-reconcile dailies; the live database is the
+     history. Compliance: full. Cost: the fewest restore points.
+   - **D. Tiered, recommended.** Two dailies plus monthly archives kept indefinitely, the
+     rolling scrub of A over the archives only, and B's scrub-on-restore as the net.
+     Compliance: full within the reconcile cadence. Cost: a scrub over a dozen files a month.
+     Confidence high on feasibility; the retention numbers are Wes's.
 2. **Login session (A-12, C-4).** LaunchAgents run only in a logged-in session, so the run and the
    local `doctor` die together at a login screen. Recommendation: no LaunchDaemon; the external
    dead-man ping (already an M1d blocker) is the detector, the runbook's install step says "auto

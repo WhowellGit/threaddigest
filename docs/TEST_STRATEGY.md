@@ -84,6 +84,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-56 | fts_update_trigger_fires_only_on_a_change | db | M1a | H | shipped | KI-012, 2026-09-14 (revision 0003): `tests/db/test_fts.py::test_a_routine_upsert_with_identical_text_leaves_the_index_untouched`; control `::test_positive_control_the_unconditional_trigger_rewrote_the_index` downgrades to 0002 and shows the growth |
 | DB-57 | wal_checkpoint_busy_is_a_run_warning | service | M1a | H | shipped | KI-013, 2026-09-14: `tests/services/test_collect_checkpoint.py::test_a_reader_during_the_final_checkpoint_leaves_a_warning_and_a_partial_run` |
 | DB-58 | error_text_hides_bound_parameters | db | M1a | H | shipped | KI-010, 2026-09-14: `tests/db/test_engine_pragmas.py::test_error_text_hides_bound_parameters` (control: a bare engine renders the value); `tests/services/test_sweep_errors.py::test_a_failed_page_write_keeps_post_text_out_of_the_error_message` |
+| DB-59 | restore_copies_before_it_deletes | db | M1a | H | shipped | KI-015, 2026-09-14: `tests/db/test_backup.py::test_a_restore_whose_copy_fails_leaves_the_live_database_and_its_log_untouched` (a crash-left log survives a restore whose copy fails) |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
 

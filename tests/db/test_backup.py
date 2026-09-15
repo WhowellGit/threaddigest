@@ -131,6 +131,50 @@ def test_restore_swaps_the_file_and_removes_wal_sidecars(tmp_path: Path) -> None
     assert not destination.with_name(destination.name + "-shm").exists()
 
 
+def _crash_left_wal(live: Path) -> None:
+    """Put a database at ``live`` whose only committed row lives in its ``-wal``: written with
+    auto-checkpoint off, then the three files copied under the new name before the writer
+    closes, which is what a crash leaves behind (KI-015)."""
+    source = live.with_name("source-" + live.name)
+    conn = sqlite3.connect(source)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("CREATE TABLE notes(t TEXT)")
+        conn.commit()
+        conn.execute("INSERT INTO notes VALUES ('committed note')")
+        conn.commit()
+        for suffix in ("", *BACKUP_SUFFIXES):
+            live.with_name(live.name + suffix).write_bytes(
+                source.with_name(source.name + suffix).read_bytes()
+            )
+    finally:
+        conn.close()
+
+
+def test_a_restore_whose_copy_fails_leaves_the_live_database_and_its_log_untouched(
+    tmp_path: Path,
+) -> None:
+    """KI-015: the copy is the step that can fail (a missing or unreadable backup, a full
+    disk), and nothing live may be touched before it has succeeded. A crash-left ``-wal``
+    holds committed transactions; deleting it first turned a failed restore into data loss."""
+    live = tmp_path / "live.db"
+    _crash_left_wal(live)
+    wal = live.with_name(live.name + "-wal")
+    wal_before = wal.read_bytes()
+
+    with pytest.raises(FileNotFoundError):
+        restore(tmp_path / "missing-backup.db", live)
+
+    assert wal.read_bytes() == wal_before  # the log is exactly as the crash left it
+    assert not live.with_name(live.name + ".restoring").exists()
+    conn = sqlite3.connect(live)
+    try:
+        assert conn.execute("SELECT count(*) FROM notes").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_backup_suffixes_are_the_wal_and_shm_sidecars() -> None:
     assert BACKUP_SUFFIXES == ("-wal", "-shm")
 

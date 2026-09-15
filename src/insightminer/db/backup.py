@@ -238,15 +238,22 @@ def restore(backup: Path, destination: Path) -> None:
     ``destination`` is never a half-written file **and** never a half-flushed one: a restore
     is the recovery path, so a crash during it is exactly the crash that matters
     (panel P2-9).
+
+    **Order (KI-015).** The copy comes first, because it is the one step that can fail (a
+    missing or unreadable backup, a full disk), and nothing live is touched until it has
+    succeeded: a crash-left ``-wal`` holds committed transactions the next open would have
+    recovered, and the earlier order deleted it before copying, so a failed restore lost
+    them. The sidecar removal and the swap then run back to back; the window between them is
+    accepted, being microseconds against a copy that can take minutes.
     """
-    for sidecar in _sidecars(destination):
-        sidecar.unlink(missing_ok=True)
     staging = destination.with_name(destination.name + ".restoring")
-    staging.unlink(missing_ok=True)
+    _remove_file_and_sidecars(staging)
     try:
-        shutil.copyfile(backup, staging)
+        shutil.copyfile(backup, staging)  # the step that can fail; nothing live touched yet
+        for sidecar in _sidecars(destination):
+            sidecar.unlink(missing_ok=True)
         _durable_replace(staging, destination)
     finally:
-        staging.unlink(missing_ok=True)
+        _remove_file_and_sidecars(staging)
     for sidecar in _sidecars(destination):
         sidecar.unlink(missing_ok=True)
