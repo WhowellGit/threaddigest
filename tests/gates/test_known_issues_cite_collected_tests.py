@@ -31,9 +31,11 @@ KNOWN_ISSUES = Path("docs") / "runbook" / "KNOWN_ISSUES.md"
 GUARDS = Path("docs") / "runbook" / "GUARDS.md"
 DECISIONS = Path("docs") / "decisions" / "DECISIONS.md"
 CLAIMS = Path("docs") / "reference" / "reviews" / "templates" / "claims.md"
+TEST_STRATEGY = Path("docs") / "TEST_STRATEGY.md"
 ISSUES_COLUMN = "Regression test (node id)"
 GUARDS_COLUMN = "Positive control node"
 CLAIMS_COLUMN = "Backed by (node id)"
+STRATEGY_COLUMN = "Reason if cut/changed"
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 NODE = re.compile(r"tests/[\w./-]+\.py(?:::[\w.\[\]-]+)*|::[\w.\[\]-]+")
 
@@ -148,6 +150,15 @@ def test_every_claim_cites_a_test_that_exists() -> None:
     a test that does not exist would send a reviewer chasing a ghost."""
     problems = unresolved(ROOT, CLAIMS, CLAIMS_COLUMN)
     assert not problems, "claims.md cites tests that do not exist:\n" + "\n".join(problems)
+
+
+def test_every_test_strategy_citation_exists() -> None:
+    """The test-strategy rows name the shipped test for each spec item; the test-methodology
+    seat (external round one panel, 2026-09-15) found several fresh citations lived only here,
+    ungated, so a renamed test would rot silently. Now every node id in the strategy's
+    Reason/Status column must resolve, like the other registers."""
+    problems = unresolved(ROOT, TEST_STRATEGY, STRATEGY_COLUMN)
+    assert not problems, "TEST_STRATEGY.md cites tests that do not exist:\n" + "\n".join(problems)
 
 
 def test_the_registers_cite_at_least_one_node_each() -> None:

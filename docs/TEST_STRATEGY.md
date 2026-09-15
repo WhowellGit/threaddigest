@@ -157,6 +157,8 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | AD-04 | contract_suite_fake_vs_praw | contract | M1a–M1c | H | planned | |
 | GT-01 | guard_reachability_meta_and_planted_invariants | gate | M0→ | H | shipped | sidecar-dependent plantings dropped (sidecar cut 2026-09-13); scope is post-run invariants only (A3 split); tests/gates/test_invariants_planted.py::test_planted_violation_flips_the_run, ::test_a_crashing_invariant_fails_the_run_rather_than_leaving_it_running |
 | GT-02 | pk_stability_three_reruns | gate | M1a | H | shipped | drop `max(pk)==count(*)` (A10); `pk`/`first_seen_at` stability kept; tests/gates/test_pk_stability.py::test_three_reruns_keep_pk_and_first_seen_at |
+| GT-03 | behavioural_dependency_pins_keep_their_bound | gate | M1a | H | shipped | G53, external round one panel 2026-09-15: `tests/gates/test_dependency_pins.py::test_praw_is_pinned_to_the_tested_major`, `::test_installed_praw_satisfies_the_pin` (the `praw>=8,<9` pin had no control; a loosening to 7.x is now red) |
+| GT-04 | schedule_contract_checked_without_macos_tooling | deploy | M1a | H | shipped | external round one panel 2026-09-15: `tests/deploy/test_schedule_contract.py` parses the plist with stdlib plistlib and reads run.sh, so the Monday/Thursday 06:30 schedule and `--alert-if-stale 5d` (D-30) are enforced on Linux CI too, not only the macOS-gated `test_launchd.py` |
 
 ### 3.3 Enforcement, gates, ratchets, CI — `2026-09-13-panel-enforcement.md` §B (38), hooks §D
 
