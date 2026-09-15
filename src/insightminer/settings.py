@@ -188,6 +188,27 @@ class StaticSettings(_Strict):
             raise ValueError(msg)
         return value
 
+    @field_validator("display_timezone")
+    @classmethod
+    def _resolvable_zone(cls, value: str) -> str:
+        """KI-011: the digest resolves ``display_timezone`` as ``UTC`` or an IANA name, so a
+        value it cannot load (the shipped ``local`` was one) must fail here at settings load,
+        not at the first digest weeks into M1d. Validated with ``zoneinfo`` directly rather
+        than importing ``core.digest``, which would pull jinja2 into every settings load."""
+        if value == "UTC":
+            return value
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            msg = (
+                f"display_timezone {value!r} is not 'UTC' or a known IANA zone "
+                "(e.g. America/New_York)"
+            )
+            raise ValueError(msg) from exc
+        return value
+
 
 class _YamlStaticSource(PydanticBaseSettingsSource):
     """Loads ``config/settings.yaml`` into the ``static`` field.

@@ -36,6 +36,27 @@ def test_shipped_settings_yaml_validates(settings: Settings) -> None:
     assert settings.static.budget.per_run_requests == _shipped_yaml()["budget"]["per_run_requests"]
 
 
+def test_shipped_display_timezone_is_a_zone_the_digest_can_resolve(settings: Settings) -> None:
+    """KI-011: the shipped ``display_timezone`` must be a zone ``core.digest`` can load. The
+    old shipped value ``local`` was not, so the first digest weeks into M1d would have failed;
+    now it is ``UTC`` and settings validation rejects any unresolvable value at load."""
+    from insightminer.core.digest import known_display_timezone
+
+    known_display_timezone(settings.static.display_timezone)  # does not raise
+
+
+def test_settings_reject_an_unresolvable_display_timezone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control: the exact class of value KI-011 shipped ('local', and any bad zone) now
+    fails at settings load rather than silently at the first digest."""
+    for bad in ("local", "Mars/Olympus", "US/Nowhere"):
+        monkeypatch.setenv("INSIGHTMINER_STATIC__DISPLAY_TIMEZONE", bad)
+        with pytest.raises(ValidationError):
+            Settings()
+        monkeypatch.delenv("INSIGHTMINER_STATIC__DISPLAY_TIMEZONE")
+
+
 def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     yaml_value = _shipped_yaml()["budget"]["per_run_requests"]
     assert yaml_value != 7

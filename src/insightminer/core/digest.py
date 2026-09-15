@@ -500,8 +500,20 @@ def _zone(name: str) -> tzinfo:
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError) as exc:
-        msg = f"unknown display_timezone {name!r}"
+        msg = f"unknown display_timezone {name!r} (use 'UTC' or an IANA name like America/New_York)"
         raise ValueError(msg) from exc
+
+
+def known_display_timezone(name: str) -> str:
+    """Return ``name`` if the digest can resolve it as a display zone, else raise ``ValueError``.
+
+    Pure: ``UTC`` or a loadable IANA zone, no filesystem or environment lookup (core stays the
+    pure layer). The settings layer calls this so an unresolvable zone fails at load rather
+    than at the first digest render (KI-011). The literal ``local`` is deliberately not
+    accepted here: resolving the host's own zone is an environment concern for the M1d digest
+    service, not core's, and shipping it as a config value made the first digest fail."""
+    _zone(name)
+    return name
 
 
 def _when(epoch: int, zone_name: str) -> str:

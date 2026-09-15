@@ -1,6 +1,6 @@
 # Static settings. Subreddits, themes, and searches live in the database (editable from the UI).
 user_agent_app_id: com.wesmax.insightminer
-display_timezone: local
+display_timezone: UTC
 budget:
   per_run_requests: 1500
   hard_cap: 5000

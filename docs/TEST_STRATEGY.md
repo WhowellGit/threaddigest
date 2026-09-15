@@ -89,6 +89,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-59 | restore_copies_before_it_deletes | db | M1a | H | shipped | KI-015, 2026-09-14: `tests/db/test_backup.py::test_a_restore_whose_copy_fails_leaves_the_live_database_and_its_log_untouched` (a crash-left log survives a restore whose copy fails) |
 | DB-61 | secure_delete_clears_the_term_without_an_optimize | db | M1a | H | shipped | KI-009 / revision 0004, 2026-09-15: `tests/db/test_fts.py::test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize`; control `::test_positive_control_without_secure_delete_the_term_survives_a_scrub_until_optimize` |
 | DB-62 | sqlite_version_meets_the_secure_delete_floor | service | M1a | M | shipped | KI-009 / revision 0004, 2026-09-15: `tests/services/test_doctor.py::test_check_sqlite_version_is_ok_on_the_runtime_library`; control `::test_check_sqlite_version_is_an_error_below_the_secure_delete_floor` |
+| CF-11 | shipped_display_timezone_is_resolvable_and_validated_at_load | unit | M1a | H | shipped | KI-011, 2026-09-15: `tests/unit/test_settings.py::test_shipped_display_timezone_is_a_zone_the_digest_can_resolve`; control `::test_settings_reject_an_unresolvable_display_timezone` |
 
 ### 3.2 Ingest and collector — `2026-09-13-panel-ingest.md` §B (60); probes §C P-01…17
 
