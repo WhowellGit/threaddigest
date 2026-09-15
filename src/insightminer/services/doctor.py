@@ -60,6 +60,7 @@ __all__ = [
     "check_data_dir_outside_tcc",
     "check_data_dir_writable",
     "check_database_present",
+    "check_enabled_sources",
     "check_free_disk",
     "check_hooks_installed",
     "check_last_run_age",
@@ -367,6 +368,31 @@ def check_last_run_age(conn: Connection, *, now: int, max_age_seconds: int) -> C
     )
 
 
+def check_enabled_sources(conn: Connection) -> Check:
+    """At least one source is enabled, so a run has something to collect (KI-017).
+
+    A collector whose every source has been disabled (quarantine, a redirect, a hand edit)
+    closes each run ``partial`` from the sweep's warning, but ``partial`` never notifies and
+    ``last_run_age`` stays green, so this is the check that turns the hourly ``doctor`` red.
+    No source configured at all is a WARNING, like "no successful run yet": a fresh install
+    is not an incident.
+    """
+    name = "enabled_sources"
+    configured, enabled = repo.source_counts(conn, repo.default_workspace_pk(conn))
+    if configured == 0:
+        return Check(
+            name=name, ok=False, detail="no source configured yet", severity=CheckSeverity.WARNING
+        )
+    return Check(
+        name=name,
+        ok=enabled > 0,
+        detail=f"{enabled} of {configured} sources enabled"
+        if enabled
+        else f"every one of {configured} sources is disabled; runs collect nothing",
+        severity=CheckSeverity.ERROR,
+    )
+
+
 def check_lock_not_stale(
     conn: Connection, *, lock_path: Path, now: int, stale_after_seconds: int
 ) -> Check:
@@ -575,6 +601,7 @@ def _checks_without_a_database(settings: Settings, db_path: Path) -> list[Check]
         _unreadable("schema_fingerprint", CheckSeverity.WARNING, f"no database at {db_path}"),
         check_free_disk(settings.data_dir),
         _unreadable("last_run_age", CheckSeverity.WARNING, f"no database at {db_path}"),
+        _unreadable("enabled_sources", CheckSeverity.WARNING, f"no database at {db_path}"),
         _unreadable("lock_not_stale", CheckSeverity.WARNING, f"no database at {db_path}"),
         check_credentials_present(settings),
         _unreadable("no_stale_running_rows", CheckSeverity.WARNING, f"no database at {db_path}"),
@@ -601,6 +628,7 @@ def _checks_with_an_unusable_database(settings: Settings, db_path: Path) -> list
         _unreadable("schema_fingerprint", CheckSeverity.WARNING, reason),
         check_free_disk(settings.data_dir),
         _unreadable("last_run_age", CheckSeverity.WARNING, reason),
+        _unreadable("enabled_sources", CheckSeverity.WARNING, reason),
         _unreadable("lock_not_stale", CheckSeverity.WARNING, reason),
         check_credentials_present(settings),
         _unreadable("no_stale_running_rows", CheckSeverity.WARNING, reason),
@@ -624,6 +652,7 @@ def _checks_with_a_database(
             check_schema_fingerprint(engine),
             check_free_disk(settings.data_dir),
             check_last_run_age(conn, now=now, max_age_seconds=max_age_seconds),
+            check_enabled_sources(conn),
             check_lock_not_stale(
                 conn, lock_path=lock_path, now=now, stale_after_seconds=stale_after_seconds
             ),
@@ -633,7 +662,7 @@ def _checks_with_a_database(
 
 
 def _with_hooks_check(checks: list[Check]) -> DoctorReport:
-    """Append the thirteenth check -- ``hooks_installed``, WARNING severity -- and close out
+    """Append the closing check -- ``hooks_installed``, WARNING severity -- and close out
     the report. The single call site for both of :func:`run_checks`'s return points, so a
     bad or missing database still gets the same closing check as a healthy one.
     """

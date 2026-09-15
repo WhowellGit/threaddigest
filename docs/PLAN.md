@@ -197,7 +197,7 @@ Budget reality: PRAW's limiter paces requests evenly over the 10-minute window, 
 
 | Command | Purpose |
 |---|---|
-| `insightminer doctor [--no-network] [--alert-if-stale 36h]` | Config valid, DB reachable and at head, quick integrity check, free disk, last successful run age, lock not stale, optional auth ping printing rate-limit headers |
+| `insightminer doctor [--no-network] [--alert-if-stale 36h]` | Config valid, DB reachable and at head, quick integrity check, free disk, last successful run age, at least one enabled source, lock not stale, optional auth ping printing rate-limit headers |
 | `insightminer db init/upgrade/downgrade/current/backup/restore/vacuum/check/reprocess` | Schema and files; `upgrade` always backs up first |
 | `insightminer run [--budget N] [--no-comments] [--dry-run]` | Steps 0–6 above (`--dry-run` fetches but writes nothing to the DB) |
 | `insightminer fetch [--sub X]` · `comments [--post ID] [--budget N]` · `revisit` · `reconcile [--older-than 30d]` · `tag [--all]` · `search-run` (M3) | Individual stages |

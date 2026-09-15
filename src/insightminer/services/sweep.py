@@ -1002,6 +1002,12 @@ def sweep_all(ctx: RunContext, *, gateway: RedditGateway, notifier: Notifier) ->
     sweeps: list[SubredditSweep] = []
     try:
         sources = _enabled_sources(ctx)  # a locked/unreadable DB fails the run cleanly
+        if not sources:
+            # KI-017: a run that collects nothing is never `ok`; `doctor` carries the alert.
+            ctx.warn(
+                "no_enabled_sources",
+                "no enabled source; every source is disabled or none is configured",
+            )
         if sources:
             preflight(ctx, gateway=gateway, source=sources[0])
         for source in sources:

@@ -25,6 +25,7 @@ EXPECTED_CHECKS = {
     "schema_fingerprint",
     "free_disk",
     "last_run_age",
+    "enabled_sources",
     "lock_not_stale",
     "credentials_present",
     "no_stale_running_rows",

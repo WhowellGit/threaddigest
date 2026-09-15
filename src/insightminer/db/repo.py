@@ -888,6 +888,22 @@ def enabled_subreddits(conn: Connection, workspace_pk: int) -> list[SubredditRow
     return [_subreddit_row(row) for row in rows]
 
 
+def source_counts(conn: Connection, workspace_pk: int) -> tuple[int, int]:
+    """``(configured, enabled)`` sources of the workspace, for ``doctor`` (KI-017)."""
+    subreddits = _table("subreddits")
+    total = conn.execute(
+        select(func.count())
+        .select_from(subreddits)
+        .where(subreddits.c.workspace_pk == workspace_pk)
+    ).scalar_one()
+    enabled = conn.execute(
+        select(func.count())
+        .select_from(subreddits)
+        .where(subreddits.c.workspace_pk == workspace_pk, subreddits.c.enabled.is_(True))
+    ).scalar_one()
+    return int(total), int(enabled)
+
+
 def all_sources_for_freshness(conn: Connection, workspace_pk: int) -> list[SubredditRow]:
     """Enabled sources **plus** sources disabled by an error status.
 

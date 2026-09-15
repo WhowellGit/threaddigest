@@ -445,6 +445,44 @@ def test_check_credentials_present_is_not_ok_when_any_is_blank(settings: Setting
     assert check.severity == doctor.CheckSeverity.WARNING
 
 
+# --- enabled_sources: KI-017, the check that notices a collector with nothing to collect ---
+
+
+def test_check_enabled_sources_warns_when_no_source_is_configured(engine: Engine) -> None:
+    with engine.connect() as conn:
+        check = doctor.check_enabled_sources(conn)
+    assert not check.ok and check.severity is doctor.CheckSeverity.WARNING
+    assert "no source configured" in check.detail
+
+
+def test_check_enabled_sources_is_ok_with_one_enabled_source(engine: Engine, now: int) -> None:
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn, workspace_pk=repo.default_workspace_pk(conn), names=["premiere"], now=now
+        )
+    with engine.connect() as conn:
+        check = doctor.check_enabled_sources(conn)
+    assert check.ok, check.detail
+
+
+def test_check_enabled_sources_is_an_error_when_every_source_is_disabled(
+    engine: Engine, now: int
+) -> None:
+    subreddits = sa.Table("subreddits", sa.MetaData(), autoload_with=engine)
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn,
+            workspace_pk=repo.default_workspace_pk(conn),
+            names=["premiere", "editors"],
+            now=now,
+        )
+        conn.execute(sa.update(subreddits).values(enabled=False))
+    with engine.connect() as conn:
+        check = doctor.check_enabled_sources(conn)
+    assert not check.ok and check.severity is doctor.CheckSeverity.ERROR
+    assert "every one of 2 sources is disabled" in check.detail
+
+
 # --- no_stale_running_rows: WARNING, the reader-side mirror of §12.2 ---------------------------
 
 
@@ -615,7 +653,8 @@ def test_config_validate_makes_zero_http(fake: FakeRedditGateway, settings: Sett
 def test_run_checks_covers_every_documented_check_name(
     engine: Engine, settings: Settings, clock: FakeClock, now: int
 ) -> None:
-    """The §15.2 twelve, in order, plus ``hooks_installed`` wired in as the thirteenth."""
+    """The §15.2 twelve in order, ``enabled_sources`` after ``last_run_age`` (KI-017), and
+    ``hooks_installed`` last."""
     _plant_ok_run(engine, now=now, finished_at=now)
 
     report = doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=True)
@@ -631,6 +670,7 @@ def test_run_checks_covers_every_documented_check_name(
         "schema_fingerprint",
         "free_disk",
         "last_run_age",
+        "enabled_sources",
         "lock_not_stale",
         "credentials_present",
         "no_stale_running_rows",
@@ -757,7 +797,8 @@ def test_check_free_disk_is_not_ok_when_free_space_cannot_be_read(
 
 # --- a database that exists and will not open (round5-findings.json panel P1) ------------------
 
-#: The §15.2 twelve plus ``hooks_installed``, in order -- restated here so a corrupt-database
+#: The §15.2 twelve, ``enabled_sources`` and ``hooks_installed``, in order -- restated here
+#: so a corrupt-database
 #: report is compared against the SAME list the healthy one is, and a short report cannot
 #: read as healthy.
 EVERY_CHECK_NAME = [
@@ -770,6 +811,7 @@ EVERY_CHECK_NAME = [
     "schema_fingerprint",
     "free_disk",
     "last_run_age",
+    "enabled_sources",
     "lock_not_stale",
     "credentials_present",
     "no_stale_running_rows",
