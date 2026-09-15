@@ -167,6 +167,15 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("git commit --no-verify -m x 2>&1 | tail -1", 2),
     ("git push origin HEAD:main 2>&1", 2),
     ("git commit -m ok > /tmp/out.log", 0),
+    # a backslash-newline line continuation is joined by the shell before it runs; a git word,
+    # flag or refspec split across one must not hide from the hook (external round one panel)
+    ("git commit -m x \\\n--no-verify", 2),
+    ("git \\\ncommit --no-verify -m x", 2),
+    ("git push origin \\\nHEAD:main", 2),
+    ("git \\\ncommit -m ok", 0),  # a benign command split across a continuation still parses
+    # a hooksPath override in the separated --config-env form, not only -c
+    ("git --config-env core.hooksPath=GHP commit -m x", 2),
+    ("GHP=/dev/null git --config-env core.hooksPath=GHP commit -m x", 2),
 ]
 
 
@@ -271,6 +280,12 @@ FILE_ROWS: list[tuple[str, str, int]] = [
     ("MultiEdit", ".claude/settings.json", 2),
     ("Write", "{project}/.claude/settings.json", 2),
     ("Edit", "sub/../.ratchets/skips.txt", 2),
+    # case variants name the same paths on a case-insensitive filesystem (external round one)
+    ("Write", ".Ratchets/coverage.txt", 2),
+    ("Write", ".RATCHETS/x.txt", 2),
+    ("MultiEdit", ".CLAUDE/settings.json", 2),
+    ("Write", ".claude/Settings.json", 2),
+    ("Write", "{project}/.claude//settings.json", 2),  # doubled slash still names the file
     # allowed twins
     ("Edit", "src/insightminer/settings.py", 0),
     ("Write", "docs/runbook/GUARDS.md", 0),
@@ -341,6 +356,12 @@ BASH_ROWS: list[tuple[str, int]] = [
     ('log=/tmp/check.log; make check > "$log"', 0),
     ('f=docs/x.md; cp "$f" /tmp/', 0),
     ("sed -n 'w /tmp/copy' .ratchets/coverage.txt", 0),
+    # double-slash and case variants name the protected paths on this filesystem (external round
+    # one panel); a write to any spelling is refused
+    ("echo x > .claude//settings.json", 2),
+    ("cp /tmp/x .Ratchets/coverage.txt", 2),
+    ("echo x > .CLAUDE/settings.json", 2),
+    ("printf 0 >> .RATCHETS/skips.txt", 2),
 ]
 
 

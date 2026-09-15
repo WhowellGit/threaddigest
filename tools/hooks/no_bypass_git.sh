@@ -349,8 +349,11 @@ def check_git(toks, cwd):
         tok = toks[i]
         if tok in GIT_GLOBAL_WITH_VALUE:
             value = toks[i + 1] if i + 1 < len(toks) else ""
-            if tok == "-c" and "core.hookspath" in value.lower():
-                block("git -c core.hooksPath disables the installed hooks")
+            # Any value-taking global that carries a hooksPath override, not only `-c`: the
+            # separated `--config-env core.hooksPath=VAR` form reached git unscanned before
+            # (external round one panel, 2026-09-15).
+            if tok in ("-c", "--config-env", "--config") and "core.hookspath" in value.lower():
+                block("git %s core.hooksPath disables the installed hooks" % tok)
             if tok == "-C" and value:
                 git_cwd = value if os.path.isabs(value) else os.path.join(cwd, value)
             i += 2
@@ -478,6 +481,13 @@ def main():
     if not isinstance(command, str) or not command.strip():
         return
     cwd = data.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+    # Join backslash-newline line continuations exactly as the shell does BEFORE parsing (external
+    # round one panel, 2026-09-15): bash removes `\<newline>` before tokenizing, so a git word,
+    # flag or refspec split across a continuation was invisible to a hook that split on raw
+    # newlines -- a `--no-verify`, a push to main, or an unstamped merge could hide on the next
+    # line. Only the backslash-newline pair is removed; a real newline (a multi-line -m message)
+    # is left for segments() to split on.
+    command = command.replace("\\\r\n", "").replace("\\\n", "")
     global COMMAND_TEXT
     COMMAND_TEXT = command
     interpreter_inline_git(command)

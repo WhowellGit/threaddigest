@@ -39,8 +39,14 @@ def block(reason):
 
 PROTECTED_DIR = ".ratchets"
 PROTECTED_FILE = (".claude", "settings.json")
-REFERENCE = re.compile(r"\.ratchets(?![\w-])|\.claude/settings\.json")
-REDIRECT = re.compile(r">{1,2}\s*[\"']?[^\s\"'|;&]*(\.ratchets|\.claude/settings\.json)")
+# Slash-tolerant and case-insensitive (external round one panel, 2026-09-15): `.claude//settings
+# .json` (a doubled slash from `$dir/` concatenation) and `.Ratchets` / `.CLAUDE` on the
+# case-insensitive macOS filesystem both named the same protected file while a single-slash,
+# case-sensitive regex let them through.
+REFERENCE = re.compile(r"\.ratchets(?![\w-])|\.claude/+settings\.json", re.IGNORECASE)
+REDIRECT = re.compile(
+    r">{1,2}\s*[\"']?[^\s\"'|;&]*(\.ratchets|\.claude/+settings\.json)", re.IGNORECASE
+)
 # Indirection (KI-020, external round one, 2026-09-14): a protected path can reach a write
 # through a variable set earlier in the same command, whole or in pieces. When the command
 # holds a bare assignment AND names a fragment of a protected path anywhere, a write whose
@@ -81,7 +87,10 @@ GIT_GLOBAL_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", 
 
 def is_protected_path(path, cwd):
     full = path if os.path.isabs(path) else os.path.join(cwd, path)
-    parts = os.path.normpath(full).split(os.sep)
+    # Case-fold every segment (external round one panel, 2026-09-15): the macOS filesystem is
+    # case-insensitive, so `.Ratchets` / `.CLAUDE/Settings.json` name the protected paths and
+    # a case-sensitive compare let a Write to them through. normpath already collapses `//`.
+    parts = [part.lower() for part in os.path.normpath(full).split(os.sep)]
     if PROTECTED_DIR in parts:
         return True
     return len(parts) >= 2 and tuple(parts[-2:]) == PROTECTED_FILE
@@ -184,6 +193,9 @@ def main():
     command = tool_input.get("command")
     if not isinstance(command, str) or not command.strip():
         return
+    # Join backslash-newline continuations as the shell does before parsing (external round one
+    # panel, 2026-09-15): a protected path split across a continuation was invisible otherwise.
+    command = command.replace("\\\r\n", "").replace("\\\n", "")
     segs = segments(command)
     for segment in segs:
         check_bash_segment(segment)
