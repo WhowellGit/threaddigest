@@ -146,7 +146,9 @@ def decide(
     ``scrub`` is True only on the transition INTO one of ``SCRUB_STATES`` from a state
     outside it. Re-observing an already scrubbed item asks for nothing, and a hold
     never scrubs. Rules 3, 4, 6 and 8 reset ``misses`` to 0 because the item was
-    observed; rules 2, 5 and 7 add one.
+    observed; rule 2 (an ``info()`` omission) adds one; rules 5 and 7 (holds on an item
+    that WAS returned) leave ``misses`` unchanged, so only omissions escalate to ``gone``
+    (KI-021).
     """
     if misses < 0:
         msg = f"misses must be >= 0, got {misses}"
@@ -186,8 +188,15 @@ def _settle(
 def _hold(
     prior_state: ContentState, prior_author: AuthorState, misses: int, *, escalate: bool
 ) -> Decision:
-    """The item could not be confirmed: count a miss and hold it out of ``live``."""
-    new_misses = misses + 1
+    """Hold the item out of ``live`` without confirming its removal.
+
+    ``misses`` counts **``info()`` omissions only** (KI-021): only rule 2 (``returned_by_info
+    is False``) is an omission, so only it escalates and only it increments the counter. A
+    bodyless-but-returned observation (rules 5 and 7) is a hold that leaves the counter
+    untouched -- otherwise a single later omission would tip a still-present item to ``gone``
+    and scrub it. An item already ``gone`` stays ``gone``.
+    """
+    new_misses = misses + 1 if escalate else misses
     if prior_state is ContentState.GONE or (escalate and new_misses >= GONE_AT_MISSES):
         scrub = prior_state not in SCRUB_STATES
         return Decision(ContentState.GONE, prior_author, scrub, new_misses)

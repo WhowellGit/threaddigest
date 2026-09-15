@@ -284,14 +284,14 @@ TABLE: list[tuple[str, ContentState, AuthorState, Observation, int, Decision]] =
         Decision(LIVE, ACCT, False, 0),
     ),
     # author None on a link post with no category: hold, never live
-    ("link post author None: hold", LIVE, KNOWN, LINK_HOLD, 0, Decision(UNC, KNOWN, False, 1)),
+    ("link post author None: hold", LIVE, KNOWN, LINK_HOLD, 0, Decision(UNC, KNOWN, False, 0)),
     (
-        "link post hold does not escalate without info() absence",
+        "link post hold does not escalate and does not count toward gone (KI-021)",
         LIVE,
         KNOWN,
         LINK_HOLD,
         1,
-        Decision(UNC, KNOWN, False, 2),
+        Decision(UNC, KNOWN, False, 1),
     ),
     (
         "link post hold confirmed present by info() but still authorless",
@@ -299,7 +299,7 @@ TABLE: list[tuple[str, ContentState, AuthorState, Observation, int, Decision]] =
         KNOWN,
         obs(body="", author=None, fullname=False, link=True, info=True),
         1,
-        Decision(UNC, KNOWN, False, 2),
+        Decision(UNC, KNOWN, False, 1),
     ),
     (
         "link post with author is live",
@@ -315,7 +315,7 @@ TABLE: list[tuple[str, ContentState, AuthorState, Observation, int, Decision]] =
         KNOWN,
         obs(body="", author=None, fullname=True, link=True),
         0,
-        Decision(UNC, KNOWN, False, 1),
+        Decision(UNC, KNOWN, False, 0),
     ),
     # info() did not return the item
     ("first miss", LIVE, KNOWN, ABSENT, 0, Decision(UNC, KNOWN, False, 1)),
@@ -353,14 +353,21 @@ TABLE: list[tuple[str, ContentState, AuthorState, Observation, int, Decision]] =
     ("gone item reappears live", GONE, KNOWN, obs(info=True), 2, Decision(LIVE, KNOWN, False, 0)),
     ("held item observed via sweep", UNC, KNOWN, obs(), 1, Decision(LIVE, KNOWN, False, 0)),
     # body None (key absent) is never live
-    ("absent body holds", LIVE, KNOWN, obs(body=None), 0, Decision(UNC, KNOWN, False, 1)),
     (
-        "absent body never escalates to gone on its own",
+        "absent body holds without counting a miss (KI-021)",
+        LIVE,
+        KNOWN,
+        obs(body=None),
+        0,
+        Decision(UNC, KNOWN, False, 0),
+    ),
+    (
+        "absent body never escalates to gone and never counts a miss (KI-021)",
         UNC,
         KNOWN,
         obs(body=None, info=True),
         1,
-        Decision(UNC, KNOWN, False, 2),
+        Decision(UNC, KNOWN, False, 1),
     ),
     (
         "absent body with category",
@@ -370,14 +377,14 @@ TABLE: list[tuple[str, ContentState, AuthorState, Observation, int, Decision]] =
         0,
         Decision(MOD, KNOWN, True, 0),
     ),
-    ("absent body after removal", MOD, KNOWN, obs(body=None), 0, Decision(UNC, KNOWN, False, 1)),
+    ("absent body after removal", MOD, KNOWN, obs(body=None), 0, Decision(UNC, KNOWN, False, 0)),
     (
         "absent body after gone stays gone",
         GONE,
         KNOWN,
         obs(body=None),
         2,
-        Decision(GONE, KNOWN, False, 3),
+        Decision(GONE, KNOWN, False, 2),
     ),
     # empty string is intact content (link posts, empty self posts)
     ("empty selftext is live", LIVE, KNOWN, obs(body=""), 0, Decision(LIVE, KNOWN, False, 0)),
@@ -530,6 +537,29 @@ def test_info_absence_counts_a_miss(
         assert decision.content_state is GONE
     else:
         assert decision.content_state is UNC
+
+
+def test_a_bodyless_return_then_one_omission_is_still_an_unconfirmed_hold() -> None:
+    """KI-021 (external round one): a successful ``info()`` that returns the item with no body
+    is a hold, not a miss, so a single later omission must NOT reach the two-miss threshold and
+    scrub still-present content. The reproduction, as the reviewer ran it."""
+    bodyless_return = decide(LIVE, KNOWN, obs(body=None, info=True), 0)
+    assert bodyless_return == Decision(UNC, KNOWN, False, 0)  # a hold, no miss counted
+
+    first_real_omission = decide(
+        bodyless_return.content_state, bodyless_return.author_state, ABSENT, bodyless_return.misses
+    )
+    assert first_real_omission == Decision(UNC, KNOWN, False, 1)  # one miss, still a hold
+    assert not first_real_omission.scrub
+
+    # The control: a second real omission is the confirmed absence that scrubs.
+    second = decide(
+        first_real_omission.content_state,
+        first_real_omission.author_state,
+        ABSENT,
+        first_real_omission.misses,
+    )
+    assert second == Decision(GONE, KNOWN, True, 2)
 
 
 @settings(max_examples=300)
