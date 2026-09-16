@@ -31,8 +31,9 @@ audit, G47), so a skipped step shows up red. The reasoning is `docs/runbook/RUNB
    never store state the status page or the decisions log holds. Then `make memory-export`.
 7. **Prove it.** `uv run python tools/doc_policy.py --check`, then `make check`; paste the
    output. If the accretion ceiling is red, the fix is a rewrite, not a loosening. An
-   unresolved identifier is corrected, or its line names the milestone it waits on; a
-   class-like name the code does not define is the same choice.
+   unresolved identifier is corrected, or its own annotation names the milestone it waits
+   on (an annotation in prose is counted; the built/planned tables are the home); a
+   class-like name no code uses is the same choice.
 8. **Record.** A decision entry if a choice was made; the PR body names the documents swept.
 
 Rules that bite: never delete a line from an append-only document; never write a count into prose

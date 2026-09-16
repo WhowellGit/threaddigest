@@ -189,6 +189,7 @@ SPECS: tuple[Spec, ...] = (
     Spec("code_health", "duplicate_blocks", DOWN),
     Spec("docs", "dated_annotations", DOWN),
     Spec("docs", "unresolved_class_names", DOWN),
+    Spec("docs", "exempted_in_prose", DOWN),
 )
 FAMILIES: tuple[str, ...] = tuple(dict.fromkeys(spec.family for spec in SPECS))
 

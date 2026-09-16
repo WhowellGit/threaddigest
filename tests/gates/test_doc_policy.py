@@ -305,7 +305,11 @@ def test_dated_annotations_are_counted_in_prose_only(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     rep = dp.report(root)
-    assert rep["values"] == {"dated_annotations": 1, "unresolved_class_names": 0}
+    assert rep["values"] == {
+        "dated_annotations": 1,
+        "unresolved_class_names": 0,
+        "exempted_in_prose": 0,
+    }
     hits = rep["hits"]
     assert isinstance(hits, list) and len(hits) == 1
     assert hits[0].startswith("dated_annotation docs/PLAN.md:") and hits[0].endswith(
@@ -334,13 +338,17 @@ def _code_tree(tmp_path: Path) -> Path:
         "class FtsHelper:\n    pass\n\n\ndef optimize() -> None:\n    pass\n", encoding="utf-8"
     )
     (root / "src" / "insightminer" / "db" / "schema.sql").write_text(
-        'CREATE TABLE "posts" (\n\tpk INTEGER NOT NULL,\n\ttitle TEXT\n);\n', encoding="utf-8"
-    )
-    (root / "src" / "insightminer" / "cli.py").write_text(
-        'app.add_typer(db_app, name="db")\n\n\ndef run(gateway: str = "--gateway") -> None:\n'
-        "    pass\n",
+        # One line with nested parentheses, the shape the committed schema.sql has.
+        "CREATE TABLE posts ( pk INTEGER NOT NULL, title TEXT, CONSTRAINT pk_posts "
+        "PRIMARY KEY (pk) );\n",
         encoding="utf-8",
     )
+    (root / "src" / "insightminer" / "cli.py").write_text(
+        'app.add_typer(db_app, name="db")\nNAME = "MANIFEST.json"\n\n\n'
+        'def run(gateway: str = "--gateway") -> None:\n    pass\n',
+        encoding="utf-8",
+    )
+    (root / ".gitignore").write_text("generated.json\n", encoding="utf-8")
     (root / "tests" / "gates").mkdir(parents=True)
     (root / "tests" / "gates" / "test_x.py").write_text(
         "def test_ok() -> None:\n    pass\n", encoding="utf-8"
@@ -373,7 +381,11 @@ def test_a_clean_code_tree_reports_nothing(tmp_path: Path) -> None:
         "`.env`, `ok/partial/failed`, `retention.backups_days`, `BARE.md`.\n",
     )
     assert _problems(root) == []
-    assert dp.report(root)["values"] == {"dated_annotations": 0, "unresolved_class_names": 0}
+    assert dp.report(root)["values"] == {
+        "dated_annotations": 0,
+        "unresolved_class_names": 0,
+        "exempted_in_prose": 0,
+    }
 
 
 def test_positive_control_a_dead_path_target_test_id_or_command_is_red(tmp_path: Path) -> None:
@@ -421,11 +433,28 @@ def test_a_line_about_the_future_the_past_or_a_dated_record_is_not_judged(tmp_pa
         "| 2026-09-14 | `tools/gone.py` was checked | fine |\n"
         "```\n`tools/gone.py` in a fence\n```\n"
         "<!-- `tools/gone.py` in a comment -->\n"
-        "`tools/gone.py` at M1a-A, the current milestone, is judged.\n",
+        "`tools/gone.py` at M1a-A, the current milestone, is judged.\n"
+        # The refute pass of 2026-09-16: a marker on one token said nothing about the
+        # others on the line, and a decision id is not a retirement.
+        "`tools/present.py` (M2) is fine, but `tools/gone.py` beside it is judged.\n"
+        "`tools/gone.py` was decided (N-20) and is judged.\n"
+        "| `tools/gone.py` | a planned module in its table | M2 |\n"
+        "Retired: `tools/gone.py`. Then `tools/also_gone.py` in the next sentence is judged.\n",
     )
-    found = dp.report(root)["problems"]
+    rep = dp.report(root)
+    found = rep["problems"]
     assert isinstance(found, dict)
-    assert found["identifiers"] == ["docs/PLAN.md:19: `tools/gone.py` does not exist"]
+    assert found["identifiers"] == [
+        "docs/PLAN.md:19: `tools/gone.py` does not exist",
+        "docs/PLAN.md:20: `tools/gone.py` does not exist",
+        "docs/PLAN.md:21: `tools/gone.py` does not exist",
+        "docs/PLAN.md:23: `tools/also_gone.py` does not exist",
+    ]
+    # The four prose exemptions and the one in the last line are counted; the table row
+    # with a milestone in its own cell is the designed home and is not.
+    assert rep["values"]["exempted_in_prose"] == 5
+    assert "exempted_identifier docs/PLAN.md:10 `tools/gone.py`" in rep["hits"]
+    assert not any("tools/present.py" in h for h in rep["hits"])  # it resolves; not counted
 
 
 def test_an_unresolved_class_name_is_counted_not_failed(tmp_path: Path) -> None:
@@ -437,8 +466,15 @@ def test_an_unresolved_class_name_is_counted_not_failed(tmp_path: Path) -> None:
     )
     rep = dp.report(root)
     assert dp.flat_problems(rep) == []
-    assert rep["values"] == {"dated_annotations": 0, "unresolved_class_names": 1}
-    assert rep["hits"] == ["unresolved_class_name docs/PLAN.md:10 `SearchIndex`"]
+    assert rep["values"] == {
+        "dated_annotations": 0,
+        "unresolved_class_names": 1,
+        "exempted_in_prose": 1,
+    }
+    assert rep["hits"] == [
+        "unresolved_class_name docs/PLAN.md:10 `SearchIndex`",
+        "exempted_identifier docs/PLAN.md:11 `PrawGateway`",
+    ]
     # A name the code only talks about (a docstring, a string, a comment) does not resolve it.
     (root / "src" / "insightminer" / "db" / "fts.py").write_text(
         '"""The SearchIndex port was never built."""\nclass FtsHelper:\n    pass\n\n\n'
@@ -446,3 +482,38 @@ def test_an_unresolved_class_name_is_counted_not_failed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert dp.report(root)["values"]["unresolved_class_names"] == 1
+    # Nor does a mention in a non-Python file (the refute pass planted one in a note).
+    (root / "config" / "note.txt").write_text("SearchIndex is here.\n", encoding="utf-8")
+    assert dp.report(root)["values"]["unresolved_class_names"] == 1
+
+
+def test_the_column_check_reads_the_committed_schema() -> None:
+    """The refute pass of 2026-09-16: the first build's column check matched only a multi-line
+    CREATE TABLE, the committed schema writes each statement on one line, and the control
+    passed against its own fixture. This control reads the artifact the gate reads."""
+    tree = dp.load_tree(ROOT)
+    assert dp._table_block(tree.schema_sql, "posts") is not None
+    plan = ROOT / "docs" / "PLAN.md"
+    assert dp.judge(tree, plan, "posts.pk") == dp.OK
+    assert dp.judge(tree, plan, "posts.no_such_column") == (
+        "problem",
+        "names a column that table posts does not have",
+    )
+
+
+def test_a_bare_file_name_resolves_only_against_the_file_list(tmp_path: Path) -> None:
+    """A bare name resolves against the file list, a string literal in Python code (the code
+    names the file it writes), or a gitignore rule, never a substring of the corpus; a
+    lowercase dotted file name is a path before it is a column."""
+    root = _code_tree(tmp_path)
+    _plan_with(
+        root,
+        "The export writes `MANIFEST.json`; `generated.json` is generated; `never_ever.py` "
+        "and `posts.jsonl` are gone.\n",
+    )
+    found = dp.report(root)["problems"]
+    assert isinstance(found, dict)
+    assert found["identifiers"] == [
+        "docs/PLAN.md:10: `never_ever.py` does not exist",
+        "docs/PLAN.md:10: `posts.jsonl` does not exist",
+    ]

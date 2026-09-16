@@ -35,15 +35,21 @@ gates made the reading side mechanical. What it checks, and honestly what it doe
   configuration, code, or file home must agree with the literal.
 - **Identifiers.** A rewritten document or the working agreement that names a repository path, a
   ``make`` target, a test id, an ``insightminer`` command line, a package module or attribute, or a
-  ``table.column`` in backticks names something that exists in the tree. A line that names a
-  milestone later than the status page's, the word "planned", a tranche, a retirement word, or a
-  decision id is not judged (it speaks of the future or the past), and neither is a table row whose
-  first cell is a date (a record of that day). A class-like name (``SearchIndex``) that appears in
-  no code file is counted into the ratchet ceiling rather than failed, because a design may name a
-  class before it exists; the line then says which milestone it waits on. Born 2026-09-16: the
-  plan, the decisions log, and the runbook described a search-index port and a ``VACUUM INTO``
-  backup that the database layer never had, written before the build and carried through the
-  plan's second version; only the identifier-shaped part of that drift is mechanical.
+  ``table.column`` in backticks names something that exists in the tree. A token is exempt when
+  its own neighbourhood on the line (the text between it and the next backticked token either
+  side) names a milestone later than the status page's, the word "planned", a tranche, or a
+  retirement word; a marker beside one token says nothing about the others. A table row whose own
+  cell is a milestone or "planned" (the built/planned tables) is the designed home for a planned
+  identifier and is exempt whole; a row dated in its first cell is a record of that day. Two
+  ceilings in ``.ratchets/docs.txt``: a class-like name (``SearchIndex``) that no Python code uses
+  as an identifier (strings and comments stripped) is counted rather than failed, because a design
+  may name a class before it exists; and an identifier exempted by a marker in prose is counted,
+  because the annotation route is the one the accretion rule resists. Born 2026-09-16: the plan,
+  the decisions log, and the runbook described a search-index port and a ``VACUUM INTO`` backup
+  that the database layer never had, written before the build and carried through the plan's
+  second version; only the identifier-shaped part of that drift is mechanical. Its refute pass the
+  same day found the column check dead against the one-line committed schema, the exemptions
+  line-wide, and the annotation route uncounted; all three are closed here.
 
 Usage: ``--check`` (exit 1 with every problem), ``--write PATH`` (the JSON report the ratchet
 reads), ``--report`` (print the report); ``--write --check`` is what ``make check`` runs. The gate
@@ -414,18 +420,29 @@ TABLE_COLUMN = re.compile(r"^([a-z_]+)\.([a-z_]+)$")
 CLASS_NAME = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
 PATH_TOKEN = re.compile(r"^\.?[\w.-]+(?:/[\w.-]+)*/?$")
 DATED_ROW = re.compile(r"^\|\s*20\d\d-\d\d-\d\d\s*\|")
+#: A retirement word beside a token says the token is the past. A decision id is not one: it
+#: says something was decided, not that the thing named beside it is gone.
 RETIRED = re.compile(
-    r"\b[DN]-\d{2}\b|\b(?:cut|retired|superseded|downgraded|dropped|deferred|declined|replaced"
-    r"|removed|renamed)\b",
+    r"\b(?:cut|retired|superseded|downgraded|dropped|deferred|declined|replaced|removed|renamed)\b",
     re.IGNORECASE,
 )
 
 
 def future_marker(current: str | None) -> re.Pattern[str]:
-    """A line naming a milestone later than ``current``, the word planned, or a tranche."""
+    """A milestone later than ``current``, the word planned, or a tranche, beside a token."""
     later = MILESTONES[MILESTONES.index(current) + 1 :] if current in MILESTONES else MILESTONES
     names = "|".join(re.escape(m) for m in later)
     return re.compile(rf"(?<![\w-])(?:{names})(?![\w-])|\b(?:planned|tranche [AB])\b")
+
+
+def _status_cell_marks_future(line: str, future: re.Pattern[str]) -> bool:
+    """A table row whose own cell is a milestone or the word planned is the designed home for
+    a planned identifier (the built/planned tables); the whole row is exempt and not counted."""
+    if not line.lstrip().startswith("|"):
+        return False
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    # A cell made only of milestones, "planned", tranches, and range punctuation (M1b–M3).
+    return any(c and not re.sub(r"[\s\-–—+,/]", "", future.sub("", c)) for c in cells)
 
 
 #: Docstrings, string literals, and comments in a Python file: a class name mentioned there is
@@ -433,6 +450,11 @@ def future_marker(current: str | None) -> re.Pattern[str]:
 PY_NOISE = re.compile(
     r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|#[^\n]*'
 )
+#: A one-line string literal: a file name the code reads or writes lives in one of these.
+STRING_LITERAL = re.compile(r'"([^"\\\n]{1,120})"|\'([^\'\\\n]{1,120})\'')
+#: Structured configuration the system reads: a name there (a hook event in the settings file,
+#: a key in a launchd plist) is an identifier, unlike a word in a note or a shell comment.
+STRUCTURED_SUFFIXES = (".json", ".plist", ".yaml", ".yml", ".toml")
 
 
 def _code_only(text: str) -> str:
@@ -441,20 +463,22 @@ def _code_only(text: str) -> str:
 
 @dataclass(frozen=True)
 class Tree:
-    """What the tree offers a backticked token to resolve against: ``corpus`` is every
-    non-document file as written (a bare file name the code writes resolves there);
-    ``code_corpus`` is the Python with its strings and comments removed (a class name resolves
-    only where code uses it)."""
+    """What the tree offers a backticked token to resolve against: ``files`` is the file list (a
+    bare file name resolves only against it, never against text); ``code_corpus`` is the Python
+    with its strings and comments removed (a class name resolves only where code uses it as an
+    identifier); ``corpus`` is every non-document file as written, kept for future checks."""
 
     root: Path
     files: tuple[str, ...]
     corpus: str
     code_corpus: str
+    string_literals: frozenset[str]
     top_dirs: frozenset[str]
     package_dirs: frozenset[str]
     make_targets: frozenset[str]
     cli_text: str
     schema_sql: str
+    settings: dict[str, object]
 
 
 def _read(path: Path) -> str:
@@ -467,6 +491,7 @@ def load_tree(root: Path) -> Tree:
     files = tuple(sorted(set(listed.split()))) if listed else ()
     texts: list[str] = []
     code: list[str] = []
+    literals: set[str] = set()
     for rel in files:
         path = root / rel
         if rel.endswith(".md") or rel.startswith("memory-snapshot/") or not path.is_file():
@@ -476,13 +501,24 @@ def load_tree(root: Path) -> Tree:
         except UnicodeDecodeError:
             continue
         texts.append(text)
-        code.append(_code_only(text) if rel.endswith(".py") else text)
+        if rel.endswith(".py"):
+            code.append(_code_only(text))
+            literals.update(a or b for a, b in STRING_LITERAL.findall(text))
+        elif rel.endswith(STRUCTURED_SUFFIXES):
+            code.append(text)  # keys and values the system reads: a hook event, a plist key
     package = "src/insightminer/"
+    settings_path = root / "config" / "settings.yaml"
+    try:
+        settings = yaml.safe_load(_read(settings_path)) if settings_path.is_file() else {}
+    except yaml.YAMLError:
+        settings = {}
     return Tree(
         root=root,
         files=files,
         corpus="\n".join(texts),
         code_corpus="\n".join(code),
+        string_literals=frozenset(literals),
+        settings=settings if isinstance(settings, dict) else {},
         top_dirs=frozenset(f.split("/")[0] for f in files if "/" in f),
         package_dirs=frozenset(
             f[len(package) :].split("/")[0]
@@ -513,9 +549,9 @@ def _path_resolves(tree: Tree, source: Path, token: str) -> bool:
     if any(f == token or f.endswith("/" + token) for f in tree.files):
         return True
     if "/" not in token and (
-        any(f.rsplit("/", 1)[-1] == token for f in tree.files) or token in tree.corpus
+        any(f.rsplit("/", 1)[-1] == token for f in tree.files) or token in tree.string_literals
     ):
-        return True  # a bare name some tracked file has, or a name the code writes
+        return True  # a bare name some tracked file has, or one the code names in a string
     ignored = subprocess.run(
         ["git", "-C", str(tree.root), "check-ignore", "-q", token],
         capture_output=True,
@@ -548,20 +584,42 @@ def _package_ref_resolves(tree: Tree, token: str) -> bool:
 
 
 def _table_block(schema_sql: str, table: str) -> str | None:
-    m = re.search(rf'CREATE TABLE "?{re.escape(table)}"?\s*\((.*?)\n\)', schema_sql, re.S)
-    return m.group(1) if m else None
+    """The column list of ``CREATE TABLE table (...)``, whether the statement is written on one
+    line (the committed ``schema.sql``) or many; ``None`` when the table is not in the schema."""
+    m = re.search(rf'CREATE TABLE "?{re.escape(table)}"?\s*\(', schema_sql)
+    if m is None:
+        return None
+    depth, start = 1, m.end()
+    for i in range(start, len(schema_sql)):
+        depth += {"(": 1, ")": -1}.get(schema_sql[i], 0)
+        if depth == 0:
+            return schema_sql[start:i]
+    return None
 
 
 def _command_missing(tree: Tree, rest: str) -> list[str]:
-    """The command words and ``--options`` of an ``insightminer`` line the CLI does not define."""
+    """The command words and ``--options`` of an ``insightminer`` line the CLI does not define;
+    a word written as alternatives (``init/upgrade/current``) needs every alternative."""
     missing: list[str] = []
     for word in rest.split()[:2]:
         if word.startswith(("-", "[", "<")):
             break
-        if not (f'"{word}"' in tree.cli_text or _defined_in(word.replace("-", "_"), tree.cli_text)):
-            missing.append(word)
+        for name in word.split("/"):
+            quoted = f'"{name}"' in tree.cli_text
+            if not (quoted or _defined_in(name.replace("-", "_"), tree.cli_text)):
+                missing.append(name)
     missing += [opt for opt in re.findall(r"--[a-z][\w-]*", rest) if opt not in tree.cli_text]
     return missing
+
+
+def _settings_key_resolves(settings: dict[str, object], parts: list[str]) -> bool:
+    """``a.b.c`` names a nested key of ``config/settings.yaml``."""
+    node: object = settings
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
 
 
 Verdict = tuple[str, str]
@@ -597,18 +655,22 @@ def _judge_invocation(tree: Tree, token: str) -> Verdict | None:
 
 
 def _judge_reference(tree: Tree, source: Path, token: str) -> Verdict:
-    """A package reference, a table column, a path, or a class-like name."""
-    if PACKAGE_REF.match(token) and not token.endswith(CODE_SUFFIXES):
-        if _package_ref_resolves(tree, token):
-            return OK
+    """A package reference that resolves, else a path (a token with a code suffix is a path
+    before it is anything else), else an unresolved package reference, a settings key, a table
+    column, or a class-like name."""
+    if PACKAGE_REF.match(token) and _package_ref_resolves(tree, token):
+        return OK  # ``services.lock`` is a module before ``.lock`` is a file suffix
+    if token.endswith(CODE_SUFFIXES) or _looks_like_path(tree, token):
+        return OK if _path_resolves(tree, source, token) else ("problem", "does not exist")
+    if PACKAGE_REF.match(token):
         return "problem", "names a module or attribute that does not exist"
+    if "." in token and _settings_key_resolves(tree.settings, token.split(".")):
+        return OK  # ``comments.replace_more_limit`` is a configuration key, not a column
     if m := TABLE_COLUMN.match(token):
         block = _table_block(tree.schema_sql, m.group(1))
         if block is None or _word_in(m.group(2), block):
             return OK
         return "problem", f"names a column that table {m.group(1)} does not have"
-    if _looks_like_path(tree, token):
-        return OK if _path_resolves(tree, source, token) else ("problem", "does not exist")
     if CLASS_NAME.match(token) and not _word_in(token, tree.code_corpus):
         return "class", ""
     return OK
@@ -623,8 +685,9 @@ def judge(tree: Tree, source: Path, token: str) -> Verdict:
     return _judge_invocation(tree, token) or _judge_reference(tree, source, token)
 
 
-def _judged_lines(text: str, future: re.Pattern[str]) -> list[tuple[int, str]]:
-    """``(number, line)`` for every prose line the identifier check judges."""
+def _prose_lines(text: str) -> list[tuple[int, str]]:
+    """``(number, line)`` for every line outside fences and HTML comments, with the comment
+    fragments cut out of the line."""
     out: list[tuple[int, str]] = []
     in_code = in_comment = False
     for number, raw in enumerate(text.splitlines(), start=1):
@@ -640,15 +703,45 @@ def _judged_lines(text: str, future: re.Pattern[str]) -> list[tuple[int, str]]:
             in_comment, line = False, line.split("-->", 1)[1]
         if "<!--" in line:
             in_comment, line = True, line.split("<!--", 1)[0]
-        if DATED_ROW.match(line) or future.search(line) or RETIRED.search(line):
-            continue
         out.append((number, line))
     return out
 
 
-def identifier_problems(root: Path) -> tuple[list[str], list[str]]:
-    """``(problems, class_hits)``: unresolved identifiers in rewritten documents and the working
-    agreement, and the class-like names the ratchet counts."""
+SENTENCE_BOUNDARY = re.compile(r"[.;]\s")
+LEADING_PARENTHETICAL = re.compile(r"^\s*\([^)]*\)")
+
+
+def tokens_with_context(line: str) -> list[tuple[str, str]]:
+    """``(token, neighbourhood)`` for every backticked token. The neighbourhood is the text
+    from the previous backticked token (or the cell, line, or sentence start) to the next one
+    (or the cell, line, or sentence end), minus a parenthetical that opens the span, which
+    belongs to the previous token. A marker exempts a token only when it sits in that token's
+    own neighbourhood, so an annotation on one token says nothing about the others on the
+    line, and a marker in one sentence says nothing about the next."""
+    matches = list(BACKTICKED.finditer(line))
+    out: list[tuple[str, str]] = []
+    for i, m in enumerate(matches):
+        prev_end = matches[i - 1].end() if i else 0
+        next_start = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+        before = line[prev_end : m.start()].split("|")[-1]
+        before = SENTENCE_BOUNDARY.split(LEADING_PARENTHETICAL.sub(" ", before))[-1]
+        after = SENTENCE_BOUNDARY.split(line[m.end() : next_start].split("|")[0])[0]
+        out.append((m.group(1), before + " " + after))
+    return out
+
+
+@dataclass
+class IdentifierReport:
+    problems: list[str] = field(default_factory=list)
+    classes: list[str] = field(default_factory=list)
+    exempted: list[str] = field(default_factory=list)
+
+
+def identifier_problems(root: Path) -> IdentifierReport:
+    """Unresolved identifiers in rewritten documents and the working agreement (problems), the
+    class-like names no code uses (a ceiling), and the identifiers a marker in prose exempted
+    (a ceiling: the built/planned tables are the home for a planned identifier, and an
+    annotation in prose is the route the accretion rule resists)."""
     tree = load_tree(root)
     future = future_marker(current_milestone(root))
     sources = [
@@ -657,20 +750,26 @@ def identifier_problems(root: Path) -> tuple[list[str], list[str]]:
         if _policy(front_matter(p.read_text(encoding="utf-8"))) in ACCRETION_POLICIES
     ]
     sources.append(root / WORKING_AGREEMENT)
-    problems: list[str] = []
-    classes: list[str] = []
+    rep = IdentifierReport()
     for path in sources:
         if not path.is_file():
             continue
         rel = _rel(root, path)
-        for number, line in _judged_lines(path.read_text(encoding="utf-8"), future):
-            for token in BACKTICKED.findall(line):
+        for number, line in _prose_lines(path.read_text(encoding="utf-8")):
+            if DATED_ROW.match(line) or _status_cell_marks_future(line, future):
+                continue
+            for token, context in tokens_with_context(line):
+                token = token.strip()
                 kind, why = judge(tree, path, token)
-                if kind == "problem":
-                    problems.append(f"{rel}:{number}: `{token.strip()}` {why}")
-                elif kind == "class":
-                    classes.append(f"unresolved_class_name {rel}:{number} `{token.strip()}`")
-    return problems, classes
+                if kind == "ok":
+                    continue  # a marker beside a token that resolves changes nothing
+                if future.search(context) or RETIRED.search(context):
+                    rep.exempted.append(f"exempted_identifier {rel}:{number} `{token}`")
+                elif kind == "problem":
+                    rep.problems.append(f"{rel}:{number}: `{token}` {why}")
+                else:
+                    rep.classes.append(f"unresolved_class_name {rel}:{number} `{token}`")
+    return rep
 
 
 # ------------------------------------------------------------------------------ live facts
@@ -765,13 +864,13 @@ def report(root: Path = ROOT) -> dict[str, object]:
         _rel(root, p): front_matter(p.read_text(encoding="utf-8")) or {}
         for p in living_documents(root)
     }
-    unresolved, class_hits = identifier_problems(root)
+    identifiers = identifier_problems(root)
     problems: dict[str, list[str]] = {
         "contract": [],
         "append_only": append_only_problems(root, baseline_ref(root)),
         "milestone_lag": milestone_lag_problems(root),
         "dangling": dangling_document_references(root),
-        "identifiers": unresolved,
+        "identifiers": identifiers.problems,
         "facts": fact_problems(root),
     }
     hits: list[str] = []
@@ -784,9 +883,13 @@ def report(root: Path = ROOT) -> dict[str, object]:
             annotations = dated_annotations(text)
             total += len(annotations)
             hits += [f"dated_annotation {rel}:{n} {snippet}" for n, snippet in annotations]
-    hits += class_hits
+    hits += identifiers.classes + identifiers.exempted
     return {
-        "values": {"dated_annotations": total, "unresolved_class_names": len(class_hits)},
+        "values": {
+            "dated_annotations": total,
+            "unresolved_class_names": len(identifiers.classes),
+            "exempted_in_prose": len(identifiers.exempted),
+        },
         "hits": hits,
         "problems": problems,
     }

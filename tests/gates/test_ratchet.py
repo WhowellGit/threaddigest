@@ -91,7 +91,7 @@ EXPECTED = {
         "dead_code_whitelisted": 0,
         "duplicate_blocks": 0,
     },
-    "docs": {"dated_annotations": 0, "unresolved_class_names": 0},
+    "docs": {"dated_annotations": 0, "unresolved_class_names": 0, "exempted_in_prose": 0},
 }
 
 
@@ -113,7 +113,12 @@ def write_code_health(root: Path, values: dict[str, int], hits: list[str] | None
 
 
 def write_doc_policy(
-    root: Path, count: int, hits: list[str] | None = None, *, class_names: int = 0
+    root: Path,
+    count: int,
+    hits: list[str] | None = None,
+    *,
+    class_names: int = 0,
+    exempted: int = 0,
 ) -> None:
     """The report tools/doc_policy.py would write; the ratchet reads it like code_health.json."""
     build = root / ".build"
@@ -121,7 +126,11 @@ def write_doc_policy(
     (build / "doc_policy.json").write_text(
         json.dumps(
             {
-                "values": {"dated_annotations": count, "unresolved_class_names": class_names},
+                "values": {
+                    "dated_annotations": count,
+                    "unresolved_class_names": class_names,
+                    "exempted_in_prose": exempted,
+                },
                 "hits": hits or [],
                 "problems": {},
             }
@@ -521,7 +530,9 @@ def test_compare_is_red_when_dated_annotations_accrete(project: Path) -> None:
     """Wes, 2026-09-15: an accreting count of dated annotations in a rewritten document means a
     targeted rewrite is due, never another annotation; the ceiling only goes down."""
     assert ratchet(project, "bump").returncode == 0
-    assert read(project, "docs") == "dated_annotations=0\nunresolved_class_names=0\n"
+    assert read(project, "docs") == (
+        "dated_annotations=0\nexempted_in_prose=0\nunresolved_class_names=0\n"
+    )
     write_doc_policy(project, 2, ["dated_annotation docs/PLAN.md:12 (corrected 2026-09-13)"])
     proc = ratchet(project, "compare", "--main-ref", "none")
     assert proc.returncode == 1, proc.stdout
@@ -584,4 +595,21 @@ def test_compare_is_red_when_unresolved_class_names_accrete(project: Path) -> No
     assert "RED       docs.unresolved_class_names" in proc.stdout
     assert "HIT       unresolved_class_name docs/PLAN.md:92 `SearchIndex` [doc-policy]" in (
         proc.stdout
+    )
+
+
+def test_compare_is_red_when_prose_exemptions_accrete(project: Path) -> None:
+    """The refute pass of 2026-09-16: the first build's repairs were annotations that switched
+    the check off, with no ceiling on that route; now an identifier exempted by a marker in
+    prose is counted, and the count only goes down."""
+    assert ratchet(project, "bump").returncode == 0
+    write_doc_policy(
+        project, 0, ["exempted_identifier docs/PLAN.md:124 `adapters/reddit_praw.py`"], exempted=1
+    )
+    proc = ratchet(project, "compare", "--main-ref", "none")
+    assert proc.returncode == 1, proc.stdout
+    assert "RED       docs.exempted_in_prose" in proc.stdout
+    assert (
+        "HIT       exempted_identifier docs/PLAN.md:124 `adapters/reddit_praw.py` [doc-policy]"
+        in proc.stdout
     )
