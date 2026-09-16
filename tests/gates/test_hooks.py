@@ -7,6 +7,7 @@ pointing at a throwaway directory. Exit 2 blocks; 0 allows; malformed input must
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import subprocess
@@ -495,44 +496,85 @@ def test_hook_scripts_are_executable_bash_that_fails_closed() -> None:
         assert "trap '" in text and "exit 2' ERR" in text
 
 
-#: Every script under ``tools/hooks/`` and the matcher it is registered under. Registration
-#: is a human-only edit, so this is the gate that makes it happen: a script that exists but is
-#: not registered has never run (installed-ness, not existence), and the registered set must
-#: equal the on-disk set. A new script turns this red until a human registers it; an entry
-#: naming a script that is not here is a typo in the settings.
-EXPECTED_MATCHERS: dict[str, str] = {
-    "no_bypass_git.sh": "Bash",
-    "enforcement_files_script_only.sh": "Bash|Edit|Write|MultiEdit",
-    "read_before_touch.sh": "Edit|Write|MultiEdit",
+#: Every script under ``tools/hooks/`` and where it is registered: one entry per event, with the
+#: matcher for an event that takes one and ``None`` for an event that does not (a Stop or a
+#: SessionEnd hook runs every time the event happens). Registration is a human-only edit, so this
+#: is the gate that makes it happen: a script that exists but is not registered has never run
+#: (installed-ness, not existence), and the registered set must equal the on-disk set. A new
+#: script turns this red until a human registers it; an entry naming a script that is not here is
+#: a typo in the settings. Widened 2026-09-16 for the fifth hook, which is registered under two
+#: events and shares the ``Edit|Write|MultiEdit|Bash`` matcher shape with another script: a matcher
+#: entry may hold several hooks, and a script may appear under more than one event.
+EXPECTED_REGISTRATIONS: dict[str, dict[str, str | None]] = {
+    "no_bypass_git.sh": {"PreToolUse": "Bash"},
+    "enforcement_files_script_only.sh": {"PreToolUse": "Bash|Edit|Write|MultiEdit"},
+    "read_before_touch.sh": {"PreToolUse": "Edit|Write|MultiEdit"},
+    "questions_in_session.sh": {"Stop": None},
+    "one_session_per_checkout.sh": {
+        "PreToolUse": "Edit|Write|MultiEdit|Bash",
+        "SessionEnd": None,
+    },
 }
-#: Scripts registered under an event that takes no matcher (a Stop hook runs on every turn end).
-EXPECTED_UNMATCHED: dict[str, str] = {"questions_in_session.sh": "Stop"}
-TIMEOUTS = {"PreToolUse": 5, "Stop": 10}
+TIMEOUTS = {"PreToolUse": 5, "Stop": 10, "SessionEnd": 5}
+
+
+def tool_set(matcher: object) -> frozenset[str]:
+    """A matcher read as the set of tool names it names: the order in the string is not meaning."""
+    return frozenset(str(matcher or "").split("|")) - {""}
+
+
+def registrations(settings: dict[str, Any]) -> dict[str, list[tuple[str, frozenset[str]]]]:
+    """``{script name: [(event, the matcher's tool set), ...]}`` over every registered event."""
+    found: dict[str, list[tuple[str, frozenset[str]]]] = {}
+    for event, entries in settings["hooks"].items():
+        for entry in entries:
+            for hook in entry["hooks"]:
+                name = str(hook["command"]).rsplit("/", 1)[-1]
+                found.setdefault(name, []).append((event, tool_set(entry.get("matcher"))))
+    return found
+
+
+def registered_hook(settings: dict[str, Any], event: str, script: str) -> dict[str, Any]:
+    """The one hook object registering ``script`` under ``event``."""
+    hooks = [hook for entry in settings["hooks"][event] for hook in entry["hooks"]]
+    (hook,) = [h for h in hooks if str(h["command"]).endswith(f"/tools/hooks/{script}")]
+    return hook
 
 
 def test_settings_json_registers_every_hook_script_with_timeout_5() -> None:
     on_disk = sorted(p.name for p in HOOKS_DIR.glob("*.sh"))
-    expected = sorted(EXPECTED_MATCHERS) + sorted(EXPECTED_UNMATCHED)
-    assert on_disk == sorted(expected), "a hook script without an expected registration"
+    assert on_disk == sorted(EXPECTED_REGISTRATIONS), (
+        "a hook script without an expected registration"
+    )
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    entries = settings["hooks"]["PreToolUse"]
-    by_matcher = {entry["matcher"]: entry["hooks"] for entry in entries}
-    assert len(by_matcher) == len(entries), "two PreToolUse entries share a matcher"
-    assert set(by_matcher) == set(EXPECTED_MATCHERS.values())
-    for script, matcher in EXPECTED_MATCHERS.items():
-        (hook,) = by_matcher[matcher]
-        assert hook["type"] == "command"
-        assert hook["timeout"] == TIMEOUTS["PreToolUse"]
-        assert hook["command"].endswith(f"/tools/hooks/{script}")
-        assert "$CLAUDE_PROJECT_DIR" in hook["command"]
-        assert (HOOKS_DIR / script).is_file()
-    for script, event in EXPECTED_UNMATCHED.items():
-        hooks = [hook for entry in settings["hooks"][event] for hook in entry["hooks"]]
-        (hook,) = [h for h in hooks if h["command"].endswith(f"/tools/hooks/{script}")]
-        assert hook["type"] == "command"
-        assert hook["timeout"] == TIMEOUTS[event]
-        assert "$CLAUDE_PROJECT_DIR" in hook["command"]
-        assert (HOOKS_DIR / script).is_file()
+    for event, entries in settings["hooks"].items():
+        matchers = [tool_set(entry.get("matcher")) for entry in entries]
+        assert len(matchers) == len(set(matchers)), f"two {event} entries share a matcher"
+        assert all(entry["hooks"] for entry in entries), f"an empty {event} entry registers nothing"
+    found = registrations(settings)
+    unregistered = sorted(set(EXPECTED_REGISTRATIONS) - set(found))
+    unexpected = sorted(set(found) - set(EXPECTED_REGISTRATIONS))
+    assert not unregistered and not unexpected, (
+        f"hook scripts on disk that nothing registers, so they have never run: {unregistered}; "
+        f"registered commands naming no expected script: {unexpected}"
+    )
+    for script, expected in EXPECTED_REGISTRATIONS.items():
+        places = found[script]
+        assert sorted(event for event, _ in places) == sorted(expected), (
+            f"{script} is registered under {sorted(e for e, _ in places)}, "
+            f"expected exactly once under each of {sorted(expected)}"
+        )
+        for event, matcher in places:
+            assert matcher == tool_set(expected[event]), (
+                f"{script} under {event} matches {sorted(matcher)}, "
+                f"expected {sorted(tool_set(expected[event]))}"
+            )
+            hook = registered_hook(settings, event, script)
+            assert hook["type"] == "command"
+            assert hook["timeout"] == TIMEOUTS[event]
+            assert hook["command"].endswith(f"/tools/hooks/{script}")
+            assert "$CLAUDE_PROJECT_DIR" in hook["command"]
+            assert (HOOKS_DIR / script).is_file()
 
 
 # ------------------------------------------------------------- read_before_touch (G49)
@@ -675,12 +717,14 @@ def test_read_before_touch_is_executable_bash_with_a_committed_mode() -> None:
 
 def test_every_registered_hook_command_is_an_existing_executable_script() -> None:
     """Registration is checked against the tree: a registered command naming a script that
-    does not exist is a hook that never runs (installed-ness, not existence)."""
+    does not exist is a hook that never runs (installed-ness, not existence). Every event, not
+    only ``PreToolUse``: a hook registered under ``Stop`` or ``SessionEnd`` runs just as often."""
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-    for entry in settings["hooks"]["PreToolUse"]:
-        for hook in entry["hooks"]:
-            rel = hook["command"].split('"$CLAUDE_PROJECT_DIR"/', 1)[1]
-            assert os.access(REPO_ROOT / rel, os.X_OK), rel
+    for entries in settings["hooks"].values():
+        for entry in entries:
+            for hook in entry["hooks"]:
+                rel = hook["command"].split('"$CLAUDE_PROJECT_DIR"/', 1)[1]
+                assert os.access(REPO_ROOT / rel, os.X_OK), rel
 
 
 # ------------------------------------------------ no_bypass_git: main receives checked trees
@@ -1022,3 +1066,223 @@ def test_questions_in_session_never_loops_and_follows_the_mode_on_internal_error
     proc = run_hook(QUESTIONS, broken, root)
     assert proc.returncode == 0
     assert "error" in _questions_ledger(root)[-1]
+
+
+# -------------------------------------------------------- one_session_per_checkout (G57)
+#
+# The fifth hook (Wes, 2026-09-16). On 2026-09-14 two agent sessions were live in one checkout:
+# one had files edited but uncommitted on a branch, the other committed its own change from the
+# same working tree, swept those files into its commit, and fast-forwarded main, which went red
+# on the hook-settings gate a commit early. Nothing tells ``git commit`` whose edits it is
+# staging, so the guard is a lock in the checkout: one live session holds it, a second one is
+# told to work in its own git worktree. Log-first, like the third and fourth hooks. Every test
+# drives the script the way Claude Code does: a JSON payload on stdin, a real git checkout.
+
+ONE_SESSION = HOOKS_DIR / "one_session_per_checkout.sh"
+#: The window the script states once; a lock older than this belongs to a session that is gone.
+LIVENESS_SECONDS = 15 * 60
+REMEDY = "git worktree add"
+
+
+def _one_session_project(tmp_path: Path, mode: str = "log") -> Path:
+    """A git checkout carrying the hook's mode file, with one commit so a worktree can branch."""
+    root = (tmp_path / "checkout").resolve()
+    root.mkdir()
+    (root / "tools" / "hooks").mkdir(parents=True)
+    (root / "tools" / "hooks" / "one_session_per_checkout.mode").write_text(mode, encoding="utf-8")
+    (root / "a.txt").write_text("base\n", encoding="utf-8")
+    make_repo_on_branch(root, "work")
+    _commit(root, "baseline", "2026-01-01T00:00:00Z")
+    return root
+
+
+def _session_payload(
+    root: Path,
+    session: str,
+    *,
+    tool: str = "Edit",
+    event: str = "PreToolUse",
+    cwd: Path | None = None,
+) -> dict[str, Any]:
+    return {
+        "hook_event_name": event,
+        "session_id": session,
+        "transcript_path": str(root / "transcript.jsonl"),
+        "cwd": str(cwd or root),
+        "tool_name": tool,
+        "tool_input": {"file_path": str(root / "a.txt")},
+    }
+
+
+def _lock(root: Path) -> dict[str, Any] | None:
+    path = root / ".build" / "hooks" / "session.lock"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def _write_lock(root: Path, session: str, age_seconds: int) -> None:
+    """A lock held by ``session`` and last seen ``age_seconds`` ago."""
+    seen = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=age_seconds)
+    path = root / ".build" / "hooks" / "session.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "session_id": session,
+                "acquired": seen.isoformat(timespec="seconds"),
+                "last_seen": seen.isoformat(timespec="seconds"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _one_session_ledger(root: Path) -> list[dict[str, Any]]:
+    path = root / ".build" / "hooks" / "one_session_per_checkout.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def test_one_session_per_checkout_takes_the_lock_and_refreshes_it(tmp_path: Path) -> None:
+    """The first session takes the lock; the same session (a sub-agent carries the parent's id)
+    passes silently and refreshes it without moving the time it was acquired."""
+    root = _one_session_project(tmp_path)
+    assert run_hook(ONE_SESSION, _session_payload(root, "s1"), root).returncode == 0
+    first = _lock(root)
+    assert first is not None
+    assert first["session_id"] == "s1" and first["transcript_path"].endswith("transcript.jsonl")
+    _write_lock(root, "s1", age_seconds=60)  # time passes inside the window
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s1", tool="Bash"), root)
+    assert proc.returncode == 0, proc.stderr
+    second = _lock(root)
+    assert second is not None
+    assert second["session_id"] == "s1"
+    assert second["last_seen"] > second["acquired"], "the refresh must move last_seen only"
+    assert _one_session_ledger(root) == [], "the holder's own calls make no noise"
+
+
+@pytest.mark.gate("G57")
+def test_one_session_per_checkout_logs_a_second_session_and_blocks_it_in_block_mode(
+    tmp_path: Path,
+) -> None:
+    """The positive control: a second live session in the same checkout is the bad state. In
+    log mode it is recorded and allowed; in block mode the call is refused and told the remedy."""
+    root = _one_session_project(tmp_path)
+    assert run_hook(ONE_SESSION, _session_payload(root, "s1"), root).returncode == 0
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s2"), root)
+    assert proc.returncode == 0, proc.stderr
+    (entry,) = _one_session_ledger(root)
+    assert entry["session"] == "s2" and entry["holder"] == "s1" and entry["mode"] == "log"
+    assert entry["tool"] == "Edit" and entry["checkout"] == str(root)
+    assert _lock(root) is not None and _lock(root)["session_id"] == "s1", "the holder keeps it"
+
+    (root / "tools" / "hooks" / "one_session_per_checkout.mode").write_text(
+        "block", encoding="utf-8"
+    )
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s3"), root)
+    assert proc.returncode == 2, proc.stderr
+    assert "BLOCKED" in proc.stderr and "s1" in proc.stderr
+    assert REMEDY in proc.stderr, "the block must name the remedy, not only the problem"
+
+
+@pytest.mark.gate("G57")
+def test_one_session_per_checkout_lets_a_worktree_hold_its_own_lock(tmp_path: Path) -> None:
+    """The remedy has to work: a git worktree is its own checkout, so the second session takes
+    a lock there and is never an intrusion. Block mode, so a false positive would be red."""
+    root = _one_session_project(tmp_path, mode="block")
+    assert run_hook(ONE_SESSION, _session_payload(root, "s1"), root).returncode == 0
+    tree = (tmp_path / "checkout-topic").resolve()
+    subprocess.run(
+        ["git", "worktree", "add", "-q", str(tree), "-b", "topic"],
+        cwd=root,
+        check=True,
+        env=_git_env(root, "2026-01-01T00:00:00Z"),
+        timeout=60,
+    )
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s2", cwd=tree), root)
+    assert proc.returncode == 0, proc.stderr
+    assert _lock(tree) is not None and _lock(tree)["session_id"] == "s2"
+    assert _lock(root) is not None and _lock(root)["session_id"] == "s1"
+    assert _one_session_ledger(root) == [] and _one_session_ledger(tree) == []
+
+
+@pytest.mark.gate("G57")
+def test_one_session_per_checkout_takes_over_a_stale_lock(tmp_path: Path) -> None:
+    """A session that died without a SessionEnd must not lock the checkout forever: past the
+    liveness window the next session takes the lock, and inside it the same lock still holds."""
+    root = _one_session_project(tmp_path, mode="block")
+    _write_lock(root, "gone", age_seconds=LIVENESS_SECONDS + 60)
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s2"), root)
+    assert proc.returncode == 0, proc.stderr
+    assert _lock(root) is not None and _lock(root)["session_id"] == "s2"
+    assert _one_session_ledger(root) == [], "a takeover is not an intrusion"
+    _write_lock(root, "alive", age_seconds=LIVENESS_SECONDS - 60)
+    blocked = run_hook(ONE_SESSION, _session_payload(root, "s2"), root)
+    assert blocked.returncode == 2 and "alive" in blocked.stderr
+
+
+def test_one_session_per_checkout_releases_the_lock_at_session_end(tmp_path: Path) -> None:
+    """A normal end frees the checkout at once; another session's end leaves the lock alone,
+    and no SessionEnd ever blocks, because refusing one would only strand the lock."""
+    root = _one_session_project(tmp_path, mode="block")
+    assert run_hook(ONE_SESSION, _session_payload(root, "s1"), root).returncode == 0
+    other = run_hook(ONE_SESSION, _session_payload(root, "s2", event="SessionEnd"), root)
+    assert other.returncode == 0, other.stderr
+    assert _lock(root) is not None and _lock(root)["session_id"] == "s1"
+    mine = run_hook(ONE_SESSION, _session_payload(root, "s1", event="SessionEnd"), root)
+    assert mine.returncode == 0, mine.stderr
+    assert _lock(root) is None
+    taken = run_hook(ONE_SESSION, _session_payload(root, "s2"), root)
+    assert taken.returncode == 0, taken.stderr
+    assert _lock(root) is not None and _lock(root)["session_id"] == "s2"
+
+
+def test_one_session_per_checkout_logs_a_repeated_intrusion_once(tmp_path: Path) -> None:
+    """A blocked session keeps being told why, but the ledger stays readable: one line per
+    (intruder, holder) pair, and a new holder is a new line."""
+    root = _one_session_project(tmp_path)
+    assert run_hook(ONE_SESSION, _session_payload(root, "s1"), root).returncode == 0
+    for _ in range(3):
+        assert run_hook(ONE_SESSION, _session_payload(root, "s2"), root).returncode == 0
+    assert len(_one_session_ledger(root)) == 1
+    _write_lock(root, "s9", age_seconds=60)
+    assert run_hook(ONE_SESSION, _session_payload(root, "s2"), root).returncode == 0
+    assert [entry["holder"] for entry in _one_session_ledger(root)] == ["s1", "s9"]
+
+
+def test_one_session_per_checkout_is_quiet_outside_a_git_repository(tmp_path: Path) -> None:
+    """Block mode, so silence is asserted where a false positive would be loudest."""
+    root = _one_session_project(tmp_path, mode="block")
+    elsewhere = tmp_path / "not-a-repo"
+    elsewhere.mkdir()
+    proc = run_hook(ONE_SESSION, _session_payload(root, "s1", cwd=elsewhere), root)
+    assert proc.returncode == 0, proc.stderr
+    assert _lock(root) is None and _lock(elsewhere) is None
+    assert _one_session_ledger(root) == []
+
+
+@pytest.mark.gate("G57")
+@pytest.mark.parametrize(("mode", "expected"), [("log", 0), ("block", 2)])
+def test_one_session_per_checkout_internal_errors_follow_the_mode(
+    tmp_path: Path, mode: str, expected: int
+) -> None:
+    root = _one_session_project(tmp_path, mode=mode)
+    proc = run_hook(ONE_SESSION, "{not json", root)
+    assert proc.returncode == expected, proc.stderr
+    if mode == "log":
+        (entry,) = _one_session_ledger(root)
+        assert "error" in entry
+    else:
+        assert "failing closed" in proc.stderr
+    payload = _session_payload(root, "s1")
+    del payload["session_id"]  # a payload the runtime should always carry
+    assert run_hook(ONE_SESSION, payload, root).returncode == expected
+
+
+def test_one_session_per_checkout_is_executable_bash_with_a_committed_mode() -> None:
+    assert os.access(ONE_SESSION, os.X_OK)
+    text = ONE_SESSION.read_text(encoding="utf-8")
+    assert text.startswith("#!/usr/bin/env bash\n") and "set -uo pipefail" in text
+    assert f"LIVENESS_SECONDS = {LIVENESS_SECONDS // 60} * 60" in text, "one home for the window"
+    mode = (HOOKS_DIR / "one_session_per_checkout.mode").read_text(encoding="utf-8").strip()
+    assert mode in {"log", "block"}
