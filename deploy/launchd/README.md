@@ -7,8 +7,8 @@ notifications.
 
 | Agent (Label) | When | Command | Log |
 |---|---|---|---|
-| `com.wesmax.threaddigest.run` | 06:30 Monday and Thursday | `.venv/bin/python -m threaddigest run` | `data/logs/launchd-run.log` |
-| `com.wesmax.threaddigest.doctor` | every hour at :15 | `.venv/bin/python -m threaddigest doctor --alert-if-stale 5d` | `data/logs/launchd-doctor.log` |
+| `io.github.whowellgit.threaddigest.run` | 06:30 Monday and Thursday | `.venv/bin/python -m threaddigest run` | `data/logs/launchd-run.log` |
+| `io.github.whowellgit.threaddigest.doctor` | every hour at :15 | `.venv/bin/python -m threaddigest doctor --alert-if-stale 5d` | `data/logs/launchd-doctor.log` |
 
 Twice a week, Monday and Thursday, is the cadence (D-30, 2026-09-15): Wes reads on his own
 rhythm, the target subreddits produce far fewer than 1,000 posts between runs, so the listing
@@ -25,7 +25,7 @@ overdue (a missed run doubles the gap past five days).
 |---|---|
 | `run.sh` | The wrapper launchd runs (`run.sh run` or `run.sh doctor`). Details below. |
 | `common.sh` | Helpers shared by the three scripts: repo-root resolution and the TCC check. Sourced, never executed. |
-| `com.wesmax.threaddigest.run.plist`, `com.wesmax.threaddigest.doctor.plist` | Templates. `__ROOT__` stands for the repository's absolute path; `install.sh` substitutes it. launchd never reads these copies. |
+| `io.github.whowellgit.threaddigest.run.plist`, `io.github.whowellgit.threaddigest.doctor.plist` | Templates. `__ROOT__` stands for the repository's absolute path; `install.sh` substitutes it. launchd never reads these copies. |
 | `install.sh` | Renders, lints, writes and bootstraps both agents. `--dry-run` prints every step and changes nothing. |
 | `uninstall.sh` | Unloads both agents and removes their rendered plists. Logs and data are untouched. `--dry-run` supported. |
 
@@ -40,7 +40,7 @@ created `.venv`, and `.env` holds the Reddit credentials.
 
 ```sh
 deploy/launchd/install.sh --dry-run   # shows the substituted paths and every launchctl step
-deploy/launchd/install.sh             # writes ~/Library/LaunchAgents/com.wesmax.threaddigest.*.plist and bootstraps them
+deploy/launchd/install.sh             # writes ~/Library/LaunchAgents/io.github.whowellgit.threaddigest.*.plist and bootstraps them
 ```
 
 `install.sh` is idempotent: it boots out any loaded copy before bootstrapping the new one, so
@@ -50,9 +50,9 @@ false); the first run is the next calendar entry.
 ## Verify
 
 ```sh
-launchctl print gui/$UID/com.wesmax.threaddigest.run      # "state = waiting", program, run interval
-launchctl print gui/$UID/com.wesmax.threaddigest.doctor
-launchctl kickstart gui/$UID/com.wesmax.threaddigest.run  # trigger a run now, same environment launchd uses
+launchctl print gui/$UID/io.github.whowellgit.threaddigest.run      # "state = waiting", program, run interval
+launchctl print gui/$UID/io.github.whowellgit.threaddigest.doctor
+launchctl kickstart gui/$UID/io.github.whowellgit.threaddigest.run  # trigger a run now, same environment launchd uses
 tail -f data/logs/launchd-run.log
 ```
 

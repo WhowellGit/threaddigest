@@ -4,7 +4,7 @@
 #   deploy/launchd/install.sh            render, lint, write, and bootstrap both agents
 #   deploy/launchd/install.sh --dry-run  print every step and the substituted paths; change nothing
 #
-# For each of com.wesmax.threaddigest.run and com.wesmax.threaddigest.doctor: substitute
+# For each of io.github.whowellgit.threaddigest.run and io.github.whowellgit.threaddigest.doctor: substitute
 # `__ROOT__` in deploy/launchd/<label>.plist with this repository's absolute path, `plutil -lint`
 # the rendered copy, write it to ~/Library/LaunchAgents, `launchctl bootout` any loaded version
 # (errors ignored), then `launchctl bootstrap gui/$UID <plist>`. Refuses to install from a
@@ -45,7 +45,7 @@ fi
 
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-LABELS="com.wesmax.threaddigest.run com.wesmax.threaddigest.doctor"
+LABELS="io.github.whowellgit.threaddigest.run io.github.whowellgit.threaddigest.doctor"
 
 # say <text>: describe a step; prefixed in dry-run mode so the transcript reads honestly.
 say() {
@@ -131,10 +131,10 @@ fi
 cat <<EOF
 
 verify (look for "state =" and "last exit code ="; a fresh install shows no exit code yet):
-  launchctl print $DOMAIN/com.wesmax.threaddigest.run
-  launchctl print $DOMAIN/com.wesmax.threaddigest.doctor
+  launchctl print $DOMAIN/io.github.whowellgit.threaddigest.run
+  launchctl print $DOMAIN/io.github.whowellgit.threaddigest.doctor
 trigger a run now instead of waiting for Monday or Thursday 06:30:
-  launchctl kickstart $DOMAIN/com.wesmax.threaddigest.run
+  launchctl kickstart $DOMAIN/io.github.whowellgit.threaddigest.run
 logs:
   $ROOT/data/logs/launchd-run.log       timestamped wrapper lines plus the run's output
   $ROOT/data/logs/launchd-doctor.log    the hourly staleness check

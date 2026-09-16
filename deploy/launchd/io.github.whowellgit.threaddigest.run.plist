@@ -8,7 +8,7 @@
 	     reads. A run missed while the Mac is asleep runs once on wake; one missed while it is off
 	     is picked up by the next scheduled run (D-30). -->
 	<key>Label</key>
-	<string>com.wesmax.threaddigest.run</string>
+	<string>io.github.whowellgit.threaddigest.run</string>
 
 	<key>ProgramArguments</key>
 	<array>

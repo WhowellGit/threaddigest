@@ -8,7 +8,7 @@
 	     template: deploy/launchd/install.sh replaces the root placeholder with the repository's
 	     absolute path. (No double hyphen in this comment: XML forbids it.) -->
 	<key>Label</key>
-	<string>com.wesmax.threaddigest.doctor</string>
+	<string>io.github.whowellgit.threaddigest.doctor</string>
 
 	<key>ProgramArguments</key>
 	<array>

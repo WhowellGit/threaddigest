@@ -1,8 +1,8 @@
 #!/bin/bash
 # deploy/launchd/run.sh: the wrapper launchd invokes for every scheduled Thread Digest job.
 #
-#   run.sh run      the collector run       (com.wesmax.threaddigest.run: Monday and Thursday 06:30, D-30)
-#   run.sh doctor   the staleness check     (com.wesmax.threaddigest.doctor: hourly at :15, --alert-if-stale 5d)
+#   run.sh run      the collector run       (io.github.whowellgit.threaddigest.run: Monday and Thursday 06:30, D-30)
+#   run.sh doctor   the staleness check     (io.github.whowellgit.threaddigest.doctor: hourly at :15, --alert-if-stale 5d)
 #
 # What it guarantees (docs/PLAN.md § Deployment path, § Resilience to outages):
 #   - the repo root comes from this file's location, never from the caller's cwd or PATH;

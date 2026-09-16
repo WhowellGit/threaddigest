@@ -26,8 +26,8 @@ pytestmark = pytest.mark.macos
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHD_DIR = REPO_ROOT / "deploy" / "launchd"
-RUN_LABEL = "com.wesmax.threaddigest.run"
-DOCTOR_LABEL = "com.wesmax.threaddigest.doctor"
+RUN_LABEL = "io.github.whowellgit.threaddigest.run"
+DOCTOR_LABEL = "io.github.whowellgit.threaddigest.doctor"
 LABELS = (RUN_LABEL, DOCTOR_LABEL)
 EXECUTABLE_SCRIPTS = ("run.sh", "install.sh", "uninstall.sh")
 SCRIPTS = ("common.sh", *EXECUTABLE_SCRIPTS)

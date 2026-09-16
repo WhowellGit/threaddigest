@@ -25,7 +25,7 @@ def _rendered_plist(label: str) -> dict[str, object]:
 
 def test_run_job_is_scheduled_monday_and_thursday_at_0630() -> None:
     """D-30: Weekday 1 (Monday) and 4 (Thursday), 06:30, and the run's 3h ExitTimeOut."""
-    data = _rendered_plist("com.wesmax.threaddigest.run")
+    data = _rendered_plist("io.github.whowellgit.threaddigest.run")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, list)
     assert [(e["Weekday"], e["Hour"], e["Minute"]) for e in schedule] == [(1, 6, 30), (4, 6, 30)]
@@ -34,7 +34,7 @@ def test_run_job_is_scheduled_monday_and_thursday_at_0630() -> None:
 
 
 def test_doctor_job_is_hourly_off_the_run_minute() -> None:
-    data = _rendered_plist("com.wesmax.threaddigest.doctor")
+    data = _rendered_plist("io.github.whowellgit.threaddigest.doctor")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, dict) and set(schedule) == {"Minute"}
     assert schedule["Minute"] != 30  # never starts together with the run job
@@ -64,7 +64,7 @@ def test_reconcile_bounds_fit_the_schedule() -> None:
     gap plus a run's wall-clock ceiling."""
     import yaml
 
-    schedule = _rendered_plist("com.wesmax.threaddigest.run")["StartCalendarInterval"]
+    schedule = _rendered_plist("io.github.whowellgit.threaddigest.run")["StartCalendarInterval"]
     assert isinstance(schedule, list)
     weekdays = sorted(entry["Weekday"] for entry in schedule)
     gaps_days = [b - a for a, b in zip(weekdays, weekdays[1:], strict=False)]
@@ -91,7 +91,7 @@ def test_doctor_default_threshold_outlasts_the_longest_gap_and_matches_the_wrapp
     from threaddigest import cli
     from threaddigest.services import doctor
 
-    data = _rendered_plist("com.wesmax.threaddigest.run")
+    data = _rendered_plist("io.github.whowellgit.threaddigest.run")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, list)
     default = doctor.DEFAULT_ALERT_IF_STALE

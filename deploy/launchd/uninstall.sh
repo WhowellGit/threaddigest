@@ -34,7 +34,7 @@ done
 ROOT="$(repo_root_of "${BASH_SOURCE[0]}")"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-LABELS="com.wesmax.threaddigest.run com.wesmax.threaddigest.doctor"
+LABELS="io.github.whowellgit.threaddigest.run io.github.whowellgit.threaddigest.doctor"
 
 say() {
   if [ "$DRY_RUN" = 1 ]; then
