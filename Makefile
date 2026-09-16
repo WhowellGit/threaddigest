@@ -32,7 +32,7 @@ help:
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
 	@echo "                      (lands a GUARDS.md row; HARD_AFTER turns it red again on that date)"
 	@echo "make memory-check     audit this machine's Claude Code memory (also runs at the end of check)"
-	@echo "make memory-export    snapshot that memory into memory-snapshot/, add-or-update only"
+	@echo "make memory-export    snapshot that memory into the private home, add-or-update only"
 
 setup:
 	@if ! command -v $(UV) >/dev/null 2>&1; then \
@@ -80,8 +80,10 @@ check: | $(BUILD_DIR)
 # Claude Code's auto-memory: the one asset here that no rebuild can regenerate. It is keyed to
 # this checkout's absolute path and lives outside git, so `check` audits it (unreachable files,
 # dangling index links, the index budget, the frontmatter contract) and `export` mirrors it into
-# memory-snapshot/ add-or-update only -- a file deleted upstream is reported, never deleted here.
-# Both print their findings; on a machine with no memory directory (CI) they say exactly that.
+# the private home add-or-update only -- a file deleted upstream is reported, never deleted here.
+# The home is $THREADDIGEST_PRIVATE_DIR (default ~/repos/threaddigest-private): the notes are
+# Wes's and the repository is public (D-34), so the snapshot is not committed and a missing home
+# is red. Both print their findings; with no memory directory (CI) they say exactly that.
 memory-check:
 	$(UV) run python tools/memory_snapshot.py check
 

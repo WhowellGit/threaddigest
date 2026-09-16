@@ -31,6 +31,8 @@ from pathlib import Path
 import pytest
 from tools.ratchet import is_separator_row, split_row
 
+from tools import memory_snapshot
+
 ROOT = Path(__file__).resolve().parents[2]
 
 #: (file, heading that opens the table, columns whose pointers are checked)
@@ -40,7 +42,12 @@ ROUTING_TABLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("docs/INDEX.md", "## Routing table (task → read first)", ("Read",)),
 )
 RULE_FILES_GLOB = ".claude/rules/*.md"
-MEMORY_SNAPSHOT_GLOB = "memory-snapshot/*.md"
+#: Memory topic files are read where this machine keeps them. They left the tree on 2026-09-16
+#: (D-35): the snapshot is private, so it is read from the private home when there is one and
+#: from live memory otherwise. A machine with neither -- CI, a fresh clone -- checks no memory
+#: pointer; that is the price of taking the working notes out of a public repository, and it is
+#: recorded on G44's row in the guards ledger.
+MEMORY_LABEL = "memory/"
 ROUTER_SOURCES = ("CLAUDE.md", "docs/INDEX.md")
 
 PATH_TOKEN = re.compile(r"`([^`\s]+)`")
@@ -159,7 +166,7 @@ def resolve_path(root: Path, source: str, token: str) -> Path | None:
     bases = [root]
     if source.startswith("docs/"):
         bases.append(root / "docs")
-    if source.startswith((".claude/", "memory-snapshot/")):
+    if source.startswith((".claude/", MEMORY_LABEL)):
         bases.append(root / "src" / "threaddigest")
     for base in bases:
         candidate = base / token
@@ -214,13 +221,29 @@ def table_pointers(root: Path) -> list[Pointer]:
     return out
 
 
-def file_pointers(root: Path, pattern: str) -> list[Pointer]:
+def pointers_in_files(paths: Iterable[Path], root: Path) -> list[Pointer]:
     out: list[Pointer] = []
-    for path in sorted(root.glob(pattern)):
-        source = path.relative_to(root).as_posix()
+    for path in paths:
+        try:
+            source = path.relative_to(root).as_posix()
+        except ValueError:  # outside the tree: a memory file in the private home
+            source = MEMORY_LABEL + path.name
         for line, text in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             out += pointers_in(source, line, text)
     return out
+
+
+def file_pointers(root: Path, pattern: str) -> list[Pointer]:
+    return pointers_in_files(sorted(root.glob(pattern)), root)
+
+
+def memory_files(root: Path) -> list[Path]:
+    """The memory topic files this machine has: the private snapshot, else live memory."""
+    memory, snapshot = memory_snapshot.default_paths(root)
+    for folder in (snapshot, memory):
+        if folder.is_dir():
+            return sorted(folder.glob("*.md"))
+    return []
 
 
 def rule_globs(root: Path) -> list[tuple[str, list[str]]]:
@@ -271,9 +294,19 @@ def test_the_routing_tables_carry_pointers() -> None:
 
 def test_every_routing_pointer_resolves() -> None:
     pointers = table_pointers(ROOT) + file_pointers(ROOT, RULE_FILES_GLOB)
-    pointers += file_pointers(ROOT, MEMORY_SNAPSHOT_GLOB)
+    pointers += pointers_in_files(memory_files(ROOT), ROOT)
     found = dangling(ROOT, pointers)
     assert not found, "routing pointers that resolve to nothing:\n" + "\n".join(found)
+
+
+def test_the_memory_files_are_read_when_this_machine_has_them() -> None:
+    """A parser that silently found nothing would pass forever, and since 2026-09-16 the memory
+    is outside the tree, so it can be absent. Where it exists -- Wes's machine, with the private
+    snapshot or live memory -- it must yield pointers; where it does not (CI, a fresh clone) the
+    check above reads no memory at all, which is the cost of a private snapshot."""
+    files = memory_files(ROOT)
+    if files:
+        assert pointers_in_files(files, ROOT), sorted(p.name for p in files)
 
 
 def test_every_rule_file_matches_a_tracked_file() -> None:

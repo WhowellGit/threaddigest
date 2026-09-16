@@ -20,9 +20,11 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from tools.hash_remap import load_remap, successors
 from tools.ratchet import is_separator_row, split_row
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,26 +95,42 @@ def required_commits(root: Path, baseline: str = BASELINE) -> list[tuple[str, st
     return commits
 
 
-def covered(root: Path, scope: str, full: str) -> bool:
-    """True when ``scope`` names ``full`` directly or through a range it lies in."""
+def _through_remap(remap: Mapping[str, str], sha: str) -> list[str]:
+    """``sha`` and every hash a recorded history rewrite turned it into."""
+    return [sha, *successors(remap, sha)]
+
+
+def covered(root: Path, scope: str, full: str, remap: Mapping[str, str] | None = None) -> bool:
+    """True when ``scope`` names ``full`` directly or through a range it lies in.
+
+    A scope is written once and never edited (the register is append-only), so after a history
+    rewrite its hashes name commits that no longer exist. The rewrite records what each commit
+    became (``docs/reference/hash-remap-*.tsv``) and both a bare hash and each end of a range
+    are followed through that map. A scope that names no commit, before or after the map, still
+    covers nothing.
+    """
+    remap = load_remap(root) if remap is None else remap
     for first, last in RANGE.findall(scope):
-        try:  # ``first..last`` excludes ``first``; it is added back (a root has no parent)
-            listed = git(root, "rev-list", f"{first}..{last}").split()
-            listed.append(git(root, "rev-parse", f"{first}^{{commit}}").strip())
-        except subprocess.CalledProcessError:
-            continue
-        if full in listed:
-            return True
+        for start in _through_remap(remap, first):
+            for end in _through_remap(remap, last):
+                try:  # ``a..b`` excludes ``a``; it is added back (a root has no parent)
+                    listed = git(root, "rev-list", f"{start}..{end}").split()
+                    listed.append(git(root, "rev-parse", f"{start}^{{commit}}").strip())
+                except subprocess.CalledProcessError:
+                    continue
+                if full in listed:
+                    return True
     bare = [h for h in HASH.findall(RANGE.sub(" ", scope)) if re.search(r"[a-f]", h)]
-    return any(full.startswith(h) for h in bare)
+    return any(full.startswith(h) or full in successors(remap, h) for h in bare)
 
 
 def uncovered_commits(root: Path, register_rows: list[dict[str, str]]) -> list[str]:
     scopes = [row.get(SCOPE_COLUMN, "") for row in register_rows]
+    remap = load_remap(root)
     return [
         f"{full[:7]} {subject}"
         for full, subject in required_commits(root)
-        if not any(covered(root, scope, full) for scope in scopes)
+        if not any(covered(root, scope, full, remap) for scope in scopes)
     ]
 
 
@@ -184,6 +202,43 @@ def test_positive_control_an_uncovered_surface_commit_is_red(tmp_path: Path) -> 
     assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: other[:7]}]) != [], (
         "a wrong hash covers nothing"
     )
+
+
+@pytest.mark.gate("G50")
+def test_positive_control_a_scope_written_before_a_history_rewrite_still_covers(
+    tmp_path: Path,
+) -> None:
+    """A register row is append-only: after the 2026-09-16 history rewrite its scope names
+    commits that no longer exist, and the row may not be edited to follow. The map the rewrite
+    records is what keeps the row honest -- and it rescues only what it names."""
+    old, new, other = _repo_with_dated_commits(tmp_path)
+    gone = "0badc0d" + "0" * 33
+    vanished = "d0omed01" + "0" * 32
+    maps = tmp_path / "docs" / "reference"
+    maps.mkdir(parents=True, exist_ok=True)
+
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: gone[:7]}]) != [], "no map, no rescue"
+
+    (maps / "hash-remap-2026-09-16.tsv").write_text(
+        f"# a rewrite\n{gone}\t{new}\tthe commit it became\n"
+        f"{vanished}\t{'f' * 40}\tsomething nobody has\n",
+        encoding="utf-8",
+    )
+
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: gone[:7]}]) == []
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: f"{gone[:7]}..{other[:7]}"}]) == [], (
+        "a range is followed through the map at its start"
+    )
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: f"{old[:7]}..{gone[:7]}"}]) == [], (
+        "and at its end"
+    )
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: f"{vanished[:7]}..{other[:7]}"}]) != [], (
+        "a range whose end the map sends nowhere covers nothing"
+    )
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: vanished[:7]}]) != [], (
+        "a map entry pointing at a commit this repository does not have covers nothing"
+    )
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: "0ther123"}]) != [], "unmapped, uncovered"
 
 
 @pytest.mark.gate("G50")

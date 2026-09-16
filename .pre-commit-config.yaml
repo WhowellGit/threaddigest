@@ -13,10 +13,10 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=1024"]
       - id: end-of-file-fixer
-        exclude: ^(docs/reference/|memory-snapshot/)   # immutable copies of external material; a byte-for-byte mirror of live memory
+        exclude: ^docs/reference/   # immutable copies of external material
       - id: trailing-whitespace
         args: ["--markdown-linebreak-ext=md"]
-        exclude: ^(docs/reference/|memory-snapshot/)
+        exclude: ^docs/reference/
       - id: no-commit-to-branch
         args: ["--branch", "main"]
 

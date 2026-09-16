@@ -494,7 +494,7 @@ def load_tree(root: Path) -> Tree:
     literals: set[str] = set()
     for rel in files:
         path = root / rel
-        if rel.endswith(".md") or rel.startswith("memory-snapshot/") or not path.is_file():
+        if rel.endswith(".md") or not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")

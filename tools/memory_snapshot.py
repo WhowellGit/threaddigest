@@ -4,7 +4,7 @@
 The memory directory (``~/.claude/projects/<slug>/memory``) is keyed to the repo's absolute
 path and lives outside git: a repo move strands it, a machine wipe loses it, and nothing in
 the tree can regenerate it. It is the only asset here that is not derivable from code or data,
-so it gets a committed snapshot and a mechanical audit rather than a habit.
+so it gets a private snapshot and a mechanical audit rather than a habit.
 
 Three rules come from the earlier project's incidents and are the reason this file exists.
 
@@ -28,9 +28,15 @@ Everything is reported as pasted output: one line per finding plus a summary lin
 ``make check`` block shows the memory's state instead of a claim about it.
 
 Subcommands: ``check`` (audit live memory, exit 1 on any finding), ``export``
-(live -> ``memory-snapshot/``, then verify), ``diff`` (what ``export`` would change, exit 1
+(live -> the private snapshot, then verify), ``diff`` (what ``export`` would change, exit 1
 if anything would), ``restore --to <dir>`` (snapshot -> a target dir, then verify; refuses
 the live directory without ``--yes-live``).
+
+The snapshot is *not* in the repository (Wes, 2026-09-16). The working notes are private and
+the repository is public, so the snapshot lives in a private folder named by
+``$THREADDIGEST_PRIVATE_DIR`` (default ``~/repos/threaddigest-private``). This tool never
+creates that folder: a missing one is red, with the command that creates it, because a
+snapshot that is quietly absent is a snapshot behind live memory.
 
 Stdlib only, and no writes anywhere except the snapshot directory or an explicit
 ``restore --to`` target.
@@ -39,9 +45,11 @@ Stdlib only, and no writes anywhere except the snapshot directory or an explicit
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,14 +64,27 @@ INDEX_MAX_BYTES = 12 * 1024
 INDEX_NAME = "MEMORY.md"
 TOPIC_TYPES = frozenset({"user", "feedback", "project", "reference"})
 
-#: Committed snapshot, relative to the repo root. Not under ``docs/``: the doc router gate
-#: requires every markdown file under ``docs/`` to be listed in ``docs/INDEX.md``, and these
-#: files are a mirror of something outside the repo, not part of the corpus.
+#: The snapshot's home, outside the repository (Wes, 2026-09-16, D-35). The memory is Wes's
+#: working notes: private, and the repository is public. The folder is a local git repository
+#: of its own, created once by hand; the environment variable exists so another machine, and
+#: every test, can point the tool elsewhere without editing it.
+PRIVATE_DIR_ENV = "THREADDIGEST_PRIVATE_DIR"
+PRIVATE_DIR_DEFAULT = "~/repos/threaddigest-private"
 SNAPSHOT_DIRNAME = "memory-snapshot"
 
 #: Printed verbatim when there is no live memory directory (CI, a fresh clone, a moved repo).
 #: A real state, not a skip: it is visible in the output and ``check``/``diff`` still exit 0.
 NO_LIVE_DIR = "memory: no live memory directory at {path}"
+
+#: Printed when live memory exists and the private home does not. The home is never created
+#: here: a typo in the environment variable would otherwise scatter snapshots into new folders,
+#: and each one would look complete on the first export. Exit 1, so ``make check`` is red until
+#: the home exists -- a snapshot that is absent is a snapshot behind live memory.
+NO_PRIVATE_DIR = (
+    "memory: no private snapshot home at {path}\n"
+    "memory: create it once: mkdir -p {path} && git -C {path} init -q\n"
+    "memory: or point {env} at the folder that holds it; the snapshot is not in the repository"
+)
 
 #: One index entry: ``- [Title](file.md) — hook``.
 INDEX_LINK = re.compile(r"^\s*[-*]\s*\[[^\]]*\]\(([^)]+)\)")
@@ -113,16 +134,21 @@ def memory_dir_for(repo_root: Path) -> Path:
     return Path.home() / ".claude" / "projects" / slug_for(repo_root) / "memory"
 
 
+def private_home(environ: Mapping[str, str] | None = None) -> Path:
+    """The folder that holds the snapshot: ``$THREADDIGEST_PRIVATE_DIR``, or the default."""
+    source = os.environ if environ is None else environ
+    return Path(source.get(PRIVATE_DIR_ENV) or PRIVATE_DIR_DEFAULT).expanduser()
+
+
 def default_paths(tree: Path) -> tuple[Path, Path]:
     """``(live memory, snapshot)`` for the tree this tool is running in.
 
-    The two are keyed differently on purpose. Live memory belongs to the *main checkout*
-    (that is the path Claude Code keyed it to, and a worktree shares it). The snapshot is a
-    committed file in *this* tree: resolving it to the main checkout as well would have an
-    agent working in a worktree write its snapshot outside the branch under review, where
-    nothing is reviewing it and the next `git status` there finds a stray directory.
+    Live memory belongs to the *main checkout*: that is the path Claude Code keyed it to, and a
+    worktree shares it. The snapshot belongs to no checkout at all since 2026-09-16 -- it is in
+    the private home, so every worktree and every clone snapshots to the same place and a clone
+    of the public repository carries no memory with it.
     """
-    return memory_dir_for(main_checkout(tree)), tree / SNAPSHOT_DIRNAME
+    return memory_dir_for(main_checkout(tree)), private_home() / SNAPSHOT_DIRNAME
 
 
 def relative_files(root: Path) -> list[str]:
@@ -422,11 +448,24 @@ def cmd_check(memory_dir: Path, repo_root: Path | None = None) -> int:
     return 1 if findings else 0
 
 
+def no_private_home(snapshot_dir: Path) -> bool:
+    """True when the folder that should hold the snapshot does not exist; it is never created."""
+    return not snapshot_dir.parent.is_dir()
+
+
+def report_no_private_home(snapshot_dir: Path, label: str, reason: str) -> int:
+    print(NO_PRIVATE_DIR.format(path=snapshot_dir.parent, env=PRIVATE_DIR_ENV))
+    print(f"memory: {label} FAILED: {reason}")
+    return 1
+
+
 def cmd_export(memory_dir: Path, snapshot_dir: Path) -> int:
     if not memory_dir.is_dir():
         print(NO_LIVE_DIR.format(path=memory_dir))
         print("memory: export FAILED: nothing to snapshot")
         return 1
+    if no_private_home(snapshot_dir):
+        return report_no_private_home(snapshot_dir, "export", "no home to snapshot into")
     return copy_and_verify(memory_dir, snapshot_dir, "export")
 
 
@@ -434,6 +473,10 @@ def cmd_diff(memory_dir: Path, snapshot_dir: Path) -> int:
     if not memory_dir.is_dir():
         print(NO_LIVE_DIR.format(path=memory_dir))
         return 0
+    if no_private_home(snapshot_dir):
+        return report_no_private_home(
+            snapshot_dir, "diff", "live memory exists and the snapshot has nowhere to be"
+        )
     plan = plan_sync(memory_dir, snapshot_dir)
     print_plan(plan, "diff would", add="add", update="update")
     print(
@@ -470,7 +513,7 @@ def build_parser(default_memory: Path, default_snapshot: Path) -> argparse.Argum
     parser.add_argument(
         "--snapshot-dir",
         default=str(default_snapshot),
-        help=f"committed snapshot directory (default: {default_snapshot})",
+        help=f"private snapshot directory (default: {default_snapshot})",
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="audit live memory; exit 1 on any finding")

@@ -420,19 +420,85 @@ def test_a_worktree_is_keyed_to_the_main_checkout_not_to_the_worktree(tmp_path: 
 
 
 @pytest.mark.gate
-def test_the_snapshot_defaults_into_this_tree_not_into_the_main_checkout(tmp_path: Path) -> None:
-    """Caught live: the first export from a worktree wrote its snapshot into the main checkout.
+def test_the_snapshot_defaults_into_the_private_home_and_into_no_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Since 2026-09-16 (D-35) the snapshot is private and lives outside the repository.
 
-    The memory is shared with the main checkout; the snapshot is a committed file and must land
-    in the tree being worked on, or a worktree's export lands outside its own branch.
+    Live memory is still keyed to the main checkout -- a worktree shares it. The snapshot is
+    keyed to the private home instead of to the tree, so a worktree, the main checkout and a
+    clone all snapshot to the same place, and a clone of the public repository carries none of
+    the memory with it. The old bug this replaces (a worktree exporting into the main checkout)
+    cannot recur: no checkout is a snapshot destination any more.
     """
+    home = tmp_path / "private"
+    monkeypatch.setenv(ms.PRIVATE_DIR_ENV, str(home))
     main, worktree = worktree_of(tmp_path)
 
     memory, snapshot = ms.default_paths(worktree)
 
     assert memory == ms.memory_dir_for(main.resolve())
-    assert snapshot == worktree / ms.SNAPSHOT_DIRNAME
-    assert ms.default_paths(main) == (ms.memory_dir_for(main.resolve()), main / "memory-snapshot")
+    assert snapshot == home / ms.SNAPSHOT_DIRNAME
+    assert ms.default_paths(main) == (ms.memory_dir_for(main.resolve()), home / "memory-snapshot")
+    assert worktree not in snapshot.parents and main not in snapshot.parents
+
+
+def test_the_private_home_comes_from_the_environment_or_the_tracked_default() -> None:
+    """The default is tracked so a fresh checkout knows where the memory is kept; the variable
+    is the seam for another machine and for every test."""
+    assert ms.private_home({ms.PRIVATE_DIR_ENV: "/somewhere/else"}) == Path("/somewhere/else")
+    assert ms.private_home({ms.PRIVATE_DIR_ENV: "~/elsewhere"}) == Path.home() / "elsewhere"
+    assert ms.private_home({}) == Path(ms.PRIVATE_DIR_DEFAULT).expanduser()
+    assert ms.private_home({ms.PRIVATE_DIR_ENV: ""}) == Path(ms.PRIVATE_DIR_DEFAULT).expanduser()
+    assert not str(ms.private_home({})).startswith("~"), "the default must be expanded"
+
+
+@pytest.mark.gate
+def test_a_missing_private_home_is_red_and_says_how_to_create_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The failure mode the move introduces: the snapshot's home is one folder outside the
+    repository, so it can simply not be there -- on a new machine, after a restore, or with the
+    variable misspelt -- and an absent snapshot is a snapshot behind live memory. Both writing
+    paths must go red and name the command that creates the home; neither may create it, or a
+    misspelt variable would make a new home and call it complete."""
+    memory = live_memory(tmp_path)
+    absent = tmp_path / "not-created" / "memory-snapshot"
+    flags = dirs(memory, absent)
+
+    for command, reason in (
+        ("diff", "live memory exists and the snapshot has nowhere to be"),
+        ("export", "no home to snapshot into"),
+    ):
+        code, out = run(capsys, *flags, command)
+        assert code == 1, out
+        assert f"memory: no private snapshot home at {absent.parent}" in out
+        assert f"mkdir -p {absent.parent}" in out
+        assert ms.PRIVATE_DIR_ENV in out
+        assert f"memory: {command} FAILED: {reason}" in out
+        assert not absent.parent.exists(), "the tool must never create the private home"
+
+    absent.parent.mkdir()
+    assert run(capsys, *flags, "export")[0] == 0, "with the home there, export works as before"
+
+
+def test_no_live_memory_outranks_a_missing_private_home(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CI and a fresh clone have neither. Nothing to snapshot is not a missing snapshot, so
+    ``check`` and ``diff`` stay green there and only ``export``, which was asked to do work,
+    fails: a required private home would make every CI run red for a private folder CI must
+    never have."""
+    missing = tmp_path / "gone" / "memory"
+    flags = dirs(missing, tmp_path / "not-created" / "memory-snapshot")
+    expected = f"memory: no live memory directory at {missing}\n"
+
+    assert run(capsys, *flags, "check") == (0, expected)
+    assert run(capsys, *flags, "diff") == (0, expected)
+    assert run(capsys, *flags, "export") == (
+        1,
+        expected + "memory: export FAILED: nothing to snapshot\n",
+    )
 
 
 @pytest.mark.gate("G47")

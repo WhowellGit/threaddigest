@@ -26,7 +26,8 @@ milestone: M1a-A
 7. At the M1d retrospective: score the predictions in `docs/learnings/LEARNINGS_TRANSFER.md` §5 and §7 (the external round's yield; version two needing no inline annotation), rule on the argument-count ceiling, and decide the promotion of warning-severity invariants with seven runs behind it.
 
 ## Do not undo
-- Local history has been rewritten three times (retrospectives, trailers, identifiers); never restore a bundle into `main` without re-running the whole-history identifier scan, and never push a bundle's history anywhere.
+- Local history has been rewritten four times (retrospectives, trailers, identifiers); never restore a bundle into `main` without re-running the whole-history identifier scan, and never push a bundle's history anywhere.
+- The memory snapshot is private (D-35): it lives outside the repository in the folder THREADDIGEST_PRIVATE_DIR names, is in no commit, and a missing folder is red. Every commit hash the purge moved is in the hash-map record under `docs/reference/`, which the two hash-resolving gates read; the records, the append-only logs and the register keep the hashes they were written with.
 - The memory home is the repo-keyed directory; the Desktop-keyed one holds a pointer only, and `make check` goes red if a second home grows topic files again.
 - Sessions start in `~/repos/insightminer`; a session started elsewhere runs without the hard-block hooks.
 - The three redacted retrospectives keep the earlier project's own register ids on purpose; the identifier gate excludes that folder and nothing else.

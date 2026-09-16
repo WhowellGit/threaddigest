@@ -107,7 +107,6 @@ EXCLUDED_PREFIXES = (
     "data/",
     "docs/reference/earlier-project",
     "docs/reference/reviews/2026-",
-    "memory-snapshot/",
     "tests/fixtures/",
     # recorded Reddit content, like the fixtures (decided 2026-09-16)
     "tests/adapters/cassettes/",
@@ -119,6 +118,9 @@ EXCLUDED_PREFIXES = (
     "tests/gates/test_no_imported_identifiers.py",
     # the owner-identity list is an input to the redaction, never content
     "docs/reference/reviews/templates/redactions.txt",
+    # the hash maps a history rewrite records are an input to two gates, never content: a table
+    # of rewritten commit hashes tells a reviewer nothing about the system (D-35, 2026-09-16)
+    "docs/reference/hash-remap-",
 )
 UPLOAD_SET = ("00-README.md", "01-QUERY.md", "02-CLAIMS.md", "MANIFEST.json")
 #: A bundle larger than this is written in numbered parts, so no single upload is beyond what

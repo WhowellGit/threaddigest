@@ -24,6 +24,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from tools.hash_remap import load_remap, successors
 from tools.ratchet import is_separator_row, split_row
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -236,7 +237,9 @@ GATES_DIR = Path("tests") / "gates"
 #: ``commit abc1234`` or a backticked hash; at least one letter, so a date is not a hash.
 HASH_IN_PROSE = re.compile(r"(?:\bcommit\s+|`)([0-9a-f]{7,40})(?=`|\b)")
 HASH_SOURCES = ("CLAUDE.md",)
-HASH_GLOBS = ("docs/**/*.md", "memory-snapshot/*.md")
+#: The memory snapshot left the tree on 2026-09-16 (D-35): it is private, and a citation in it
+#: is checked by nothing here because nothing here can read it. The documents are the corpus.
+HASH_GLOBS = ("docs/**/*.md",)
 HASH_EXCLUDED = ("docs/reference/earlier-project-retrospectives/",)
 
 
@@ -305,6 +308,21 @@ def resolves_in_git(root: Path, sha: str) -> bool:
     return proc.returncode == 0
 
 
+def citation_resolves(root: Path, sha: str) -> bool:
+    """``sha`` is an ancestor of ``HEAD``, or a recorded history rewrite turned it into one.
+
+    A rewrite (2026-09-16: purging the memory snapshot) changes the hash of every commit after
+    the first rewritten one, and three of the documents that cite hashes may not be edited to
+    follow -- the append-only decisions log, the append-only register, and the reference
+    records. The rewrite records what each commit became (``docs/reference/hash-remap-*.tsv``)
+    and a citation is followed through that map. What does not change: the destination must
+    still be an ancestor of ``HEAD``, so a map cannot rescue a citation that points nowhere.
+    """
+    if resolves_in_git(root, sha):
+        return True
+    return any(resolves_in_git(root, s) for s in successors(load_remap(root), sha))
+
+
 def test_every_gate_file_and_marker_id_has_a_ledger_row() -> None:
     ledger = (ROOT / GUARDS).read_text(encoding="utf-8")
     missing_files = gate_files_missing_from_ledger(ROOT, ledger)
@@ -316,7 +334,9 @@ def test_every_gate_file_and_marker_id_has_a_ledger_row() -> None:
 
 def test_every_cited_commit_hash_resolves() -> None:
     found = [
-        f"{rel}:{n}: {sha}" for rel, n, sha in cited_hashes(ROOT) if not resolves_in_git(ROOT, sha)
+        f"{rel}:{n}: {sha}"
+        for rel, n, sha in cited_hashes(ROOT)
+        if not citation_resolves(ROOT, sha)
     ]
     assert not found, "commit hashes cited in documents that no longer exist:\n" + "\n".join(found)
 
@@ -356,6 +376,56 @@ def test_positive_control_a_dangling_commit_hash_is_red(tmp_path: Path) -> None:
         timeout=60,
     ).stdout.strip()
     assert resolves_in_git(ROOT, head)
+
+
+def exists_in_git(root: Path, sha: str) -> bool:
+    """``sha`` names a commit object in this repository, wherever it sits."""
+    proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+        capture_output=True,
+        timeout=60,
+    )
+    return proc.returncode == 0
+
+
+@pytest.mark.gate("G40")
+def test_every_recorded_rewrite_lands_on_a_commit_that_exists() -> None:
+    """A map is only as good as its right-hand column: every commit a rewrite claims to have
+    produced must be a commit this repository has.
+
+    Existence, not ancestry. A rewrite moves every branch, so a map row may name a commit that
+    lives only on a side branch and is not reachable from ``HEAD`` -- a branch under review the
+    day the history was rewritten. Ancestry stays where it belongs, on the citation: a document
+    that cites a commit still needs that commit to be an ancestor of ``HEAD``, whether it cites
+    it directly or through this map.
+    """
+    remap = load_remap(ROOT)
+    dead = [f"{old[:7]} -> {new[:7]}" for old, new in remap.items() if not exists_in_git(ROOT, new)]
+    assert not dead, "recorded rewrites whose commit is not in this repository:\n" + "\n".join(dead)
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_remap_resolves_a_citation_and_rescues_nothing_else() -> None:
+    """The map's two halves, both driven against this repository: a hash the map sends to a real
+    commit resolves, and a hash the map does not name -- or sends somewhere dead -- does not."""
+    head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout.strip()
+    gone = "0badc0d" + "0" * 33
+    other = "d0omed01" + "0" * 32
+
+    assert successors({gone: head}, "0badc0d") == [head]
+    assert not resolves_in_git(ROOT, "0badc0d")
+    assert any(resolves_in_git(ROOT, s) for s in successors({gone: head}, "0badc0d"))
+    assert successors({gone: head}, "d0omed0") == [], "a map entry rescues only the hash it names"
+    assert not any(resolves_in_git(ROOT, s) for s in successors({gone: other}, "0badc0d")), (
+        "a map that points at a commit nobody has must not make a citation resolve"
+    )
+    assert successors({gone: other, other: head}, "0badc0d") == [other, head], "chained rewrites"
 
 
 @pytest.mark.gate("G40")
