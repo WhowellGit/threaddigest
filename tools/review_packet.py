@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 
-PROJECT = "Insight Miner"
+PROJECT = "Thread Digest"
 TEMPLATE = Path("docs") / "reference" / "reviews" / "templates" / "external-deep-research.md"
 CLAIMS = Path("docs") / "reference" / "reviews" / "templates" / "claims.md"
 REDACTIONS = Path("docs") / "reference" / "reviews" / "templates" / "redactions.txt"
@@ -65,7 +65,7 @@ BUNDLES: dict[str, tuple[str, ...]] = {
         "docs/TEST_STRATEGY.md",
         "docs/INDEX.md",
         "docs/OVERVIEW.md",
-        "docs/INSIGHTMINER_HARNESS.md",
+        "docs/THREADDIGEST_HARNESS.md",
         # the Reddit policy facts the compliance design rests on (ruled 2026-09-14: the next
         # packet carries them; the review of 2026-09-16 found them missing)
         "docs/reference/reddit-policy-facts-2026-09-14.md",
@@ -81,7 +81,7 @@ BUNDLES: dict[str, tuple[str, ...]] = {
         "docs/reference/2026-09-11-compass-research-report.md",
         "docs/reference/reviews/2026-09-12-collector-design-review.md",
         "config",
-        "src/insightminer/db/schema.sql",
+        "src/threaddigest/db/schema.sql",
     ),
     "2-harness": (
         "Makefile",
@@ -575,7 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--desktop",
         action="store_true",
-        help="copy the upload set to ~/Desktop/insightminer-review-packet-<date>-<commit>",
+        help="copy the upload set to ~/Desktop/threaddigest-review-packet-<date>-<commit>",
     )
     parser.add_argument(
         "--allow-dirty", action="store_true", help="build from HEAD despite a dirty tree"
@@ -616,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"redactions: {total} substitutions across {len(packet.redactions)} placeholders")
     dest: Path | None = args.copy_to
     if args.desktop:
-        dest = Path.home() / "Desktop" / f"insightminer-review-packet-{stamp}"
+        dest = Path.home() / "Desktop" / f"threaddigest-review-packet-{stamp}"
     if dest is not None:
         names = copy_upload_set(out, dest, manifest)
         if args.with_tree:

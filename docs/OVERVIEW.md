@@ -4,7 +4,7 @@ update-policy: prune-stale
 mirrors: [docs/PLAN.md]
 verified-at: M1a-A
 ---
-# Insight Miner in ten minutes
+# Thread Digest in ten minutes
 
 > **Who this is for.** A reader who wants to understand what the system is, what it answers, how, and
 > what it deliberately does not do, without reading the plan. Every design fact here is stated in full
@@ -13,8 +13,8 @@ verified-at: M1a-A
 
 ## What it is
 
-A personal, rules-compliant harvester of Reddit discussion, stored locally in one SQLite file, read
-through a local web UI and a periodic digest. It runs on a schedule from one Mac, later from a
+A personal, rules-compliant reader of Reddit discussion, stored locally in one SQLite file and
+surfaced through a local web UI and a periodic digest. It runs on a schedule from one Mac, later from a
 container on a NAS. It reads Reddit through the official API in read-only mode with an honest
 user-agent, never posts or replies, and honours deletions: content a person removes on Reddit is
 scrubbed here on the next scheduled run, and the search index clears the bytes as it goes.
@@ -54,7 +54,7 @@ stores a numeric-only snapshot of score and comment count: the raw material for 
 textual is snapshotted, so a deleted post leaves no derived copy.
 
 **Every count carries its denominator.** No bare numbers: a theme shows its matches *of* the new posts
-in the window; the digest's backlog and compliance sections say what was not harvested and how old the
+in the window; the digest's backlog and compliance sections say what was not collected and how old the
 last full re-check is, so a coverage gap is visible rather than absorbed into a smaller number.
 
 **Search is over live content only.** Full-text search is built over views that exclude deleted and
@@ -79,7 +79,7 @@ their triggers in the decisions log.
 
 ## What keeps it honest
 
-The rules of the harness are in `docs/INSIGHTMINER_HARNESS.md`. In one sentence: every rule names the mechanism
+The rules of the harness are in `docs/THREADDIGEST_HARNESS.md`. In one sentence: every rule names the mechanism
 that enforces it, the mechanisms sit in the path of every change and fail closed, `main` receives
 only a tree the full check has stamped green, and every count the human reads is derived by a tool
 rather than typed.

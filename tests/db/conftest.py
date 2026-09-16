@@ -10,9 +10,9 @@ import pytest
 from alembic.config import Config
 from sqlalchemy import Engine, text
 
-from insightminer.db.engine import engine_for
-from insightminer.db.schema_dump import alembic_config as _alembic_config
-from insightminer.db.schema_dump import migrate_to_head
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema_dump import alembic_config as _alembic_config
+from threaddigest.db.schema_dump import migrate_to_head
 
 NOW = 1_800_000_000  # a fixed epoch second, well inside the project's lifetime
 
@@ -25,7 +25,7 @@ def now() -> int:
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
-    return tmp_path / "insightminer.db"
+    return tmp_path / "threaddigest.db"
 
 
 @pytest.fixture

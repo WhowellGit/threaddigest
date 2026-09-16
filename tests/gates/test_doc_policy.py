@@ -333,17 +333,17 @@ def _code_tree(tmp_path: Path) -> Path:
     """The document tree plus a small code tree: a package module, a test, a Makefile, a CLI
     and a schema, so identifiers have something to resolve against."""
     root = _tree(tmp_path)
-    (root / "src" / "insightminer" / "db").mkdir(parents=True)
-    (root / "src" / "insightminer" / "db" / "fts.py").write_text(
+    (root / "src" / "threaddigest" / "db").mkdir(parents=True)
+    (root / "src" / "threaddigest" / "db" / "fts.py").write_text(
         "class FtsHelper:\n    pass\n\n\ndef optimize() -> None:\n    pass\n", encoding="utf-8"
     )
-    (root / "src" / "insightminer" / "db" / "schema.sql").write_text(
+    (root / "src" / "threaddigest" / "db" / "schema.sql").write_text(
         # One line with nested parentheses, the shape the committed schema.sql has.
         "CREATE TABLE posts ( pk INTEGER NOT NULL, title TEXT, CONSTRAINT pk_posts "
         "PRIMARY KEY (pk) );\n",
         encoding="utf-8",
     )
-    (root / "src" / "insightminer" / "cli.py").write_text(
+    (root / "src" / "threaddigest" / "cli.py").write_text(
         'app.add_typer(db_app, name="db")\nNAME = "MANIFEST.json"\n\n\n'
         'def run(gateway: str = "--gateway") -> None:\n    pass\n',
         encoding="utf-8",
@@ -374,10 +374,10 @@ def test_a_clean_code_tree_reports_nothing(tmp_path: Path) -> None:
     root = _code_tree(tmp_path)
     _plan_with(
         root,
-        "Read `tools/present.py`, `db/fts.py`, `src/insightminer/db/schema.sql`, `Makefile`;\n"
+        "Read `tools/present.py`, `db/fts.py`, `src/threaddigest/db/schema.sql`, `Makefile`;\n"
         "run `make check`; `tests/gates/test_x.py::test_ok` proves it; `db.fts.optimize` and\n"
-        "`FtsHelper` live there; `posts.title` is a column; `insightminer run --gateway fake`;\n"
-        "`insightminer db` is the group. Not judged: `<placeholder>.py`, `data/x.db`,\n"
+        "`FtsHelper` live there; `posts.title` is a column; `threaddigest run --gateway fake`;\n"
+        "`threaddigest db` is the group. Not judged: `<placeholder>.py`, `data/x.db`,\n"
         "`.env`, `ok/partial/failed`, `retention.backups_days`, `BARE.md`.\n",
     )
     assert _problems(root) == []
@@ -394,7 +394,7 @@ def test_positive_control_a_dead_path_target_test_id_or_command_is_red(tmp_path:
         root,
         "Read `tools/gone.py` and `db/nope.py`; run `make nope`;\n"
         "`tests/gates/test_x.py::test_missing` proves it;\n"
-        "`insightminer serve --port 1` and `insightminer db nuke`.\n",
+        "`threaddigest serve --port 1` and `threaddigest db nuke`.\n",
     )
     found = dp.report(root)["problems"]
     assert isinstance(found, dict)
@@ -403,9 +403,9 @@ def test_positive_control_a_dead_path_target_test_id_or_command_is_red(tmp_path:
         "docs/PLAN.md:10: `db/nope.py` does not exist",
         "docs/PLAN.md:10: `make nope` names a make target that does not exist",
         "docs/PLAN.md:11: `tests/gates/test_x.py::test_missing` names a test that does not exist",
-        "docs/PLAN.md:12: `insightminer serve --port 1` names a command or option the CLI does "
+        "docs/PLAN.md:12: `threaddigest serve --port 1` names a command or option the CLI does "
         "not have (serve, --port)",
-        "docs/PLAN.md:12: `insightminer db nuke` names a command or option the CLI does not "
+        "docs/PLAN.md:12: `threaddigest db nuke` names a command or option the CLI does not "
         "have (nuke)",
     ]
 
@@ -476,7 +476,7 @@ def test_an_unresolved_class_name_is_counted_not_failed(tmp_path: Path) -> None:
         "exempted_identifier docs/PLAN.md:11 `PrawGateway`",
     ]
     # A name the code only talks about (a docstring, a string, a comment) does not resolve it.
-    (root / "src" / "insightminer" / "db" / "fts.py").write_text(
+    (root / "src" / "threaddigest" / "db" / "fts.py").write_text(
         '"""The SearchIndex port was never built."""\nclass FtsHelper:\n    pass\n\n\n'
         'NAME = "SearchIndex"  # SearchIndex\n',
         encoding="utf-8",

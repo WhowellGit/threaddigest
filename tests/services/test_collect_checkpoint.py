@@ -12,9 +12,9 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine
 
-from insightminer.core.retry import RunStatus
-from insightminer.db.engine import checkpoint_truncate
-from insightminer.services import collect, runs
+from threaddigest.core.retry import RunStatus
+from threaddigest.db.engine import checkpoint_truncate
+from threaddigest.services import collect, runs
 
 BASE = 1_757_700_000
 

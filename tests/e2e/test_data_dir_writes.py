@@ -1,7 +1,7 @@
 """DB-19's M1a half: a full run through the CLI writes nothing outside its data directory
 (design-round5.md section 16's DB-19 note, verbatim recipe).
 
-``INSIGHTMINER_DATA_DIR`` is already a tmp path outside the repo (``tests/conftest.py``'s
+``THREADDIGEST_DATA_DIR`` is already a tmp path outside the repo (``tests/conftest.py``'s
 autouse ``isolated_data_dir``), so the snapshot below is of the REPO ROOT: a full run must
 change nothing in it at all.
 
@@ -16,8 +16,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,7 +96,7 @@ def test_control_a_write_into_a_data_directory_is_detected(tmp_path: Path) -> No
     """
     root = tmp_path / "repo"
     (root / "data").mkdir(parents=True)
-    (root / "data" / "insightminer.db").write_bytes(b"a database that was already there")
+    (root / "data" / "threaddigest.db").write_bytes(b"a database that was already there")
     (root / ".git").mkdir()
     (root / ".git" / "index").write_bytes(b"volatile")
 

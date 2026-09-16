@@ -1,7 +1,7 @@
 # External review brief: {project} at commit `{commit}` ({date}; packet `{packet_hash}`)
 
 You are reviewing the design and the current implementation of a small personal system that
-harvests Reddit discussion about a video-editing product twice a week, stores it locally, honours
+collects Reddit discussion about a video-editing product twice a week, stores it locally, honours
 deletions, and helps its one operator see what people are struggling with. The packet holds the
 committed tree at one commit: the plan, the decisions log, the working agreement and everything
 that enforces it, the source, and the tests. `00-README.md` gives the reading order, and the
@@ -61,7 +61,7 @@ five questions, and contains no summary of the system and no restatement of the 
 Three facts about the packet that change how you read it:
 
 - **There is no real Reddit adapter yet.** Tranche B waits on credentials. The fake gateway's
-  behaviour summary (`src/insightminer/adapters/reddit_fake/__init__.py`) is a *specification*
+  behaviour summary (`src/threaddigest/adapters/reddit_fake/__init__.py`) is a *specification*
   of what the real adapter must reproduce; judge it as a spec against Reddit as it is today.
 - **Every line in the parts carries its line number** in the left margin, the same number
   the file has in the repository. Cite a finding as part, path, line number, and the verbatim
@@ -98,7 +98,7 @@ Rank findings by cost times confidence and show both numbers. Where you lack the
 judge, say "cannot judge" and why, instead of guessing; a guess presented as a finding costs
 the owner more than silence.
 
-A worked example of the shape wanted: "`3-source-2.md › src/insightminer/services/invariants.py
+A worked example of the shape wanted: "`3-source-2.md › src/threaddigest/services/invariants.py
 › 314 › \"window = repo.recent_sweeping_runs(ctx.conn, current_run_pk=ctx.run_pk,
 limit=FRESHNESS_WINDOW)\"`: with `FRESHNESS_WINDOW = 2`, a source that stops appearing is
 invisible until it has been missing from two sweeping runs, so a two-day outage of one
@@ -126,10 +126,10 @@ Ground rules:
 Read this before spending effort: several questions below touch code that is designed but not
 yet built, and the packet's index confirms the absences.
 
-- Pure logic: deletion state machine, paging and stop rules, revisit ladder, budget, theme rules, normalisation, digest rendering, retry ladder. State: Built, test-first, as `core/` modules; some have no caller yet (see below). Where to look: `src/insightminer/core/`, `tests/unit/`.
-- Schema, migrations, upserts, search index over live views, backups table. State: Built (revision 2). Where to look: `src/insightminer/db/`, `tests/db/`.
-- Posts ingestion: lock, run lifecycle, sweep with one transaction per page, post-run invariants, doctor, migrate and seed commands, the `run` command. State: Built and proven end to end against the fake gateway. Where to look: `src/insightminer/services/`, `src/insightminer/cli.py`, `tests/e2e/`, `tests/services/`.
-- The fake Reddit gateway. State: Built; the only gateway that exists. Where to look: `src/insightminer/adapters/reddit_fake/`.
+- Pure logic: deletion state machine, paging and stop rules, revisit ladder, budget, theme rules, normalisation, digest rendering, retry ladder. State: Built, test-first, as `core/` modules; some have no caller yet (see below). Where to look: `src/threaddigest/core/`, `tests/unit/`.
+- Schema, migrations, upserts, search index over live views, backups table. State: Built (revision 2). Where to look: `src/threaddigest/db/`, `tests/db/`.
+- Posts ingestion: lock, run lifecycle, sweep with one transaction per page, post-run invariants, doctor, migrate and seed commands, the `run` command. State: Built and proven end to end against the fake gateway. Where to look: `src/threaddigest/services/`, `src/threaddigest/cli.py`, `tests/e2e/`, `tests/services/`.
+- The fake Reddit gateway. State: Built; the only gateway that exists. Where to look: `src/threaddigest/adapters/reddit_fake/`.
 - The real Reddit adapter, wire captures, the `probe` command. State: Not built (tranche B waits on credentials); no real Reddit response has been captured yet. Where to look: nothing under `adapters/` for it.
 - Comment trees and their budget accounting. State: Not built (M1b); the fake and the paging rules model them. Where to look: `core/paging.py`, the fake's tree methods.
 - Reconcile, revisit, scrub as run stages. State: Not built (M1c); `core/deletion.py` decides, nothing in a run calls it yet. Where to look: `core/deletion.py`, `db/fts.py` (scrub of the index exists).
@@ -161,7 +161,7 @@ and do not spend effort confirming absences the list above already states.
    search index's segments until an `optimize`, the write-ahead log after a checkpoint that
    found a reader, backups made by the online backup API (`db/backup.py`), error columns, logs, raw JSON and
    rejects? Which transition in the content state machine (plan § Data model;
-   `src/insightminer/core/deletion.py`) is wrong or missing? What does a run that dies
+   `src/threaddigest/core/deletion.py`) is wrong or missing? What does a run that dies
    mid-reconcile leave behind? Start here: `core/deletion.py`, the search-index triggers in
    `db/schema.sql`, `db/fts.py`, `db/backup.py`, `db/engine.py`, the error columns written by
    `services/sweep.py`. Search for: "scrub", "tombstone", "raw_json", "online_backup",
@@ -203,7 +203,7 @@ and do not spend effort confirming absences the list above already states.
    or delete a workspace; change configuration; rename or merge themes; reset), what is
    required for it to be complete, what is the classic breakage in tools like this, and does a
    spec row or test exist? Start here: plan § Web UI (the routes table and the curation
-   controls), § Operator surface, § Workspaces, `src/insightminer/cli.py`,
+   controls), § Operator surface, § Workspaces, `src/threaddigest/cli.py`,
    `docs/runbook/RUNBOOK.md` section 2, `docs/TEST_STRATEGY.md`. Search for: "origin",
    "watch_until", "Confirmation", "cancel", "import".
 7. **Enforcement.** Given the hook settings file and `tools/hooks/*.sh` in the harness part,

@@ -13,9 +13,9 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine, event
 
-from insightminer.core.models import PostRow
-from insightminer.db.ownership import IngestPath
-from insightminer.db.repo import (
+from threaddigest.core.models import PostRow
+from threaddigest.db.ownership import IngestPath
+from threaddigest.db.repo import (
     PostWrite,
     due_posts,
     known_posts_in_window,

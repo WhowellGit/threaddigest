@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from insightminer.core import fixture_scrub as fs
+from threaddigest.core import fixture_scrub as fs
 
 PAYLOAD = {
     "posts": [

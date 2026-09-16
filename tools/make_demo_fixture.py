@@ -39,7 +39,7 @@ import json
 from pathlib import Path
 from typing import Final, NamedTuple
 
-from insightminer.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
 
 
 class Source(NamedTuple):

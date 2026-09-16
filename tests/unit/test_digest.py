@@ -19,8 +19,8 @@ from hypothesis import strategies as st
 from jinja2 import UndefinedError
 from pydantic import BaseModel, ValidationError
 
-from insightminer.core import digest
-from insightminer.core.digest import (
+from threaddigest.core import digest
+from threaddigest.core.digest import (
     STALE_AFTER_RUNS,
     Backlog,
     Compliance,
@@ -43,7 +43,7 @@ from insightminer.core.digest import (
     render_html,
     render_markdown,
 )
-from insightminer.core.retry import RunStatus
+from threaddigest.core.retry import RunStatus
 
 GOLDEN = Path(__file__).parent / "golden" / "digest_example.md"
 

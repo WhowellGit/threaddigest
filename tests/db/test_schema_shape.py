@@ -22,7 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 
-from insightminer.db.schema import Base
+from threaddigest.db.schema import Base
 
 PostInserter = Callable[..., int]
 

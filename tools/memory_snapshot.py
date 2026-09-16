@@ -205,7 +205,7 @@ def frontmatter_problems(path: Path) -> list[str]:
 
 
 #: A sibling memory home belongs to this project when any file in it names the project.
-PROJECT_WORD = "insightminer"
+PROJECT_WORD = "threaddigest"
 
 
 def projects_root_for(memory_dir: Path) -> Path | None:

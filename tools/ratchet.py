@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ratchet floors for Insight Miner: measure, compare, bump, loosen. Standard library only.
+"""Ratchet floors for Thread Digest: measure, compare, bump, loosen. Standard library only.
 
 Usage (from the repo root; the Makefile wraps these):
 

@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.deletion import (
+from threaddigest.core.deletion import (
     GONE_AT_MISSES,
     REDDIT_REMOVAL_CATEGORIES,
     SCRUB_STATES,

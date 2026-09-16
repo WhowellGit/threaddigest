@@ -18,11 +18,11 @@ from pytest_alembic.tests import (  # noqa: F401 - collected by pytest
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.dialects.sqlite import insert
 
-from insightminer.db.engine import engine_for
-from insightminer.db.fts import fts_membership_count, integrity_check
-from insightminer.db.migrate import head_revision
-from insightminer.db.schema import Base, Post
-from insightminer.db.schema_dump import alembic_config, migrate_to_head
+from threaddigest.db.engine import engine_for
+from threaddigest.db.fts import fts_membership_count, integrity_check
+from threaddigest.db.migrate import head_revision
+from threaddigest.db.schema import Base, Post
+from threaddigest.db.schema_dump import alembic_config, migrate_to_head
 
 NOW = 1_800_000_000  # matches the conftest row builders
 

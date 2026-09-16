@@ -9,8 +9,8 @@ from typing import Any
 
 from sqlalchemy import Engine
 
-from insightminer.core.retry import RunStatus
-from insightminer.services import collect, runs
+from threaddigest.core.retry import RunStatus
+from threaddigest.services import collect, runs
 
 BASE = 1_757_700_000
 

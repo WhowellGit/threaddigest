@@ -11,9 +11,9 @@ from typing import Any
 
 from sqlalchemy import select, update
 
-from insightminer.core.retry import RunStatus
-from insightminer.db.schema import Base
-from insightminer.services import collect, sweep
+from threaddigest.core.retry import RunStatus
+from threaddigest.db.schema import Base
+from threaddigest.services import collect, sweep
 
 BASE = 1_757_700_000  # matches tests/conftest.py's ``seeded`` fixture
 
@@ -48,7 +48,7 @@ def test_sweep_never_touches_first_seen_at_check_stage_next_check_at_or_scrubbed
     fake.set_field(fn, "score", 999)
     fake.set_field(fn, "title", "changed")
 
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     ctx2 = runs.start_run(
         engine, kind="run", trigger="cli", clock=run_context.clock, settings=run_context.settings
@@ -92,7 +92,7 @@ def test_authors_first_seen_at_is_insert_only_and_last_seen_at_never_goes_backwa
 
     fake.add_post("premiere", title="two", author="u1", created_utc=BASE + 60)
 
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     ctx2 = runs.start_run(
         engine, kind="run", trigger="cli", clock=run_context.clock, settings=run_context.settings
@@ -246,7 +246,7 @@ def test_a_removal_seen_on_a_later_sweep_counts_one_scrub_transition(
     really reaches the collector -- and the marker is stored raw, because redacting content is
     the M1c scrub service's job and tranche A never writes ``scrubbed_at``.
     """
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fn = fake.add_post("premiere", title="taken down", selftext="body", created_utc=BASE)

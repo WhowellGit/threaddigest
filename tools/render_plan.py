@@ -185,13 +185,13 @@ def page(doc: Doc, rev: str) -> str:
     )
     toc += "</ul>"
     banner = (
-        f"Insight Miner plan · rendered from docs/PLAN.md at commit {html.escape(rev)} · "
+        f"Thread Digest plan · rendered from docs/PLAN.md at commit {html.escape(rev)} · "
         "regenerate with <code>make plan-html</code>"
     )
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f"<title>Insight Miner Plan</title><style>{CSS.read_text(encoding='utf-8')}</style>"
+        f"<title>Thread Digest Plan</title><style>{CSS.read_text(encoding='utf-8')}</style>"
         f'</head><body><div class="banner">{banner}</div><div class="layout">'
         f'<nav class="toc">{toc}</nav><main>{"".join(doc.body)}</main></div></body></html>'
     )

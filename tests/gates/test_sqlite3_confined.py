@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "insightminer"
+SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "threaddigest"
 
 #: The one module allowed to import sqlite3 directly (design-round5.md section 10.1).
 ALLOWED = "db/backup.py"
@@ -45,7 +45,7 @@ def test_only_backup_module_imports_sqlite3() -> None:
 
 def test_the_scanner_catches_a_planted_import(tmp_path: Path) -> None:
     """Positive control: a scanner that finds nothing is not proof of anything."""
-    fake_root = tmp_path / "insightminer"
+    fake_root = tmp_path / "threaddigest"
     fake_root.mkdir()
     (fake_root / "some_module.py").write_text("import sqlite3\n", encoding="utf-8")
     assert _offenders(fake_root) == ["some_module.py"]

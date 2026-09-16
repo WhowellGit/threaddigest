@@ -16,21 +16,21 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from insightminer.core.budget import Budget
-from insightminer.core.paging import StopReason
-from insightminer.core.retry import RunStatus, exit_code
-from insightminer.db import repo
-from insightminer.db.engine import engine_for
-from insightminer.db.schema import Base
-from insightminer.ports import (
+from threaddigest.core.budget import Budget
+from threaddigest.core.paging import StopReason
+from threaddigest.core.retry import RunStatus, exit_code
+from threaddigest.db import repo
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema import Base
+from threaddigest.ports import (
     AuthFailed,
     GatewayError,
     HtmlBlocked,
     RateLimited,
     TransientError,
 )
-from insightminer.services import sweep
-from insightminer.services.runs import RunTerminalError
+from threaddigest.services import sweep
+from threaddigest.services.runs import RunTerminalError
 
 BASE = 1_757_700_000  # matches tests/conftest.py's ``seeded`` fixture
 
@@ -220,7 +220,7 @@ def test_db_locked_write_fails_the_page_with_nothing_committed(
     settings: Any,
     snapshot_tables: Any,
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fake.add_post("premiere", title="one", created_utc=BASE)
@@ -259,7 +259,7 @@ def test_counters_equal_table_deltas_after_a_db_locked_page(
     settings: Any,
     snapshot_tables: Any,
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fake.add_post("premiere", title="one", created_utc=BASE)
@@ -312,7 +312,7 @@ def test_a_locked_terminal_transaction_warns_and_leaves_the_run_partial(
     ``subreddit_finish_failed`` warning and no announcement of a failure or a disable, the run
     ``partial``/exit 3, and the next source still swept.
     """
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("first")
     fake.add_post("first", title="one", created_utc=BASE)
@@ -589,7 +589,7 @@ def test_a_failed_page_write_keeps_post_text_out_of_the_error_message(
     """KI-010, through the sweep: the message that becomes ``subreddits.last_error`` and
     ``run_subreddits.error`` is built from the exception text, which carried the failed
     statement's parameters, the page's titles and bodies included, until the engine hid them."""
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     canary = "zxqerrorcanary"
     fake.add_subreddit("premiere")

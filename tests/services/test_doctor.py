@@ -12,8 +12,8 @@ report shape.
 
 Local ``db_path`` / ``engine`` fixtures override ``tests/services/conftest.py``'s: doctor
 reads a real data directory (``settings.data_dir``), not an arbitrary temp path, so these
-point the database at ``settings.data_dir / "insightminer.db"`` -- the same file a real
-``insightminer doctor`` invocation would open.
+point the database at ``settings.data_dir / "threaddigest.db"`` -- the same file a real
+``threaddigest doctor`` invocation would open.
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy import Engine
 
-from insightminer.adapters.clock import FakeClock
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db import migrate as db_migrate
-from insightminer.db import repo
-from insightminer.db.engine import checkpoint_truncate, engine_for
-from insightminer.db.schema_dump import SCHEMA_SQL, migrate_to_head
-from insightminer.services import doctor, lock
-from insightminer.settings import Settings
+from threaddigest.adapters.clock import FakeClock
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db import migrate as db_migrate
+from threaddigest.db import repo
+from threaddigest.db.engine import checkpoint_truncate, engine_for
+from threaddigest.db.schema_dump import SCHEMA_SQL, migrate_to_head
+from threaddigest.services import doctor, lock
+from threaddigest.settings import Settings
 
 STALE_AFTER_SECONDS = 180  # settings.static.run.stale_after_minutes (3) * 60
 MAX_RATE_LIMIT_WAIT_SECONDS = 300  # core.retry.MAX_RATE_LIMIT_WAIT_SECONDS, mirrored here
@@ -45,7 +45,7 @@ MAX_RATE_LIMIT_WAIT_SECONDS = 300  # core.retry.MAX_RATE_LIMIT_WAIT_SECONDS, mir
 
 @pytest.fixture
 def db_path(settings: Settings) -> Path:
-    return settings.data_dir / "insightminer.db"
+    return settings.data_dir / "threaddigest.db"
 
 
 @pytest.fixture
@@ -186,7 +186,7 @@ def test_check_settings_valid_is_not_ok_for_a_broken_static_key(
     """The check constructs its own ``Settings()`` from the live environment, so a bad
     static key is caught here -- the same failure an operator would hit -- rather than only
     by whatever already built a ``Settings`` before ``doctor`` ran."""
-    monkeypatch.setenv("INSIGHTMINER_STATIC__RUN__STALE_AFTER_MINUTES", "-1")
+    monkeypatch.setenv("THREADDIGEST_STATIC__RUN__STALE_AFTER_MINUTES", "-1")
     check = doctor.check_settings_valid()
     assert check.ok is False
     assert check.severity == doctor.CheckSeverity.ERROR
@@ -267,10 +267,10 @@ def test_check_data_dir_outside_tcc_is_ok_for_an_ordinary_path(settings: Setting
 @pytest.mark.parametrize(
     "relative",
     [
-        Path("Desktop", "insightminer"),
-        Path("Documents", "insightminer"),
-        Path("Downloads", "insightminer"),
-        Path("Library", "Mobile Documents", "com~apple~CloudDocs", "insightminer"),
+        Path("Desktop", "threaddigest"),
+        Path("Documents", "threaddigest"),
+        Path("Downloads", "threaddigest"),
+        Path("Library", "Mobile Documents", "com~apple~CloudDocs", "threaddigest"),
     ],
 )
 def test_check_data_dir_outside_tcc_is_not_ok_under_a_protected_path(
@@ -447,9 +447,9 @@ def test_check_last_run_age_with_no_successful_run_is_a_warning_not_an_error(
 def test_check_credentials_present_is_ok_when_all_three_are_set(
     monkeypatch: pytest.MonkeyPatch, isolated_data_dir: Path
 ) -> None:
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_CLIENT_ID", "abc")
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_CLIENT_SECRET", "def")
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "wes")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_CLIENT_ID", "abc")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_CLIENT_SECRET", "def")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_USERNAME", "wes")
     filled = Settings()
 
     check = doctor.check_credentials_present(filled)
@@ -938,7 +938,7 @@ def _checkout(
     and a ``.git/hooks`` directory holding ``hook`` when one is given.
     """
     root = tmp_path / "checkout"
-    (root / "src" / "insightminer" / "services").mkdir(parents=True)
+    (root / "src" / "threaddigest" / "services").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
     if git:
         hooks = root / ".git" / "hooks"
@@ -955,7 +955,7 @@ def test_check_hooks_installed_is_ok_when_the_hook_is_precommits(tmp_path: Path)
     """
     root = _checkout(tmp_path, git=True, hook=PRE_COMMIT_HOOK)
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is True
     assert str(root / ".git" / "hooks" / "pre-commit") in check.detail
@@ -971,7 +971,7 @@ def test_check_hooks_installed_is_not_ok_without_precommits_hook(
     """
     root = _checkout(tmp_path, git=True, hook=hook)
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is False
     assert check.detail == "run make hooks"
@@ -982,7 +982,7 @@ def test_check_hooks_installed_is_not_ok_with_only_the_commit_hook(tmp_path: Pat
     and ``make hooks`` installs both stages together (2026-09-14)."""
     root = _checkout(tmp_path, git=True, hook=PRE_COMMIT_HOOK, stages=("pre-commit",))
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is False
     assert check.detail == "run make hooks"
@@ -995,7 +995,7 @@ def test_check_hooks_installed_is_ok_without_a_git_directory(tmp_path: Path) -> 
     """
     root = _checkout(tmp_path, git=False)
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is True
     assert check.detail == "no git repository"
@@ -1028,7 +1028,7 @@ def _worktree(
         for stage in ("pre-commit", "pre-push"):
             (hooks / stage).write_text(hook, encoding="utf-8")
     root = tmp_path / "wt"
-    (root / "src" / "insightminer" / "services").mkdir(parents=True)
+    (root / "src" / "threaddigest" / "services").mkdir(parents=True)
     (root / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
     (root / ".git").write_text(pointer.format(gitdir=worktree_git), encoding="utf-8")
     return root
@@ -1047,7 +1047,7 @@ def test_check_hooks_installed_follows_a_worktrees_git_file(tmp_path: Path, poin
     """
     root = _worktree(tmp_path, pointer=pointer, hook=PRE_COMMIT_HOOK)
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is True
     assert str((tmp_path / "main" / ".git" / "hooks" / "pre-commit").resolve()) in check.detail
@@ -1061,7 +1061,7 @@ def test_check_hooks_installed_treats_an_unreadable_git_file_as_no_repository(
     """
     root = _worktree(tmp_path, pointer="bookkeeping of some kind, not a gitdir pointer\n")
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is True
     assert check.detail == "no git repository"
@@ -1074,7 +1074,7 @@ def test_check_hooks_installed_reads_a_git_directory_without_a_commondir(tmp_pat
     """
     root = _worktree(tmp_path, pointer="gitdir: {gitdir}\n", hook=PRE_COMMIT_HOOK, commondir=False)
 
-    check = doctor.check_hooks_installed(root / "src" / "insightminer" / "services")
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
 
     assert check.ok is True
     assert "worktrees" in check.detail

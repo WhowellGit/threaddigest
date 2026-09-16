@@ -442,11 +442,11 @@ def test_check_reports_a_second_memory_home_with_topic_files(tmp_path: Path) -> 
     projects = tmp_path / "projects"
     live = projects / "-repo-keyed" / "memory"
     live.mkdir(parents=True)
-    (live / INDEX).write_text("- [t](t.md) — insightminer note\n", encoding="utf-8")
+    (live / INDEX).write_text("- [t](t.md) — threaddigest note\n", encoding="utf-8")
     (live / "t.md").write_text(topic("t"), encoding="utf-8")
     stale = projects / "-desktop-keyed" / "memory"
     stale.mkdir(parents=True)
-    (stale / INDEX).write_text("pointer: the insightminer home moved\n", encoding="utf-8")
+    (stale / INDEX).write_text("pointer: the threaddigest home moved\n", encoding="utf-8")
     (stale / "old.md").write_text(topic("old"), encoding="utf-8")
     other = projects / "-another-project" / "memory"
     other.mkdir(parents=True)

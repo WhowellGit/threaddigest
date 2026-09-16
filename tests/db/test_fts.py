@@ -13,9 +13,9 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, Engine, text
 
-from insightminer.db.engine import checkpoint_truncate
-from insightminer.db.fts import fts_membership_count, integrity_check, optimize, rebuild
-from insightminer.db.migrate import downgrade_one
+from threaddigest.db.engine import checkpoint_truncate
+from threaddigest.db.fts import fts_membership_count, integrity_check, optimize, rebuild
+from threaddigest.db.migrate import downgrade_one
 
 PostInserter = Callable[..., int]
 

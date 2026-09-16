@@ -16,9 +16,9 @@ behind-head cases.
 **Db path convention.** Neither ``Settings`` nor any shipped module names the database file's
 path yet (grep confirms it): these tests assume the same one
 ``tests/services/conftest.py`` / ``tests/db/conftest.py`` already use for a bare temp
-database -- ``insightminer.db`` -- placed under ``settings.data_dir``, i.e.
-``settings.data_dir / "insightminer.db"``. ``tests/services/test_doctor.py`` makes the same
-assumption, for the same reason: it is the one path a real ``insightminer`` invocation would
+database -- ``threaddigest.db`` -- placed under ``settings.data_dir``, i.e.
+``settings.data_dir / "threaddigest.db"``. ``tests/services/test_doctor.py`` makes the same
+assumption, for the same reason: it is the one path a real ``threaddigest`` invocation would
 resolve to from ``settings.data_dir`` alone.
 """
 
@@ -34,17 +34,17 @@ import yaml
 from sqlalchemy import Connection, Engine, select
 from sqlalchemy.exc import OperationalError
 
-from insightminer.adapters.clock import FakeClock
-from insightminer.adapters.notify import FakeNotifier
-from insightminer.db import backup as db_backup
-from insightminer.db import migrate as db_migrate
-from insightminer.db import repo
-from insightminer.db.engine import engine_for
-from insightminer.db.schema import Base
-from insightminer.db.schema_dump import migrate_to_head
-from insightminer.services import lock, runs, seed
-from insightminer.services import migrate as migrate_service
-from insightminer.settings import Settings
+from threaddigest.adapters.clock import FakeClock
+from threaddigest.adapters.notify import FakeNotifier
+from threaddigest.db import backup as db_backup
+from threaddigest.db import migrate as db_migrate
+from threaddigest.db import repo
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema import Base
+from threaddigest.db.schema_dump import migrate_to_head
+from threaddigest.services import lock, runs, seed
+from threaddigest.services import migrate as migrate_service
+from threaddigest.settings import Settings
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "db"
 FIXTURE_0001 = FIXTURES_DIR / "0001.sqlite"
@@ -55,7 +55,7 @@ FIXTURE_0001 = FIXTURES_DIR / "0001.sqlite"
 
 @pytest.fixture
 def db_path(settings: Settings) -> Path:
-    return settings.data_dir / "insightminer.db"
+    return settings.data_dir / "threaddigest.db"
 
 
 @pytest.fixture
@@ -774,9 +774,9 @@ def test_db_upgrade_with_no_database_refuses_before_it_writes_anything(
     notifier: FakeNotifier,
 ) -> None:
     """The panel's P0, closed. ``_upgrade_locked`` used to call ``ctx_factory`` first:
-    ``engine_for`` created a 0-byte ``insightminer.db`` and ``repo.insert_run`` then died with
+    ``engine_for`` created a 0-byte ``threaddigest.db`` and ``repo.insert_run`` then died with
     ``no such table: runs`` as an uncaught traceback (exit 1), leaving a phantom database that
-    made the next ``run`` report "pending migrations" instead of "run: insightminer db init".
+    made the next ``run`` report "pending migrations" instead of "run: threaddigest db init".
 
     The refusal is §8's named precondition and it happens before any engine is opened, so the
     data directory is left with no database file at all. The subdirectory tree IS still
@@ -790,7 +790,7 @@ def test_db_upgrade_with_no_database_refuses_before_it_writes_anything(
 
     assert caught.value.db_path == db_path
     assert str(caught.value) == migrate_service.database_missing_message(db_path)
-    assert "insightminer db init" in str(caught.value)
+    assert "threaddigest db init" in str(caught.value)
     assert not db_path.exists(), "db upgrade fabricated a database it was supposed to refuse"
     assert not list(settings.data_dir.glob("*.db"))
     assert notifier.sent == []

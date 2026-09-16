@@ -160,7 +160,7 @@ def resolve_path(root: Path, source: str, token: str) -> Path | None:
     if source.startswith("docs/"):
         bases.append(root / "docs")
     if source.startswith((".claude/", "memory-snapshot/")):
-        bases.append(root / "src" / "insightminer")
+        bases.append(root / "src" / "threaddigest")
     for base in bases:
         candidate = base / token
         if candidate.exists():

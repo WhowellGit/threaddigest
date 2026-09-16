@@ -18,12 +18,12 @@ from sqlalchemy import Engine, insert, select, update
 from sqlalchemy.schema import DropTable
 from typer.testing import CliRunner
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db import repo
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
-from insightminer.services import invariants as invariants_module
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db import repo
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
+from threaddigest.services import invariants as invariants_module
 
 
 @dataclass

@@ -1,7 +1,7 @@
 """``db/backup.py`` with no spec id (design-round5.md §10.1, §16): online backup under a
 concurrent writer, sha256, ``quick_check``, restore swap, and WAL sidecar removal.
 
-``tests/db/**`` is the one place outside ``src/insightminer/db/**`` where ``sqlite3`` and
+``tests/db/**`` is the one place outside ``src/threaddigest/db/**`` where ``sqlite3`` and
 ``text()`` are lifted from ``TID251`` -- but this file needs neither: sources are built
 with the project's own ``engine_for`` and Core statements, and ``db.backup`` is exercised
 only through its public functions.
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from insightminer.db.backup import (
+from threaddigest.db.backup import (
     BACKUP_SUFFIXES,
     foreign_key_check,
     integrity_check,
@@ -26,9 +26,9 @@ from insightminer.db.backup import (
     restore,
     sha256_of,
 )
-from insightminer.db.engine import engine_for
-from insightminer.db.schema import Base
-from insightminer.db.schema_dump import migrate_to_head
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema import Base
+from threaddigest.db.schema_dump import migrate_to_head
 
 
 def _seed_db(path: Path) -> None:

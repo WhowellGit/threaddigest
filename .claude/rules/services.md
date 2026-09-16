@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/insightminer/services/**"
+  - "src/threaddigest/services/**"
   - "tests/services/**"
   - "tests/e2e/**"
 ---

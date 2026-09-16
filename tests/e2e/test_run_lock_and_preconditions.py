@@ -12,13 +12,13 @@ from click.testing import Result
 from sqlalchemy.schema import DropTable
 from tests.db.sqlhelp import run_pks
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.core.retry import EXIT_CODES, ExitCode, RunStatus
-from insightminer.db import migrate as db_migrate
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
-from insightminer.services import lock
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.core.retry import EXIT_CODES, ExitCode, RunStatus
+from threaddigest.db import migrate as db_migrate
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
+from threaddigest.services import lock
 
 
 def test_invalid_settings_exit_78_with_no_run_row(
@@ -28,7 +28,7 @@ def test_invalid_settings_exit_78_with_no_run_row(
     found, so every required static key is missing) exits 78 before a run row exists.
     """
     before = table_rows("runs")
-    monkeypatch.setenv("INSIGHTMINER_SETTINGS_FILE", str(db_at_head / "does-not-exist.yaml"))
+    monkeypatch.setenv("THREADDIGEST_SETTINGS_FILE", str(db_at_head / "does-not-exist.yaml"))
     result = cli_runner.invoke(cli.app, ["run", "--gateway", "fake"])
     assert result.exit_code == 78
     assert table_rows("runs") == before
@@ -128,7 +128,7 @@ def test_dry_run_against_a_held_lock_exits_75_without_writing(
 
 def test_missing_database_exits_78_and_names_db_init(cli_runner, isolated_data_dir: Path) -> None:
     """section 19.10: ``run`` against a data directory with no database file exits 78 and
-    names ``insightminer db init`` -- ``run`` never creates a schema for itself.
+    names ``threaddigest db init`` -- ``run`` never creates a schema for itself.
     """
     result = cli_runner.invoke(cli.app, ["run", "--gateway", "fake"])
     assert result.exit_code == 78

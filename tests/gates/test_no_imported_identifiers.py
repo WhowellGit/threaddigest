@@ -252,7 +252,7 @@ def test_positive_control_the_carve_outs_are_narrow(tmp_path: Path) -> None:
             "bind 127.0.0.1:8765 and 0.0.0.0",
             "git identity Wes Howell <wes@weshowell.com>",
             "GIT_AUTHOR_EMAIL=ratchet-test@example.invalid",
-            "INSIGHTMINER_DATA_DIR=/Users/[user]/repos/insightminer/data",
+            "THREADDIGEST_DATA_DIR=/Users/[user]/repos/insightminer/data",
             "/Users/wesmax/repos/insightminer",
             "the primary Adobe Premiere Pro community; Adobe's After Effects; Adobe Media Encoder",
             "r/adobe is a public subreddit",
@@ -291,7 +291,7 @@ CASSETTE_ID = re.compile(r"\bt2_[0-9a-z]+\b")
 def fixture_violations(root: Path, rel_paths: Iterable[str]) -> list[str]:
     """Every author name or account id under the fixture roots that is neither kept nor
     synthetic, as ``path: value``; JSON is walked, a cassette is scanned as text."""
-    from insightminer.core import fixture_scrub as fs
+    from threaddigest.core import fixture_scrub as fs
 
     found: list[str] = []
     for rel in sorted(rel_paths):
@@ -316,7 +316,7 @@ def test_fixtures_carry_synthetic_authors_only() -> None:
 
 @pytest.mark.gate("G35")
 def test_positive_control_a_real_author_in_a_fixture_is_red(tmp_path: Path) -> None:
-    from insightminer.core import fixture_scrub as fs
+    from threaddigest.core import fixture_scrub as fs
 
     raw = {"posts": [{"id": "x", "author": "a_real_person", "author_fullname": "t2_9zq8x"}]}
     capture = tmp_path / "tests" / "fixtures" / "json" / "captures" / "post.json"

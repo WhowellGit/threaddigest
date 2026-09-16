@@ -15,13 +15,13 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine, func, select
 
-from insightminer.adapters.clock import FakeClock
-from insightminer.adapters.notify import FakeNotifier
-from insightminer.db import repo
-from insightminer.db.engine import engine_for
-from insightminer.db.schema import Base
-from insightminer.db.schema_dump import migrate_to_head
-from insightminer.settings import Settings
+from threaddigest.adapters.clock import FakeClock
+from threaddigest.adapters.notify import FakeNotifier
+from threaddigest.db import repo
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema import Base
+from threaddigest.db.schema_dump import migrate_to_head
+from threaddigest.settings import Settings
 
 #: A fixed epoch second, well inside the project's lifetime -- matches tests/db/conftest.py's
 #: convention so a failure's timestamp is easy to eyeball across both packages.
@@ -35,7 +35,7 @@ def now() -> int:
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:
-    return tmp_path / "insightminer.db"
+    return tmp_path / "threaddigest.db"
 
 
 @pytest.fixture
@@ -249,6 +249,6 @@ def run_context(engine: Engine, clock: FakeClock, settings: Settings):
     yet) is the honest ``ImportError`` rather than a fixture-setup error unrelated to the
     step being tested.
     """
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     return runs.start_run(engine, kind="run", trigger="cli", clock=clock, settings=settings)

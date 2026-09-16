@@ -3,7 +3,7 @@
 # validators, event listeners, fixtures) never need a line here: the tool ignores those
 # decorators. Every line below is counted by the code_health.dead_code_whitelisted ceiling in
 # .ratchets/code_health.txt, so this list only shrinks without a recorded reason.
-from insightminer import ports, settings
+from threaddigest import ports, settings
 
 WHITELISTED = (
     ports.ProcessRunner.spawn,  # port method: implemented by the adapter, called from web at M2

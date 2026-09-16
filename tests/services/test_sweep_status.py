@@ -14,10 +14,10 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from insightminer.core.paging import StopReason
-from insightminer.db import repo
-from insightminer.db.schema import STOP_REASONS, SUBREDDIT_STATUSES, Base
-from insightminer.ports import (
+from threaddigest.core.paging import StopReason
+from threaddigest.db import repo
+from threaddigest.db.schema import STOP_REASONS, SUBREDDIT_STATUSES, Base
+from threaddigest.ports import (
     GatewayError,
     SubredditForbidden,
     SubredditNotFound,
@@ -25,7 +25,7 @@ from insightminer.ports import (
     SubredditRedirected,
     TransientError,
 )
-from insightminer.services import sweep
+from threaddigest.services import sweep
 
 BASE = 1_757_700_000  # matches tests/conftest.py's ``seeded`` fixture
 
@@ -164,7 +164,7 @@ def test_redirect_auto_disables_after_three_runs_with_an_alert(
     notifier: Any,
     subreddit_row: Any,
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fake.set_status("premiere", "redirect")
@@ -186,7 +186,7 @@ def test_redirect_auto_disables_after_three_runs_with_an_alert(
 def test_the_disable_warning_is_emitted_only_after_the_transaction_commits(
     fake: Any, add_source: Any, engine: Any, clock: Any, settings: Any, subreddit_row: Any
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fake.set_status("premiere", "quarantined")  # QUARANTINE_DISABLE_AFTER=1: disables immediately
@@ -366,7 +366,7 @@ def test_exhausted_sweep_advances_the_watermark_forward_only(
     settings: Any,
     subreddit_row: Any,
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     for i in range(5):
@@ -401,7 +401,7 @@ def test_a_first_capped_sweep_does_not_claim_complete_coverage(
 ) -> None:
     """round-5 P1-4: a first capped sweep (no prior watermark) proves nothing; a second capped
     sweep with a healthy, contiguous trickle DOES, once there is known territory to reach."""
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     first_total = 1005
@@ -432,7 +432,7 @@ def test_a_first_capped_sweep_does_not_claim_complete_coverage(
 def test_a_dry_run_still_warns_about_a_forbidden_source(
     fake: Any, add_source: Any, engine: Any, clock: Any, settings: Any, notifier: Any
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     fake.set_status("premiere", "forbidden")
@@ -460,7 +460,7 @@ def test_a_dry_run_over_a_healthy_source_writes_nothing_and_reports_zero_new(
     """§11.4: a dry run skips ``write_page`` and the terminal transaction, so the HTTP cost is
     real and every table is untouched. ``new_items`` is therefore structurally 0 whatever the
     listing holds, which is why the printed summary has to label it."""
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     for i in range(5):

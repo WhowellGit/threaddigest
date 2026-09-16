@@ -1,15 +1,15 @@
 #!/bin/bash
-# deploy/launchd/run.sh: the wrapper launchd invokes for every scheduled Insight Miner job.
+# deploy/launchd/run.sh: the wrapper launchd invokes for every scheduled Thread Digest job.
 #
-#   run.sh run      the collector run       (com.wesmax.insightminer.run: Monday and Thursday 06:30, D-30)
-#   run.sh doctor   the staleness check     (com.wesmax.insightminer.doctor: hourly at :15, --alert-if-stale 5d)
+#   run.sh run      the collector run       (com.wesmax.threaddigest.run: Monday and Thursday 06:30, D-30)
+#   run.sh doctor   the staleness check     (com.wesmax.threaddigest.doctor: hourly at :15, --alert-if-stale 5d)
 #
 # What it guarantees (docs/PLAN.md § Deployment path, § Resilience to outages):
 #   - the repo root comes from this file's location, never from the caller's cwd or PATH;
 #   - it refuses to run from a TCC-protected folder, where launchd is silently denied access;
 #   - the project's virtualenv interpreter is used by absolute path (stock python3 is 3.9);
 #   - the job runs under `caffeinate -i` when available, so a closed lid cannot strand a run;
-#   - INSIGHTMINER_* settings are loaded from .env without their values ever being printed;
+#   - THREADDIGEST_* settings are loaded from .env without their values ever being printed;
 #   - every wrapper line is timestamped in data/logs/launchd-<job>.log next to the job's output;
 #   - the job's exit code is mapped to an operator action and then passed through unchanged.
 #
@@ -58,7 +58,7 @@ log() {
   printf '%s [%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$JOB" "$*" | tee -a "$LOG" || true
 }
 
-# load_env <file>: export the INSIGHTMINER_* assignments of a dotenv file. The file is parsed
+# load_env <file>: export the THREADDIGEST_* assignments of a dotenv file. The file is parsed
 # line by line, never sourced, so it cannot run commands; keys must be plain identifiers;
 # values are never printed. One pair of surrounding quotes is stripped, nothing else.
 load_env() {
@@ -68,7 +68,7 @@ load_env() {
     line="${line#"${line%%[![:space:]]*}"}" # left-trim
     line="${line#export }"
     case "$line" in
-      INSIGHTMINER_*=*) ;;
+      THREADDIGEST_*=*) ;;
       *) continue ;;
     esac
     key="${line%%=*}"
@@ -89,11 +89,11 @@ load_env() {
     export "$key=$value"
     count=$((count + 1))
   done <"$file"
-  log ".env: exported $count INSIGHTMINER_* key(s) from $file (values are never logged)"
+  log ".env: exported $count THREADDIGEST_* key(s) from $file (values are never logged)"
 }
 load_env "$ROOT/.env"
 
-UI_URL="${INSIGHTMINER_UI_URL:-http://127.0.0.1:8765}"
+UI_URL="${THREADDIGEST_UI_URL:-http://127.0.0.1:8765}"
 
 # notify <status> <message>: macOS Notification Center via osascript. The text travels as
 # *arguments* to an `on run argv` handler, never spliced into AppleScript source, so quotes or
@@ -109,7 +109,7 @@ notify() {
     -e 'on run argv' \
     -e 'display notification (item 1 of argv) with title (item 2 of argv) subtitle (item 3 of argv)' \
     -e 'end run' \
-    -- "$message" "Insight Miner" "$status" >>"$LOG" 2>&1 || rc=$?
+    -- "$message" "Thread Digest" "$status" >>"$LOG" 2>&1 || rc=$?
   if [ "$rc" -eq 0 ]; then
     log "notification posted: $status"
   else
@@ -119,11 +119,11 @@ notify() {
 
 case "$JOB" in
   run)
-    set -- "$PY" -m insightminer run
+    set -- "$PY" -m threaddigest run
     UI_PAGE="$UI_URL/runs"
     ;;
   doctor)
-    set -- "$PY" -m insightminer doctor --alert-if-stale 5d
+    set -- "$PY" -m threaddigest doctor --alert-if-stale 5d
     UI_PAGE="$UI_URL/system"
     ;;
 esac
@@ -141,7 +141,7 @@ log "exit $rc"
 
 case "$rc" in
   0) log "$JOB ok" ;;
-  75) log "another Insight Miner process holds the lock; nothing to do" ;;
+  75) log "another Thread Digest process holds the lock; nothing to do" ;;
   130) log "$JOB was cancelled by the operator; no notification" ;;
   4) log "rate limited by Reddit; will retry at the next interval" ;;
   5) log "network unavailable; will retry at the next interval" ;;

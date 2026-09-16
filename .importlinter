@@ -2,7 +2,7 @@
 # (part of `make check`) and by tests/gates/test_layering.py, which also proves the
 # gate can go red.
 [importlinter]
-root_package = insightminer
+root_package = threaddigest
 include_external_packages = True
 
 [importlinter:contract:layers]
@@ -11,23 +11,23 @@ type = layers
 # Modules on one line separated by "|" are independent of each other (db never imports
 # adapters and vice versa).
 layers =
-    insightminer.web | insightminer.cli
-    insightminer.services
-    insightminer.db | insightminer.adapters
-    insightminer.ports
-    insightminer.core
+    threaddigest.web | threaddigest.cli
+    threaddigest.services
+    threaddigest.db | threaddigest.adapters
+    threaddigest.ports
+    threaddigest.core
 
 [importlinter:contract:praw-only-in-the-adapter]
-name = praw and prawcore are imported only by insightminer.adapters.reddit_praw
+name = praw and prawcore are imported only by threaddigest.adapters.reddit_praw
 type = forbidden
 source_modules =
-    insightminer
+    threaddigest
 forbidden_modules =
     praw
     prawcore
 ignore_imports =
-    insightminer.adapters.reddit_praw -> praw
-    insightminer.adapters.reddit_praw -> prawcore
+    threaddigest.adapters.reddit_praw -> praw
+    threaddigest.adapters.reddit_praw -> prawcore
 # The adapter module does not exist yet, so its allow-list entries match nothing today.
 # "warn" keeps the contract passing on the current tree; the contract still fails the
 # moment any other module imports praw.
@@ -37,6 +37,6 @@ unmatched_ignore_imports_alerting = warn
 name = web must not import cli (the CLI mirrors the UI, never the reverse)
 type = forbidden
 source_modules =
-    insightminer.web
+    threaddigest.web
 forbidden_modules =
-    insightminer.cli
+    threaddigest.cli

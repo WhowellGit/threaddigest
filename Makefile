@@ -1,4 +1,4 @@
-# Insight Miner developer entry points. Everything runs through uv; nothing else is
+# Thread Digest developer entry points. Everything runs through uv; nothing else is
 # installed globally. `make check` is the one command that gates every change and is
 # exactly what CI runs.
 # macOS-only tests (launchd, plutil) are deselected off Darwin; they run on the Mac and in a macOS job.
@@ -26,7 +26,7 @@ help:
 	@echo "make test             uv run pytest"
 	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
 	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
-	@echo "make schema           regenerate src/insightminer/db/schema.sql from the migrations"
+	@echo "make schema           regenerate src/threaddigest/db/schema.sql from the migrations"
 	@echo "make code-health      measure code health into .build/code_health.json (check does this first)"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
@@ -115,7 +115,7 @@ ratchet-loosen: code-health doc-policy
 	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)" $(if $(HARD_AFTER),HARD_AFTER=$(HARD_AFTER),)
 
 schema:
-	$(UV) run python -m insightminer.db.schema_dump
+	$(UV) run python -m threaddigest.db.schema_dump
 
 test:
 	$(UV) run pytest -m "$(MARKEXPR)"
@@ -124,7 +124,7 @@ test-live:  ## the opt-in live suite (tranche B): needs .env credentials; the ne
 	$(UV) run --env-file .env pytest tests/live -m live --allowed-hosts='.*\.reddit\.com,.*\.redditmedia\.com'
 
 # `run` is the documented first-run sequence (design-round5 §19.10, Wes's Q9): `db init`
-# creates the schema, `run` refuses a database that does not exist. INSIGHTMINER_DATA_DIR is
+# creates the schema, `run` refuses a database that does not exist. THREADDIGEST_DATA_DIR is
 # explicit and NOT the default ./data, because `--gateway fake` is refused against the real
 # data directory (D-10 / CF-02) and a developer smoke run must never touch collected data.
 RUN_DATA_DIR ?= $(BUILD_DIR)/run-data
@@ -136,8 +136,8 @@ fixture:
 	$(UV) run python tools/make_demo_fixture.py $(RUN_FIXTURE)
 
 run: fixture | $(BUILD_DIR)
-	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer db init
-	INSIGHTMINER_DATA_DIR=$(RUN_DATA_DIR) $(UV) run insightminer run --gateway fake --fixture $(RUN_FIXTURE)
+	THREADDIGEST_DATA_DIR=$(RUN_DATA_DIR) $(UV) run threaddigest db init
+	THREADDIGEST_DATA_DIR=$(RUN_DATA_DIR) $(UV) run threaddigest run --gateway fake --fixture $(RUN_FIXTURE)
 
 plan-html: ## render docs/PLAN.md to docs/PLAN.html for browser review
 	$(UV) run python tools/render_plan.py

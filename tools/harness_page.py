@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive the harness inventory block of ``docs/INSIGHTMINER_HARNESS.md`` from the tree.
+"""Derive the harness inventory block of ``docs/THREADDIGEST_HARNESS.md`` from the tree.
 
 The earlier project kept a hand-written "how this codebase uses its harness" document. Its
 content was among the most valuable in that corpus and it was never opened again after it was
@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGE = Path("docs") / "INSIGHTMINER_HARNESS.md"
+PAGE = Path("docs") / "THREADDIGEST_HARNESS.md"
 BEGIN = "<!-- harness-inventory:begin -->"
 END = "<!-- harness-inventory:end -->"
 

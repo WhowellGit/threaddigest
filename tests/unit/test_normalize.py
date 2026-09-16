@@ -1,4 +1,4 @@
-"""Tests for ``insightminer.core.normalize``: raw Reddit JSON -> PostRow / CommentRow / Reject.
+"""Tests for ``threaddigest.core.normalize``: raw Reddit JSON -> PostRow / CommentRow / Reject.
 
 Fixtures under tests/fixtures/json/synthetic are hand-written placeholders (see the README
 there); the assertions below describe the contract the M1a ``probe`` captures must satisfy.
@@ -15,14 +15,14 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.models import (
+from threaddigest.core.models import (
     NORMALIZER_VERSION,
     CommentRow,
     CrosspostParent,
     PostRow,
     Reject,
 )
-from insightminer.core.normalize import (
+from threaddigest.core.normalize import (
     ALLOWED_ATTRIBUTES,
     ALLOWED_TAGS,
     REQUIRED_COMMENT_KEYS,

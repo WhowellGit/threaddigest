@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import insert
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db import repo
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db import repo
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
 
 
 def _minimal_post_values(reddit_id: str, subreddit_pk: int, now: int) -> dict[str, object]:

@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from insightminer import cli
-from insightminer.adapters.clock import SystemClock
+from threaddigest import cli
+from threaddigest.adapters.clock import SystemClock
 
 
 @pytest.mark.gate("G46")

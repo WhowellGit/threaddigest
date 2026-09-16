@@ -21,7 +21,7 @@ pytestmark = pytest.mark.gate("G51")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOL = REPO_ROOT / "tools" / "code_health.py"
-PACKAGE = Path("src") / "insightminer"
+PACKAGE = Path("src") / "threaddigest"
 
 CLEAN = '''"""A clean module."""
 
@@ -58,7 +58,7 @@ USED = (same_{name},)
 '''
 
 WHITELIST = """# Dead-code whitelist for the throwaway tree.
-from insightminer import clean
+from threaddigest import clean
 
 WHITELISTED = (
     clean.listed_but_unused,  # planted: counted by dead_code_whitelisted, not by dead_code

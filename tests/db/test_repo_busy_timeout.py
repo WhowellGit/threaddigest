@@ -16,11 +16,11 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
-from insightminer.core.models import PostRow
-from insightminer.db.engine import engine_for
-from insightminer.db.ownership import IngestPath
-from insightminer.db.repo import PostWrite, RunInsert, insert_run, upsert_posts
-from insightminer.db.schema import Base
+from threaddigest.core.models import PostRow
+from threaddigest.db.engine import engine_for
+from threaddigest.db.ownership import IngestPath
+from threaddigest.db.repo import PostWrite, RunInsert, insert_run, upsert_posts
+from threaddigest.db.schema import Base
 
 _POST_KWARGS: dict[str, Any] = {
     "subreddit": "premiere",

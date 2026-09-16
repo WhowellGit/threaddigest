@@ -1,6 +1,6 @@
-# Insight Miner: working agreement
+# Thread Digest: working agreement
 
-Personal, rules-compliant Reddit harvester. Plan: `docs/PLAN.md`. Overview: `docs/OVERVIEW.md`. Working method: `docs/INSIGHTMINER_HARNESS.md`. Doc router: `docs/INDEX.md`.
+Personal, rules-compliant Reddit reader. Plan: `docs/PLAN.md`. Overview: `docs/OVERVIEW.md`. Working method: `docs/THREADDIGEST_HARNESS.md`. Doc router: `docs/INDEX.md`.
 Everything runs through `uv`: `make setup` once, then `make check` before every PR.
 This file applies to every agent and human working in the repo.
 
@@ -45,7 +45,7 @@ that only goes down.
 | Never `git commit --no-verify`; never push to `main`; never merge into `main` a tree `make check` has not stamped green | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; the stamp `tools/check_stamp.py` writes as the last step of `make check`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; the CI workflow in `.github/workflows/ci.yml`, which runs once a GitHub remote exists (none yet, MB) |
 | Never catch a broad exception without recording it on the run row | ruff `E722`, `BLE001`, `S110`, `S112`, `B904`, `TRY*`; a run with any warning is `partial`, never `ok` |
 | Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | `tests/gates/test_known_issues_cite_collected_tests.py` (a row's node id must name a test that exists); that a fix has a row at all is review of the PR body; the `harden` skill is the checklist |
-| Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/insightminer/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema`; the committed fixtures are upgraded by `tests/db/test_alembic.py`; that a new revision adds its own fixture is review |
+| Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/threaddigest/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema`; the committed fixtures are upgraded by `tests/db/test_alembic.py`; that a new revision adds its own fixture is review |
 | Never hand-edit `.ratchets/` or the hook settings | hard-block hook; `tools/ratchet.py` is the only writer; floors are compared three ways on every `make check`, so a stale or hand-edited floor is red |
 | Never touch the production DB by hand | `tests/gates/test_data_dir_isolation.py`: tests run in a temp `DATA_DIR` and settings refuse the default dir under pytest; a destructive operation takes a recorded fresh backup first (`tests/services/test_migrate_service.py`); the typed confirmation is review until the mutating commands land |
 | Never store or log credentials | gitleaks in `.pre-commit-config.yaml` (allowlist in `.gitleaks.toml`: the ratchet address only); `.env` is gitignored (`.gitignore`); validation errors hide their input (KI-003's regression test); the M2 config export must exclude secrets (review until built) |
@@ -63,7 +63,7 @@ that only goes down.
 | Every gate file and every `gate` marker id has a `docs/runbook/GUARDS.md` row; every commit hash cited in a document resolves; Active rows without a positive control are a ceiling | `tests/gates/test_known_issues_cite_collected_tests.py`; `.ratchets/review_only_rules.txt` |
 | One memory home; the committed snapshot is never behind live memory | `tools/memory_snapshot.py` `check` and `diff` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | The harness page's inventory of mechanisms is generated from the tree, never typed | `tools/harness_page.py` (`--check`, `--write`); `tests/gates/test_harness_page.py` |
-| Every living document under `docs/` declares its purpose, update policy, mirrors (existing, declared from both sides), and verification milestone; an append-only document never loses a line it had at the merge base with `main`, and a reference record is never edited; a rewritten document lags the status page's milestone by at most one and is never stamped ahead of it; a document path with a directory, named in a rewritten document, resolves; every repository path, `make` target, test id, `insightminer` command line, package reference, and `table.column` named in a rewritten document or this file resolves against the tree, unless the token's own annotation names a later milestone, the word planned, a tranche, or a retirement word, or the row's own cell is a milestone or planned, or the row is dated in its first cell | `tools/doc_policy.py --check` in `make check`; `tests/gates/test_doc_policy.py` |
+| Every living document under `docs/` declares its purpose, update policy, mirrors (existing, declared from both sides), and verification milestone; an append-only document never loses a line it had at the merge base with `main`, and a reference record is never edited; a rewritten document lags the status page's milestone by at most one and is never stamped ahead of it; a document path with a directory, named in a rewritten document, resolves; every repository path, `make` target, test id, `threaddigest` command line, package reference, and `table.column` named in a rewritten document or this file resolves against the tree, unless the token's own annotation names a later milestone, the word planned, a tranche, or a retirement word, or the row's own cell is a milestone or planned, or the row is dated in its first cell | `tools/doc_policy.py --check` in `make check`; `tests/gates/test_doc_policy.py` |
 | A fact listed in the live-facts table has one home and one literal that every listed mirror states; dated annotations in the prose of rewritten documents, class-like names no code uses as an identifier, and identifiers an annotation in prose exempted, are ceilings that only go down, a pressure the milestone pass reads (rewrite the section, do not annotate it; a planned identifier belongs in the built/planned tables) | the live-facts table in `docs/decisions/DECISIONS.md`, read by `tools/doc_policy.py`; `.ratchets/docs.txt` through `tools/ratchet.py` |
 | Memory routes to documents and never restates state that has a document home: a topic file is capped by bytes and a project memory names at least one existing repository path (that it routes rather than restates is review) | `tools/memory_snapshot.py` `check` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
@@ -71,7 +71,7 @@ that only goes down.
 | Every commit on a review-required surface since 2026-09-15 has a review register row with a record | `tests/gates/test_review_register.py`; `docs/reference/reviews/REGISTER.md` |
 | Maintainability passes on its own at a milestone, judged by analysis and never by a model: function complexity, module maintainability, size rules, dead code, and duplication are ceilings that only go down, with dated birth relaxations | `tools/code_health.py` (run by `make code-health` inside `make check`); `.ratchets/code_health.txt`; `tests/gates/test_code_health.py`; `tests/gates/test_ratchet.py` |
 | An open question for Wes reaches him in the session: a document that gains a parked question ("pending Wes", "held for Wes") during a session is presented in that turn's closing message with a recommendation, never only pointed at | log-first Stop hook `tools/hooks/questions_in_session.sh` (ledger `.build/hooks/questions_in_session.jsonl`; mode in `tools/hooks/questions_in_session.mode`); `tests/gates/test_hooks.py` |
-| Every fixture under `tests/fixtures/` outside the hand-written synthetic set, and every cassette, carries synthetic author names and account ids only; a capture is scrubbed on save, never committed as returned | `src/insightminer/core/fixture_scrub.py`; `tests/gates/test_no_imported_identifiers.py` |
+| Every fixture under `tests/fixtures/` outside the hand-written synthetic set, and every cassette, carries synthetic author names and account ids only; a capture is scrubbed on save, never committed as returned | `src/threaddigest/core/fixture_scrub.py`; `tests/gates/test_no_imported_identifiers.py` |
 | An external review packet is the committed tree and nothing else: built from `HEAD` by the packet builder, allowlisted, hashed, with a refute-framed brief and the claims list; never the archive, never a secret, never a prior verdict | `tools/review_packet.py`; `tests/gates/test_review_packet.py`; `docs/reference/reviews/templates/external-deep-research.md`; `docs/runbook/RUNBOOK.md` § 7 |
 
 ## Routing: read before you touch
@@ -90,7 +90,7 @@ that only goes down.
 | Decide whether to adopt a practice from the earlier project | `docs/reference/earlier-project/EARLIER_PROJECT_REFERENCE.md` first (the self-contained entry point), then `docs/reference/reviews/2026-09-13-documentation-practices-assessment.md` and `docs/reference/reviews/2026-09-13-harness-assessment.md` § 7 |
 | Run a retrospective, or judge whether a lesson from the earlier project held | `docs/learnings/LEARNINGS_TRANSFER.md` (§5 predictions; §6 how to evolve it) |
 | Fix a bug, or harden a resolution so it cannot regress | `.claude/skills/harden/SKILL.md` (the checklist), then `docs/runbook/KNOWN_ISSUES.md` and `docs/runbook/GUARDS.md` |
-| Add or change a harness mechanism (a hook, gate, ratchet, tool, rule file, skill), or explain the working method | `docs/INSIGHTMINER_HARNESS.md`, then `docs/runbook/GUARDS.md`; regenerate the inventory with `tools/harness_page.py` |
+| Add or change a harness mechanism (a hook, gate, ratchet, tool, rule file, skill), or explain the working method | `docs/THREADDIGEST_HARNESS.md`, then `docs/runbook/GUARDS.md`; regenerate the inventory with `tools/harness_page.py` |
 | Explain the system, or read about it before the plan | `docs/OVERVIEW.md` |
 | Update the documents after a change, retire a document, or review memory | `.claude/skills/docs-sweep/SKILL.md` (the checklist), then `docs/runbook/RUNBOOK.md` § 8 |
 
@@ -119,7 +119,7 @@ that only goes down.
 
 ## Operator surface
 
-The web UI is the operator surface for every routine action: runs, harvesting a post,
+The web UI is the operator surface for every routine action: runs, collecting one post's tree,
 reconcile, re-tag, backups and restore, health checks, config and archive import/export,
 first-run setup. The CLI exists for schedulers, containers, tests, and break-glass recovery.
 The CLI mirrors the UI, never the reverse: both call the same `services/` functions, and

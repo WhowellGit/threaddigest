@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from insightminer.adapters.clock import FakeClock
-from insightminer.adapters.reddit_fake import (
+from threaddigest.adapters.clock import FakeClock
+from threaddigest.adapters.reddit_fake import (
     INFO_CHUNK,
     LISTING_CAP,
     PAGE_SIZE,
@@ -19,7 +19,7 @@ from insightminer.adapters.reddit_fake import (
     CrashInjected,
     FakeRedditGateway,
 )
-from insightminer.ports import (
+from threaddigest.ports import (
     AuthFailed,
     GatewayError,
     HtmlBlocked,

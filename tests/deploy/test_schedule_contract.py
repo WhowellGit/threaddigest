@@ -25,7 +25,7 @@ def _rendered_plist(label: str) -> dict[str, object]:
 
 def test_run_job_is_scheduled_monday_and_thursday_at_0630() -> None:
     """D-30: Weekday 1 (Monday) and 4 (Thursday), 06:30, and the run's 3h ExitTimeOut."""
-    data = _rendered_plist("com.wesmax.insightminer.run")
+    data = _rendered_plist("com.wesmax.threaddigest.run")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, list)
     assert [(e["Weekday"], e["Hour"], e["Minute"]) for e in schedule] == [(1, 6, 30), (4, 6, 30)]
@@ -34,7 +34,7 @@ def test_run_job_is_scheduled_monday_and_thursday_at_0630() -> None:
 
 
 def test_doctor_job_is_hourly_off_the_run_minute() -> None:
-    data = _rendered_plist("com.wesmax.insightminer.doctor")
+    data = _rendered_plist("com.wesmax.threaddigest.doctor")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, dict) and set(schedule) == {"Minute"}
     assert schedule["Minute"] != 30  # never starts together with the run job
@@ -64,7 +64,7 @@ def test_reconcile_bounds_fit_the_schedule() -> None:
     gap plus a run's wall-clock ceiling."""
     import yaml
 
-    schedule = _rendered_plist("com.wesmax.insightminer.run")["StartCalendarInterval"]
+    schedule = _rendered_plist("com.wesmax.threaddigest.run")["StartCalendarInterval"]
     assert isinstance(schedule, list)
     weekdays = sorted(entry["Weekday"] for entry in schedule)
     gaps_days = [b - a for a, b in zip(weekdays, weekdays[1:], strict=False)]
@@ -83,15 +83,15 @@ def test_reconcile_bounds_fit_the_schedule() -> None:
 def test_doctor_default_threshold_outlasts_the_longest_gap_and_matches_the_wrapper() -> None:
     """KI-024: the cadence sweep moved the wrapper to ``5d`` while the CLI option and the
     service parameter kept the daily-cadence default of thirty-six hours, so a bare
-    ``insightminer doctor`` alarmed on every normal Thursday-to-Monday gap. One constant is
+    ``threaddigest doctor`` alarmed on every normal Thursday-to-Monday gap. One constant is
     the home of the default; both entry points use it; it outlasts the schedule's longest gap;
     and the wrapper passes the same value, so the three can never disagree again."""
     import inspect
 
-    from insightminer import cli
-    from insightminer.services import doctor
+    from threaddigest import cli
+    from threaddigest.services import doctor
 
-    data = _rendered_plist("com.wesmax.insightminer.run")
+    data = _rendered_plist("com.wesmax.threaddigest.run")
     schedule = data["StartCalendarInterval"]
     assert isinstance(schedule, list)
     default = doctor.DEFAULT_ALERT_IF_STALE

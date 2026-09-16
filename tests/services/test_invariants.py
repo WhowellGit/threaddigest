@@ -20,12 +20,12 @@ from typing import Any
 from sqlalchemy import Connection, Engine, delete, insert, select
 from sqlalchemy.schema import DropTable
 
-from insightminer.core.models import NORMALIZER_VERSION
-from insightminer.core.retry import ExitCode, RunStatus, exit_code
-from insightminer.db import repo
-from insightminer.db.schema import RUN_STATUSES, Base
-from insightminer.services import collect, invariants, runs
-from insightminer.settings import Settings
+from threaddigest.core.models import NORMALIZER_VERSION
+from threaddigest.core.retry import ExitCode, RunStatus, exit_code
+from threaddigest.db import repo
+from threaddigest.db.schema import RUN_STATUSES, Base
+from threaddigest.services import collect, invariants, runs
+from threaddigest.settings import Settings
 
 # --- small local builders (§2.3: Core only, no text()) -----------------------------------
 
@@ -349,7 +349,7 @@ def test_fts_membership_equals_live_flags_an_equal_count_substitution(
         )
     with engine.connect() as conn:
         # The count-only half is satisfied; the content check must still object.
-        from insightminer.db import fts as _fts
+        from threaddigest.db import fts as _fts
 
         assert _fts.fts_membership_count(conn, "posts_fts") == 1
         violation = invariants.fts_membership_equals_live(_inv_ctx(conn, run_context))

@@ -14,10 +14,10 @@ from click.testing import Result
 from tests.db.sqlhelp import run_pks, table_digest
 from typer.testing import CliRunner
 
-from insightminer import cli
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
-from insightminer.services import lock
+from threaddigest import cli
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
+from threaddigest.services import lock
 
 FIXTURE_0001 = Path(__file__).resolve().parents[1] / "fixtures" / "db" / "0001.sqlite"
 

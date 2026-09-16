@@ -1,6 +1,6 @@
 """Gate G19: tests can never run against the real data directory.
 
-Positive controls construct the bad state (pytest loaded, no ``INSIGHTMINER_DATA_DIR``)
+Positive controls construct the bad state (pytest loaded, no ``THREADDIGEST_DATA_DIR``)
 and assert that ``Settings`` refuses before anything is created, in-process and across the
 subprocess seam (``PYTEST_CURRENT_TEST`` is inherited by children). The negative controls
 prove the refusal is keyed on the invariant, not on pytest merely being present: an
@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pytest
 
-from insightminer.settings import DataDirRefused, Settings, default_data_dir
+from threaddigest.settings import DataDirRefused, Settings, default_data_dir
 
 pytestmark = pytest.mark.gate("G19")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHILD = (
-    "from insightminer.settings import Settings, default_data_dir\n"
+    "from threaddigest.settings import Settings, default_data_dir\n"
     "s = Settings()\n"
     "assert s.data_dir == default_data_dir().resolve(), s.data_dir\n"
     "print(s.data_dir)\n"
@@ -34,43 +34,43 @@ def _listing(path: Path) -> list[str] | None:
 
 
 def _child_env(**overrides: str) -> dict[str, str]:
-    """A child environment with no pytest, coverage, or insightminer variables."""
+    """A child environment with no pytest, coverage, or threaddigest variables."""
     env = {
         name: value
         for name, value in os.environ.items()
-        if not name.startswith(("INSIGHTMINER_", "PYTEST_", "COV_CORE_"))
+        if not name.startswith(("THREADDIGEST_", "PYTEST_", "COV_CORE_"))
     }
     env.update(overrides)
     return env
 
 
 def test_refuses_default_data_dir_while_pytest_is_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("INSIGHTMINER_DATA_DIR")
-    monkeypatch.delenv("INSIGHTMINER_ALLOW_REAL_DATA_DIR", raising=False)
+    monkeypatch.delenv("THREADDIGEST_DATA_DIR")
+    monkeypatch.delenv("THREADDIGEST_ALLOW_REAL_DATA_DIR", raising=False)
     assert "pytest" in sys.modules
     before = _listing(default_data_dir())
 
-    with pytest.raises(DataDirRefused, match="INSIGHTMINER_DATA_DIR"):
+    with pytest.raises(DataDirRefused, match="THREADDIGEST_DATA_DIR"):
         Settings()
 
     assert _listing(default_data_dir()) == before
 
 
 def test_refuses_when_env_points_at_the_default_dir(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("INSIGHTMINER_DATA_DIR", str(default_data_dir()))
+    monkeypatch.setenv("THREADDIGEST_DATA_DIR", str(default_data_dir()))
     with pytest.raises(DataDirRefused):
         Settings()
 
 
 def test_explicit_temp_data_dir_constructs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.delenv("INSIGHTMINER_DATA_DIR")
+    monkeypatch.delenv("THREADDIGEST_DATA_DIR")
     resolved = Settings(data_dir=tmp_path)
     assert resolved.data_dir == tmp_path.resolve()
 
 
 def test_opt_in_variable_allows_the_default_dir(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("INSIGHTMINER_DATA_DIR")
-    monkeypatch.setenv("INSIGHTMINER_ALLOW_REAL_DATA_DIR", "1")
+    monkeypatch.delenv("THREADDIGEST_DATA_DIR")
+    monkeypatch.setenv("THREADDIGEST_ALLOW_REAL_DATA_DIR", "1")
     before = _listing(default_data_dir())
 
     resolved = Settings()

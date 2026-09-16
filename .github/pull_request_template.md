@@ -27,6 +27,6 @@
 
 ## Independent review
 
-<!-- Required only when this PR touches src/insightminer/db/migrations, services/scrub,
+<!-- Required only when this PR touches src/threaddigest/db/migrations, services/scrub,
      core/deletion, or db/repo. Name the reviewer (a human or an agent other than the author),
      what was reviewed, and the outcome. Otherwise write "n/a". -->

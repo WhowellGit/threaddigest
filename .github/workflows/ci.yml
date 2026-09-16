@@ -1,4 +1,4 @@
-# CI for Insight Miner. `check` is the required job and runs exactly `make check`.
+# CI for Thread Digest. `check` is the required job and runs exactly `make check`.
 # No live tests and no secrets: the only token used is the workflow's own github.token,
 # read-only, to clone the repo inside the portability container.
 name: CI

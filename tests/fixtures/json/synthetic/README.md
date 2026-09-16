@@ -6,7 +6,7 @@ scores and timestamps are invented; no real Reddit content is present.
 
 They exist so the M0 `core.normalize` and `core.themes` unit tests have realistic key
 sets to work against. **In M1a they are to be replaced by real captures made with
-`insightminer probe <fullname> --save-fixture`** (scrubbed of personal data), keeping the
+`threaddigest probe <fullname> --save-fixture`** (scrubbed of personal data), keeping the
 same filenames so the tests keep running. Until then, any field semantics asserted from
 these files are hypotheses about Reddit's wire format, not observations.
 

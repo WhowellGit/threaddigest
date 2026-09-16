@@ -9,7 +9,7 @@ import pytest
 import yaml
 from pydantic import SecretStr, ValidationError
 
-from insightminer.settings import (
+from threaddigest.settings import (
     SANCTIONED_ENVIRONMENT_VARIABLES,
     Settings,
     default_settings_file,
@@ -40,7 +40,7 @@ def test_shipped_display_timezone_is_a_zone_the_digest_can_resolve(settings: Set
     """KI-011: the shipped ``display_timezone`` must be a zone ``core.digest`` can load. The
     old shipped value ``local`` was not, so the first digest weeks into M1d would have failed;
     now it is ``UTC`` and settings validation rejects any unresolvable value at load."""
-    from insightminer.core.digest import known_display_timezone
+    from threaddigest.core.digest import known_display_timezone
 
     known_display_timezone(settings.static.display_timezone)  # does not raise
 
@@ -51,16 +51,16 @@ def test_settings_reject_an_unresolvable_display_timezone(
     """The control: the exact class of value KI-011 shipped ('local', and any bad zone) now
     fails at settings load rather than silently at the first digest."""
     for bad in ("local", "Mars/Olympus", "US/Nowhere"):
-        monkeypatch.setenv("INSIGHTMINER_STATIC__DISPLAY_TIMEZONE", bad)
+        monkeypatch.setenv("THREADDIGEST_STATIC__DISPLAY_TIMEZONE", bad)
         with pytest.raises(ValidationError):
             Settings()
-        monkeypatch.delenv("INSIGHTMINER_STATIC__DISPLAY_TIMEZONE")
+        monkeypatch.delenv("THREADDIGEST_STATIC__DISPLAY_TIMEZONE")
 
 
 def test_env_overrides_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     yaml_value = _shipped_yaml()["budget"]["per_run_requests"]
     assert yaml_value != 7
-    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
+    monkeypatch.setenv("THREADDIGEST_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
 
     assert Settings().static.budget.per_run_requests == 7
 
@@ -70,7 +70,7 @@ def test_yaml_overrides_nothing_but_supplies_static_values(
 ) -> None:
     data = _shipped_yaml()
     data["budget"]["per_run_requests"] = 42
-    monkeypatch.setenv("INSIGHTMINER_SETTINGS_FILE", str(_write_yaml(tmp_path / "s.yaml", data)))
+    monkeypatch.setenv("THREADDIGEST_SETTINGS_FILE", str(_write_yaml(tmp_path / "s.yaml", data)))
 
     resolved = Settings()
 
@@ -86,9 +86,9 @@ def test_defaults_apply_when_env_and_yaml_are_silent(settings: Settings) -> None
 
 
 def test_env_supplies_operator_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "wes")
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_CLIENT_SECRET", "hunter2")
-    monkeypatch.setenv("INSIGHTMINER_UI_PASSWORD", "open-sesame")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_USERNAME", "wes")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_CLIENT_SECRET", "hunter2")
+    monkeypatch.setenv("THREADDIGEST_UI_PASSWORD", "open-sesame")
 
     resolved = Settings()
 
@@ -132,9 +132,9 @@ def test_unknown_setting_is_rejected() -> None:
 #: unmatched environment variable to the model at all: a typo'd operator field, a variable
 #: under a leaf field, and a nested key whose FIRST segment already names nothing.
 UNKNOWN_ENVIRONMENT_VARIABLES = [
-    "INSIGHTMINER_DATA_DIRR",
-    "INSIGHTMINER_DATA_DIR__DEEPER",
-    "INSIGHTMINER_BUDGET__PER_RUN_REQUESTS",
+    "THREADDIGEST_DATA_DIRR",
+    "THREADDIGEST_DATA_DIR__DEEPER",
+    "THREADDIGEST_BUDGET__PER_RUN_REQUESTS",
 ]
 
 
@@ -144,8 +144,8 @@ def test_an_unknown_environment_variable_is_rejected_naming_it(
 ) -> None:
     """Panel P2-8: the module docstring claimed ``extra="forbid"`` made a misspelled key fail,
     which was true of ``settings.yaml`` and false of the environment -- pydantic-settings
-    matches ``INSIGHTMINER_*`` against the field names and silently drops the rest, so
-    ``INSIGHTMINER_DATA_DIRR=/tmp/x`` ran against the DEFAULT data directory while the
+    matches ``THREADDIGEST_*`` against the field names and silently drops the rest, so
+    ``THREADDIGEST_DATA_DIRR=/tmp/x`` ran against the DEFAULT data directory while the
     operator believed it was overridden.
 
     The stronger option was implemented rather than the docstring corrected: a validator over
@@ -167,7 +167,7 @@ def test_a_misspelled_nested_static_key_is_still_rejected_by_forbid(
     reaches the model and ``extra="forbid"`` on the nested model rejects it, naming the key.
     Both mechanisms are needed and neither covers the other's case.
     """
-    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUEST", "7")  # singular
+    monkeypatch.setenv("THREADDIGEST_STATIC__BUDGET__PER_RUN_REQUEST", "7")  # singular
 
     with pytest.raises(ValidationError, match="per_run_request"):
         Settings()
@@ -183,19 +183,19 @@ def test_every_recognised_environment_variable_is_accepted(
     ``tests/gates/test_data_dir_isolation.py`` sets the opt-in, and
     ``deploy/launchd/run.sh`` reads the UI URL).
     """
-    monkeypatch.setenv("INSIGHTMINER_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "wes")
-    monkeypatch.setenv("INSIGHTMINER_SETTINGS_FILE", str(default_settings_file()))
-    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
-    monkeypatch.setenv("INSIGHTMINER_ALLOW_REAL_DATA_DIR", "1")
-    monkeypatch.setenv("INSIGHTMINER_UI_URL", "http://127.0.0.1:8765")
+    monkeypatch.setenv("THREADDIGEST_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("THREADDIGEST_REDDIT_USERNAME", "wes")
+    monkeypatch.setenv("THREADDIGEST_SETTINGS_FILE", str(default_settings_file()))
+    monkeypatch.setenv("THREADDIGEST_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
+    monkeypatch.setenv("THREADDIGEST_ALLOW_REAL_DATA_DIR", "1")
+    monkeypatch.setenv("THREADDIGEST_UI_URL", "http://127.0.0.1:8765")
 
     assert unknown_environment_variables() == []
     assert Settings().static.budget.per_run_requests == 7
     assert SANCTIONED_ENVIRONMENT_VARIABLES == frozenset(
         {
-            "INSIGHTMINER_ALLOW_REAL_DATA_DIR",
-            "INSIGHTMINER_UI_URL",
+            "THREADDIGEST_ALLOW_REAL_DATA_DIR",
+            "THREADDIGEST_UI_URL",
         }
     )
 
@@ -218,11 +218,11 @@ def test_fingerprint_changes_when_budget_changes(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     before = settings_fingerprint(settings)
-    monkeypatch.setenv("INSIGHTMINER_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
+    monkeypatch.setenv("THREADDIGEST_STATIC__BUDGET__PER_RUN_REQUESTS", "7")
     assert settings_fingerprint(Settings()) != before
 
 
 def test_user_agent_format(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "wes")
-    monkeypatch.setenv("INSIGHTMINER_STATIC__USER_AGENT_APP_ID", "com.example.miner")
+    monkeypatch.setenv("THREADDIGEST_REDDIT_USERNAME", "wes")
+    monkeypatch.setenv("THREADDIGEST_STATIC__USER_AGENT_APP_ID", "com.example.miner")
     assert user_agent(Settings(), "1.2.3") == "python:com.example.miner:v1.2.3 (by /u/wes)"

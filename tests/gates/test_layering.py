@@ -18,18 +18,18 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# insightminer.cli imports typer by design (the CLI is typer), so forbidding that import
+# threaddigest.cli imports typer by design (the CLI is typer), so forbidding that import
 # must fail for as long as the project has a CLI.
 MUST_FAIL_CONFIG = """\
 [importlinter]
-root_package = insightminer
+root_package = threaddigest
 include_external_packages = True
 
 [importlinter:contract:positive-control]
 name = Positive control: cli imports typer, so this contract must be broken
 type = forbidden
 source_modules =
-    insightminer.cli
+    threaddigest.cli
 forbidden_modules =
     typer
 """
@@ -58,7 +58,7 @@ def _run_lint_imports(*args: str) -> subprocess.CompletedProcess[str]:
 
 def test_repo_config_exists_and_names_the_root_package() -> None:
     config = (REPO_ROOT / ".importlinter").read_text(encoding="utf-8")
-    assert "root_package = insightminer" in config
+    assert "root_package = threaddigest" in config
 
 
 def test_layering_contracts_hold() -> None:
@@ -76,12 +76,12 @@ def test_gate_goes_red_when_a_contract_is_violated(tmp_path: Path) -> None:
     output = result.stdout + result.stderr
     assert result.returncode != 0, output
     assert "1 broken" in output, output
-    assert "insightminer.cli -> typer" in output, output
+    assert "threaddigest.cli -> typer" in output, output
 
 
 # --- services/ writes to no stdio: no `import typer` below the cli layer ----------------------
 
-SERVICES_ROOT = REPO_ROOT / "src" / "insightminer" / "services"
+SERVICES_ROOT = REPO_ROOT / "src" / "threaddigest" / "services"
 
 #: Third-party modules a `services/` module may not import. `typer` is the CLI's own
 #: framework: a service that calls `typer.echo` has written to the CLI's stderr, which M2's
@@ -112,7 +112,7 @@ def _stdio_offenders(root: Path) -> list[str]:
 
 
 def test_no_service_imports_the_cli_framework() -> None:
-    """import-linter cannot see this: its layer contract orders ``insightminer.*`` modules,
+    """import-linter cannot see this: its layer contract orders ``threaddigest.*`` modules,
     and ``typer`` is third-party, so ``services/migrate.py``'s two ``typer.echo(..., err=True)``
     calls kept the layering gate green for a whole tranche."""
     assert _stdio_offenders(SERVICES_ROOT) == []

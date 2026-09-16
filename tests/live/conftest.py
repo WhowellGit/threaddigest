@@ -6,7 +6,7 @@ one home for the live invocation is ``make test-live``, which loads ``.env``, se
 and lifts the network block for Reddit's hosts only.
 
 Ruled 2026-09-16 (the readiness seat's F1): without this file a live test could not pass even with
-credentials, because the root ``isolated_data_dir`` fixture strips every ``INSIGHTMINER_*``
+credentials, because the root ``isolated_data_dir`` fixture strips every ``THREADDIGEST_*``
 variable from the environment, credentials included. This override keeps the three Reddit
 credential variables and nothing else, and still points the process at a temporary data
 directory, so a live test can never touch the real one.
@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-ENV_PREFIX = "INSIGHTMINER_"
-KEPT_PREFIX = "INSIGHTMINER_REDDIT_"
+ENV_PREFIX = "THREADDIGEST_"
+KEPT_PREFIX = "THREADDIGEST_REDDIT_"
 
 
 def keep_credentials_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:

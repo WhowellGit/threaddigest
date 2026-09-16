@@ -5,7 +5,7 @@
 # that shape; it is a ratchet address, never a secret. Seen 2026-09-14 on tests/gates/test_hooks.py
 # and tests/gates/test_ratchet.py, where the pre-commit hook would have refused the next commit
 # touching either file. Nothing else is allowlisted; a real key still fails.
-title = "insightminer gitleaks config"
+title = "threaddigest gitleaks config"
 
 [extend]
 useDefault = true

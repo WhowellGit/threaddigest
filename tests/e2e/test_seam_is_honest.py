@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from insightminer import cli
-from insightminer.adapters.notify import LogNotifier, MacNotifier
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.settings import Settings
+from threaddigest import cli
+from threaddigest.adapters.notify import LogNotifier, MacNotifier
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.settings import Settings
 
 
 def test_default_gateway_factory_is_installed_by_default() -> None:

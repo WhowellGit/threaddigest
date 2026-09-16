@@ -32,10 +32,10 @@ BASELINE = "2026-09-15"
 #: finding): they are already gated by their writer tool, the hook, and the three-way compare,
 #: and keeping them here would have put a register row on most routine commits.
 SURFACES: tuple[str, ...] = (
-    "src/insightminer/db/migrations",
-    "src/insightminer/services/scrub.py",
-    "src/insightminer/core/deletion.py",
-    "src/insightminer/db/repo.py",
+    "src/threaddigest/db/migrations",
+    "src/threaddigest/services/scrub.py",
+    "src/threaddigest/core/deletion.py",
+    "src/threaddigest/db/repo.py",
     "tests/gates",
     "tools/hooks",
     "CLAUDE.md",

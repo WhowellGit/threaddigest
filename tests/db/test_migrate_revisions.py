@@ -19,9 +19,9 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import Engine, func, insert, select, text
 from sqlalchemy.exc import OperationalError
 
-from insightminer.db.backup import BackupResult
-from insightminer.db.engine import engine_for
-from insightminer.db.migrate import (
+from threaddigest.db.backup import BackupResult
+from threaddigest.db.engine import engine_for
+from threaddigest.db.migrate import (
     MigrationFailedError,
     MigrationsPendingError,
     UnknownRevisionError,
@@ -35,9 +35,9 @@ from insightminer.db.migrate import (
     require_known_revision,
     upgrade_head,
 )
-from insightminer.db.repo import finish_run
-from insightminer.db.schema import Base
-from insightminer.db.schema_dump import alembic_config, migrate_to_head
+from threaddigest.db.repo import finish_run
+from threaddigest.db.schema import Base
+from threaddigest.db.schema_dump import alembic_config, migrate_to_head
 
 NOW = 1_800_000_000
 
@@ -245,7 +245,7 @@ def _revision_ids() -> list[str]:
     versions = (
         Path(__file__).resolve().parents[2]
         / "src"
-        / "insightminer"
+        / "threaddigest"
         / "db"
         / "migrations"
         / "versions"

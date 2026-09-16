@@ -8,10 +8,10 @@ from pathlib import Path
 
 from tests.db.sqlhelp import table_digest
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
 
 
 def test_dry_run_counts_http(

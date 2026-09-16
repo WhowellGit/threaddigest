@@ -10,11 +10,11 @@ from pathlib import Path
 import sqlalchemy as sa
 from tests.db.sqlhelp import run_pks
 
-from insightminer import cli
-from insightminer.db import migrate as db_migrate
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.services import lock
-from insightminer.services import migrate as migrate_service
+from threaddigest import cli
+from threaddigest.db import migrate as db_migrate
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.services import lock
+from threaddigest.services import migrate as migrate_service
 
 FIXTURE_0001 = Path(__file__).resolve().parents[1] / "fixtures" / "db" / "0001.sqlite"
 
@@ -39,7 +39,7 @@ def test_db_init_sweeps_stale_rows(cli_runner, db_at_head: Path, table_rows) -> 
     """A ``running`` row with a dead pid, left over from an earlier crash, is stamped
     ``crashed`` by the next ``db init``'s stale sweep (section 10.3 step 5).
     """
-    from insightminer.db import repo
+    from threaddigest.db import repo
 
     engine = engine_for(db_path_for(db_at_head))
     try:
@@ -207,11 +207,11 @@ def test_db_upgrade_with_no_database_exits_78_and_fabricates_nothing(
 ) -> None:
     """round5-findings.json panel P0, end to end.
 
-    Verified before the fix: ``INSIGHTMINER_DATA_DIR=/tmp/empty insightminer db upgrade`` died
+    Verified before the fix: ``THREADDIGEST_DATA_DIR=/tmp/empty threaddigest db upgrade`` died
     with a 60-line SQLAlchemy traceback (``no such table: runs``, exit 1) and left a fabricated
-    0-byte ``insightminer.db`` behind -- which ``db current`` then reported as ``current: None``
+    0-byte ``threaddigest.db`` behind -- which ``db current`` then reported as ``current: None``
     and ``run`` reported as pending migrations, so every retry crashed the same way. It is now
-    §8's named precondition: exit 78, the message names ``insightminer db init``, and no
+    §8's named precondition: exit 78, the message names ``threaddigest db init``, and no
     database file is created.
     """
     db_path = db_path_for(isolated_data_dir)
@@ -221,7 +221,7 @@ def test_db_upgrade_with_no_database_exits_78_and_fabricates_nothing(
 
     assert result.exit_code == 78, result.output
     assert f"no database at {db_path}" in result.output
-    assert "insightminer db init" in result.output
+    assert "threaddigest db init" in result.output
     assert not db_path.exists()
     assert _run_pks(isolated_data_dir) == []
 

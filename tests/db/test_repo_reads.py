@@ -10,9 +10,9 @@ from typing import Any
 
 import pytest
 
-from insightminer.core.models import KNOWN_VALUES, PostRow
-from insightminer.db.ownership import IngestPath
-from insightminer.db.repo import (
+from threaddigest.core.models import KNOWN_VALUES, PostRow
+from threaddigest.db.ownership import IngestPath
+from threaddigest.db.repo import (
     PostWrite,
     RunInsert,
     SweepProgress,
@@ -36,7 +36,7 @@ from insightminer.db.repo import (
     upsert_posts,
     upsert_run_subreddit,
 )
-from insightminer.db.schema import Base
+from threaddigest.db.schema import Base
 
 _POST_KWARGS: dict[str, Any] = {
     "subreddit": "premiere",

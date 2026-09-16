@@ -20,14 +20,14 @@ from typing import Any
 import pytest
 from sqlalchemy import Engine, select
 
-from insightminer import __version__
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.core.retry import RunStatus
-from insightminer.db import migrate, repo
-from insightminer.db.engine import engine_for
-from insightminer.db.schema import Base
-from insightminer.services import runs
-from insightminer.settings import Settings, settings_fingerprint
+from threaddigest import __version__
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.core.retry import RunStatus
+from threaddigest.db import migrate, repo
+from threaddigest.db.engine import engine_for
+from threaddigest.db.schema import Base
+from threaddigest.services import runs
+from threaddigest.settings import Settings, settings_fingerprint
 
 STALE_AFTER_SECONDS = 180  # settings.static.run.stale_after_minutes (3) * 60, config/settings.yaml
 QUEUED_GRACE_SECONDS = runs.STALE_QUEUED_SECONDS

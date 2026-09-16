@@ -1,4 +1,4 @@
-"""The definition of done for ``insightminer run``: a first run, a rerun, the counters,
+"""The definition of done for ``threaddigest run``: a first run, a rerun, the counters,
 the ``run_subreddits`` rows, ``api_requests``, exit 0, DB-17's WAL truncation and SW-04's
 in-process crash recovery (design-round5.md section 16, section 17 step 7, section 11.7).
 """
@@ -10,9 +10,9 @@ from pathlib import Path
 
 import yaml
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db.engine import db_path_for
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db.engine import db_path_for
 
 SEED_FILE = Path(__file__).resolve().parents[2] / "config" / "seed.yaml"
 

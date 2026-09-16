@@ -4,7 +4,7 @@ update-policy: prune-stale
 mirrors: [CLAUDE.md]
 verified-at: M1a-A
 ---
-# Insight Miner reference corpus — INDEX (the router)
+# Thread Digest reference corpus — INDEX (the router)
 
 > Purpose: one line per document and *when to read it*. Keep this file short. The corpus lives in the repo at `docs/` since M0 (2026-09-13) and travels with the code.
 > Update policy: add a line when a document is added; remove it when the document is retired. The doc-currency test checks INDEX ↔ `docs/**/*.md` in both directions, so every file under `docs/` must appear below exactly once.
@@ -14,7 +14,7 @@ verified-at: M1a-A
 | I am about to… | Read | Then |
 |---|---|---|
 | Start a session | `recent/STATUS.md` | `CLAUDE.md` § The irreversible few |
-| Explain the system, or read about it for the first time | `OVERVIEW.md` | `INSIGHTMINER_HARNESS.md` for the working method; `PLAN.md` for the design |
+| Explain the system, or read about it for the first time | `OVERVIEW.md` | `THREADDIGEST_HARNESS.md` for the working method; `PLAN.md` for the design |
 | Touch the schema, migrations, upserts, search index, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2 | `runbook/RUNBOOK.md` § Migrate; `.claude/rules/db.md` loads automatically |
 | Change the collector (fetch, budget, revisit, reconcile, invariants) | `PLAN.md` § Collector algorithm | `decisions/DECISIONS.md` 2026-09-13 entries; `.claude/rules/services.md` |
 | Touch deletion, scrubbing, or anything compliance-related | `PLAN.md` § Data model (state machine) | `runbook/KNOWN_ISSUES.md` |
@@ -30,7 +30,7 @@ verified-at: M1a-A
 
 | Folder | What lives here | Update policy | Read when |
 |---|---|---|---|
-| `docs/` (root) | `PLAN.md` (the plan; canonical for design), `OVERVIEW.md` (the system in ten minutes), `INSIGHTMINER_HARNESS.md` (the working method, with a generated inventory), `TEST_STRATEGY.md` (router into the test specs), this file | Each document's front matter declares its policy (`versioned` for the plan and the strategy: corrected in place between versions, rewritten as a version once annotations accrete; `prune-stale` for the rest: the affected section is rewritten in place) and is checked by `tools/doc_policy.py` | Plan: before any design change. Overview: to explain the system. Harness: before adding a mechanism. Strategy: before writing or changing tests |
+| `docs/` (root) | `PLAN.md` (the plan; canonical for design), `OVERVIEW.md` (the system in ten minutes), `THREADDIGEST_HARNESS.md` (the working method, with a generated inventory), `TEST_STRATEGY.md` (router into the test specs), this file | Each document's front matter declares its policy (`versioned` for the plan and the strategy: corrected in place between versions, rewritten as a version once annotations accrete; `prune-stale` for the rest: the affected section is rewritten in place) and is checked by `tools/doc_policy.py` | Plan: before any design change. Overview: to explain the system. Harness: before adding a mechanism. Strategy: before writing or changing tests |
 | `insights/` | Dated captures of strategy discussions and the reasoning behind decisions | Append-only, dated entries | Starting a new phase, or when a decision is being questioned |
 | `learnings/` | Hard-earned lessons: dated "applied" notes now; a canonical curated learnings file is added when the first project-native lesson lands | Append-only; canonical file curated | Before touching the area the lesson is about (routing table says which) |
 | `decisions/` | `DECISIONS.md`: settled choices, settled negatives, compliance bounds, Postgres-exit triggers, threat model, each with a "revisit when" | Append-only; dated entries | Before proposing an alternative to something already decided |
@@ -46,7 +46,7 @@ verified-at: M1a-A
 | Write or change any test, or decide what to test first | `TEST_STRATEGY.md` (spec table and status), then the panel report it points at |
 | Touch the database schema, migrations, upserts, FTS, backups | `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` §1–§2, `reference/reviews/2026-09-13-panel-db-integrity.md` (§A specs, §C migration checklist, §D fingerprint), `runbook/RUNBOOK.md` § 4 |
 | Touch deletion, scrubbing, reconcile, or anything compliance-related | Plan § Data model (content-state machine), `decisions/DECISIONS.md` § 2 (compliance bounds), `reference/reviews/2026-09-13-panel-ingest.md` §B.6–B.7, `runbook/KNOWN_ISSUES.md` |
-| Add, change, loosen, or retire a gate, ratchet, invariant, or hook | Plan § Robustness → "Guard design rules" and "Gates and ratchets", `INSIGHTMINER_HARNESS.md`, `reference/reviews/2026-09-13-panel-enforcement.md` §B–§D, `runbook/GUARDS.md`, `runbook/RUNBOOK.md` § 6 |
+| Add, change, loosen, or retire a gate, ratchet, invariant, or hook | Plan § Robustness → "Guard design rules" and "Gates and ratchets", `THREADDIGEST_HARNESS.md`, `reference/reviews/2026-09-13-panel-enforcement.md` §B–§D, `runbook/GUARDS.md`, `runbook/RUNBOOK.md` § 6 |
 | Change the collector's fetch, budget, revisit, reconcile, or search behavior | Plan § Collector algorithm, `reference/reviews/2026-09-13-panel-ingest.md` §A (fake API) and §B, `reference/reviews/2026-09-12-collector-design-review.md` §1 |
 | Change the web UI, middleware, or an operator flow | Plan § Web UI, `reference/reviews/2026-09-13-panel-ui.md` (§A specs, §B operator checklist, §C setup threat model), `reference/reviews/2026-09-12-ui-design-review.md` |
 | Fix a bug | `runbook/KNOWN_ISSUES.md` (add the row; failing test first) |
@@ -61,7 +61,7 @@ verified-at: M1a-A
 
 - `PLAN.md` — the plan, version 2 (2026-09-15): intent and the question the system answers, how the data becomes insight, architecture and module map, data model and state machine, collector algorithm and cadence, workspaces, CLI and web UI, testing strategy, robustness and enforcement, release and deployment, milestones, things only Wes can do. Read when: any design question; it is canonical. History lives in `decisions/DECISIONS.md` and the review records, not here.
 - `OVERVIEW.md` — the system in ten minutes for a reader who will not read the plan: what it is, the one question, how the data becomes insight (our own ranking, authored themes, the discovery signals, denominators), workspaces, what it is not. Read when: explaining the system, or before the plan.
-- `INSIGHTMINER_HARNESS.md` — the working method, plain English first: what the harness is for, its strengths, how it came to be, the four parts (memory and context, documentation, enforcement, agent discipline) each with a plain-English lead and the detail after, how they hold each other, what is deliberately absent, and a generated inventory of every mechanism in the tree (gated, G54). Read when: adding or changing a mechanism, or explaining how the project keeps an agent-built codebase honest.
+- `THREADDIGEST_HARNESS.md` — the working method, plain English first: what the harness is for, its strengths, how it came to be, the four parts (memory and context, documentation, enforcement, agent discipline) each with a plain-English lead and the detail after, how they hold each other, what is deliberately absent, and a generated inventory of every mechanism in the tree (gated, G54). Read when: adding or changing a mechanism, or explaining how the project keeps an agent-built codebase honest.
 - `TEST_STRATEGY.md` — v1 router into the five panel reports: layered policy, kinds of tests and sweeps, every spec ID with layer/phase/priority/status (cut list applied), the M0 gate set and M1a invariants, guard design rules, open owner questions. Read when: writing tests or deciding test order.
 - `INDEX.md` — this router.
 
@@ -72,7 +72,7 @@ verified-at: M1a-A
 ### `learnings/`
 
 - `learnings/DB_LEARNINGS_APPLIED_2026-09-12.md` — ranked adoption of the earlier project's database lessons with confidence/importance/value/cost, the guard design rules, what was declined, decisions raised, lessons that did not transfer, the living follow-up list. Read when: touching `db/`, migrations, test isolation, or invariants.
-- `learnings/LEARNINGS_TRANSFER.md` — what Insight Miner took from the earlier project beyond the database (guard philosophy, testing and operational methodology, documentation and memory structure, agent practice), the interpretive layer on the database adoptions, what was declined and why, and dated predictions to score at the retrospective. Read when: starting a retrospective, judging whether a transferred lesson held, or starting the next project's transfer.
+- `learnings/LEARNINGS_TRANSFER.md` — what Thread Digest took from the earlier project beyond the database (guard philosophy, testing and operational methodology, documentation and memory structure, agent practice), the interpretive layer on the database adoptions, what was declined and why, and dated predictions to score at the retrospective. Read when: starting a retrospective, judging whether a transferred lesson held, or starting the next project's transfer.
 - `learnings/DOC_DRIFT_FINDINGS_2026-09-13.md` — the documentation drift found in our own corpus on 2026-09-13 (retired gates still listed as live, self-contradicting counts, schedules of cut items, narrated status, dangling register ids), each with a way to scan for it in another system. Read when: sweeping documents after a decision, or auditing another project's corpus.
 
 ### `decisions/`
@@ -91,7 +91,7 @@ verified-at: M1a-A
 
 ### `reference/`
 
-- `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit miner: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
+- `reference/2026-09-11-compass-research-report.md` — the Compass research report on building a rules-compliant Reddit reader: OAuth/PRAW constraints, rate limits, deletion handling, IP considerations, the minimal-start recommendation. Read when: a Reddit-side rule or limit is in question.
 - `reference/AGENT_BRIEF.md` — the template every sub-agent brief follows (purpose, tier, read-first rows, rules that bite, scope, contract, verification, don'ts). Read when: writing or reviewing a brief.
 - `reference/reddit-policy-facts-2026-09-14.md` — Reddit's Data API wiki, Data API Terms, Developer Terms, and Responsible Builder Policy as read from the live pages on 2026-09-14: the deletion obligations, the forty-eight-hour recommendation, the approval-before-access rule, the commercial-use boundary, the rate limit, with revision dates. Read when: designing reconcile, scrub, backups, or exports; before the tranche B access request; and at each quarterly review (re-read the pages).
 

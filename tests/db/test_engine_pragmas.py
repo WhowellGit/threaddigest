@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import Connection, Engine, create_engine, inspect, text
 from sqlalchemy.exc import DatabaseError, IntegrityError, OperationalError
 
-from insightminer.db.engine import checkpoint_truncate, engine_for
+from threaddigest.db.engine import checkpoint_truncate, engine_for
 
 PostInserter = Callable[..., int]
 

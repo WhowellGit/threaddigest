@@ -287,7 +287,7 @@ FILE_ROWS: list[tuple[str, str, int]] = [
     ("Write", ".claude/Settings.json", 2),
     ("Write", "{project}/.claude//settings.json", 2),  # doubled slash still names the file
     # allowed twins
-    ("Edit", "src/insightminer/settings.py", 0),
+    ("Edit", "src/threaddigest/settings.py", 0),
     ("Write", "docs/runbook/GUARDS.md", 0),
     ("Write", "tests/gates/test_ratchet.py", 0),
     ("Edit", ".claude/settings.local.json", 0),

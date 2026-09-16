@@ -2,7 +2,7 @@
 
 Everything here runs the real artefacts (`plutil`, `/bin/bash`, the wrapper scripts) against
 fake repository roots under ``tmp_path``. ``osascript``, ``caffeinate`` and ``launchctl`` are
-replaced by recorders on PATH and ``insightminer`` by a stub module on PYTHONPATH, so nothing
+replaced by recorders on PATH and ``threaddigest`` by a stub module on PYTHONPATH, so nothing
 reaches Notification Center, ~/Library/LaunchAgents, or the real data directory.
 
 macOS-only by design: a missing ``plutil`` is a failure with a clear message, never a skip.
@@ -26,8 +26,8 @@ pytestmark = pytest.mark.macos
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHD_DIR = REPO_ROOT / "deploy" / "launchd"
-RUN_LABEL = "com.wesmax.insightminer.run"
-DOCTOR_LABEL = "com.wesmax.insightminer.doctor"
+RUN_LABEL = "com.wesmax.threaddigest.run"
+DOCTOR_LABEL = "com.wesmax.threaddigest.doctor"
 LABELS = (RUN_LABEL, DOCTOR_LABEL)
 EXECUTABLE_SCRIPTS = ("run.sh", "install.sh", "uninstall.sh")
 SCRIPTS = ("common.sh", *EXECUTABLE_SCRIPTS)
@@ -44,16 +44,16 @@ RETRY = {4: "rate limited", 5: "network"}
 QUIET = {0: "ok", 75: "lock", 130: "cancelled", 3: "partial"}
 
 STUB_MAIN = '''\
-"""Stand-in for `python -m insightminer`: records how it was called, exits as told."""
+"""Stand-in for `python -m threaddigest`: records how it was called, exits as told."""
 import json
 import os
 import sys
 
-record = os.path.join(os.environ["STUB_RECORD_DIR"], "insightminer.json")
+record = os.path.join(os.environ["STUB_RECORD_DIR"], "threaddigest.json")
 with open(record, "w", encoding="utf-8") as fh:
     json.dump({"argv": sys.argv[1:], "cwd": os.getcwd(), "env": dict(os.environ)}, fh)
-print("stub insightminer: hello from stdout")
-print("stub insightminer: hello from stderr", file=sys.stderr)
+print("stub threaddigest: hello from stdout")
+print("stub threaddigest: hello from stderr", file=sys.stderr)
 sys.exit(int(os.environ.get("STUB_EXIT_CODE", "0")))
 '''
 
@@ -182,7 +182,7 @@ class FakeDeploy:
         return path.read_text(encoding="utf-8").splitlines() if path.exists() else None
 
     def stub_call(self) -> dict[str, object]:
-        with (self.record / "insightminer.json").open(encoding="utf-8") as fh:
+        with (self.record / "threaddigest.json").open(encoding="utf-8") as fh:
             data = json.load(fh)
         assert isinstance(data, dict)
         return data
@@ -202,9 +202,9 @@ def _fake_deploy(tmp_path: Path, root_rel: str, *, venv: bool = True) -> FakeDep
         (root / ".venv" / "bin" / "python").symlink_to(sys.executable)
     stub_bin, record = _recorders(tmp_path)
     stub_pkg = tmp_path / "stub-pkg"
-    (stub_pkg / "insightminer").mkdir(parents=True)
-    (stub_pkg / "insightminer" / "__init__.py").write_text("", encoding="utf-8")
-    (stub_pkg / "insightminer" / "__main__.py").write_text(STUB_MAIN, encoding="utf-8")
+    (stub_pkg / "threaddigest").mkdir(parents=True)
+    (stub_pkg / "threaddigest" / "__init__.py").write_text("", encoding="utf-8")
+    (stub_pkg / "threaddigest" / "__main__.py").write_text(STUB_MAIN, encoding="utf-8")
     return FakeDeploy(home=home, root=root, record=record, stub_bin=stub_bin, stub_pkg=stub_pkg)
 
 
@@ -313,7 +313,7 @@ def test_scripts_parse_under_bash_n_and_are_executable() -> None:
 
 @pytest.mark.parametrize("folder", ["Desktop", "Documents", "Downloads"])
 def test_run_refuses_a_repo_inside_a_tcc_protected_folder(tmp_path: Path, folder: str) -> None:
-    fake = _fake_deploy(tmp_path, f"{folder}/insightminer")
+    fake = _fake_deploy(tmp_path, f"{folder}/threaddigest")
     assert f"/{folder}/" in str(fake.root)
     result = _bash(fake.launchd / "run.sh", "run", env=fake.env())
     assert result.returncode == 78, result.stderr
@@ -321,7 +321,7 @@ def test_run_refuses_a_repo_inside_a_tcc_protected_folder(tmp_path: Path, folder
     assert str(fake.home / folder) in result.stderr
     assert "launchd" in result.stderr
     assert not (fake.root / "data").exists(), "refused before touching anything"
-    assert not (fake.record / "insightminer.json").exists()
+    assert not (fake.record / "threaddigest.json").exists()
     assert fake.recorded("osascript") is None
 
 
@@ -337,7 +337,7 @@ def test_run_rejects_an_unknown_job(deploy: FakeDeploy) -> None:
     result = _bash(deploy.launchd / "run.sh", "serve", env=deploy.env())
     assert result.returncode == 64
     assert "usage" in result.stderr
-    assert not (deploy.record / "insightminer.json").exists()
+    assert not (deploy.record / "threaddigest.json").exists()
 
 
 @pytest.mark.parametrize("code", sorted(NOTIFY | RETRY | QUIET))
@@ -349,13 +349,13 @@ def test_run_maps_each_exit_code_to_its_action(deploy: FakeDeploy, code: int) ->
     assert call["argv"] == ["run"]
     assert Path(str(call["cwd"])).resolve() == deploy.root.resolve()
     # caffeinate -i wraps the venv interpreter called by absolute path; never `python3`.
-    assert deploy.recorded("caffeinate") == ["-i", str(deploy.python), "-m", "insightminer", "run"]
+    assert deploy.recorded("caffeinate") == ["-i", str(deploy.python), "-m", "threaddigest", "run"]
 
     log = deploy.log("run")
     assert TIMESTAMPED.search(log), log
     assert f"[run] exit {code}" in log
-    assert "stub insightminer: hello from stdout" in log
-    assert "stub insightminer: hello from stderr" in log
+    assert "stub threaddigest: hello from stdout" in log
+    assert "stub threaddigest: hello from stderr" in log
     assert ("will retry at the next interval" in log) == (code in RETRY)
 
     osascript = deploy.recorded("osascript")
@@ -366,7 +366,7 @@ def test_run_maps_each_exit_code_to_its_action(deploy: FakeDeploy, code: int) ->
     assert osascript is not None, log
     assert osascript[:2] == ["-e", "on run argv"], "text must travel as argv, never as script"
     message, title, status = osascript[osascript.index("--") + 1 :]
-    assert title == "Insight Miner"
+    assert title == "Thread Digest"
     assert status == NOTIFY[code]
     assert str(code) in message
     assert f"{UI}/runs" in message
@@ -402,11 +402,11 @@ def test_doctor_failure_points_at_the_system_page(deploy: FakeDeploy) -> None:
 def test_env_file_is_loaded_without_echoing_values(deploy: FakeDeploy) -> None:
     (deploy.root / ".env").write_text(
         "# comment\n"
-        '  INSIGHTMINER_REDDIT_CLIENT_SECRET="hunter2-secret"\n'
-        "export INSIGHTMINER_REDDIT_USERNAME='wes'\n"
-        "INSIGHTMINER_UI_URL=http://127.0.0.1:9999\n"
+        '  THREADDIGEST_REDDIT_CLIENT_SECRET="hunter2-secret"\n'
+        "export THREADDIGEST_REDDIT_USERNAME='wes'\n"
+        "THREADDIGEST_UI_URL=http://127.0.0.1:9999\n"
         "UNRELATED=must-not-be-exported\n"
-        "INSIGHTMINER_BAD-KEY=not-an-identifier\n"
+        "THREADDIGEST_BAD-KEY=not-an-identifier\n"
         'echo sourced > "$STUB_RECORD_DIR/sourced"\n',
         encoding="utf-8",
     )
@@ -414,13 +414,13 @@ def test_env_file_is_loaded_without_echoing_values(deploy: FakeDeploy) -> None:
     assert result.returncode == 1, result.stderr
     env = deploy.stub_call()["env"]
     assert isinstance(env, dict)
-    assert env["INSIGHTMINER_REDDIT_CLIENT_SECRET"] == "hunter2-secret"
-    assert env["INSIGHTMINER_REDDIT_USERNAME"] == "wes"
+    assert env["THREADDIGEST_REDDIT_CLIENT_SECRET"] == "hunter2-secret"
+    assert env["THREADDIGEST_REDDIT_USERNAME"] == "wes"
     assert "UNRELATED" not in env
-    assert "INSIGHTMINER_BAD-KEY" not in env
+    assert "THREADDIGEST_BAD-KEY" not in env
     assert not (deploy.record / "sourced").exists(), ".env was sourced, not parsed"
     log = deploy.log("run")
-    assert "exported 3 INSIGHTMINER_* key(s)" in log
+    assert "exported 3 THREADDIGEST_* key(s)" in log
     for surface in (log, result.stdout, result.stderr):
         assert "hunter2-secret" not in surface
         assert "wes" not in surface.replace("wesmax", "")  # the developer's login is not a leak
@@ -456,7 +456,7 @@ def test_install_dry_run_prints_substituted_paths_and_writes_nothing(tmp_path: P
 
 
 def test_install_refuses_a_tcc_protected_root_even_in_dry_run(tmp_path: Path) -> None:
-    fake = _fake_deploy(tmp_path, "Documents/insightminer")
+    fake = _fake_deploy(tmp_path, "Documents/threaddigest")
     result = _bash(fake.launchd / "install.sh", "--dry-run", env=fake.env())
     assert result.returncode == 78, result.stderr
     assert "TCC-protected" in result.stderr

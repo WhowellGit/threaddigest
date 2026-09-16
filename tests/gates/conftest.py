@@ -16,10 +16,10 @@ from click.testing import Result
 from sqlalchemy import select
 from typer.testing import CliRunner
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
 
 #: ``demo_fixture_path`` is the session-scoped, generated corpus from ``tests/conftest.py``
 #: (root conftests *are* inherited, so this one does not restate it).

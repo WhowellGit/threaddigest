@@ -17,9 +17,9 @@ import pytest
 import yaml
 from sqlalchemy import Engine, insert
 
-from insightminer.db import repo
-from insightminer.db.schema import Base
-from insightminer.services import seed
+from threaddigest.db import repo
+from threaddigest.db.schema import Base
+from threaddigest.services import seed
 
 
 def _write_seed(path: Path, *, subreddits: list[str], with_themes: bool = False) -> Path:

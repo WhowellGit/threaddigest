@@ -447,93 +447,6 @@ wheels = [
 ]
 
 [[package]]
-name = "insightminer"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "fastapi" },
-    { name = "jinja2" },
-    { name = "markdown-it-py" },
-    { name = "nh3" },
-    { name = "praw" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "pyyaml" },
-    { name = "regex" },
-    { name = "rich" },
-    { name = "sqlalchemy" },
-    { name = "typer" },
-    { name = "uvicorn" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "complexipy" },
-    { name = "httpx" },
-    { name = "hypothesis" },
-    { name = "import-linter" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pylint" },
-    { name = "pytest" },
-    { name = "pytest-alembic" },
-    { name = "pytest-cov" },
-    { name = "pytest-recording" },
-    { name = "radon" },
-    { name = "responses" },
-    { name = "ruff" },
-    { name = "selectolax" },
-    { name = "time-machine" },
-    { name = "types-pyyaml" },
-    { name = "types-regex" },
-    { name = "vulture" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = ">=1.14" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "jinja2", specifier = ">=3.1" },
-    { name = "markdown-it-py", specifier = ">=3.0" },
-    { name = "nh3", specifier = ">=0.2.18" },
-    { name = "praw", specifier = ">=8,<9" },
-    { name = "pydantic", specifier = ">=2.9" },
-    { name = "pydantic-settings", specifier = ">=2.6" },
-    { name = "python-multipart", specifier = ">=0.0.12" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "regex", specifier = ">=2024.11.6" },
-    { name = "rich", specifier = ">=13.9" },
-    { name = "sqlalchemy", specifier = ">=2.0.36" },
-    { name = "typer", specifier = ">=0.15" },
-    { name = "uvicorn", specifier = ">=0.32" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "complexipy", specifier = ">=8.0.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "hypothesis", specifier = ">=6.115" },
-    { name = "import-linter", specifier = ">=2.1" },
-    { name = "mypy", specifier = ">=1.13" },
-    { name = "pre-commit", specifier = ">=4.0" },
-    { name = "pylint", specifier = ">=4.0.8" },
-    { name = "pytest", specifier = ">=8.3" },
-    { name = "pytest-alembic", specifier = ">=0.11" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "pytest-recording", specifier = ">=0.13" },
-    { name = "radon", specifier = ">=6.0.1" },
-    { name = "responses", specifier = ">=0.25" },
-    { name = "ruff", specifier = ">=0.8" },
-    { name = "selectolax", specifier = ">=0.3.21" },
-    { name = "time-machine", specifier = ">=2.16" },
-    { name = "types-pyyaml" },
-    { name = "types-regex", specifier = ">=2026.9.10.20260911" },
-    { name = "vulture", specifier = ">=2.16" },
-]
-
-[[package]]
 name = "isort"
 version = "9.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1178,6 +1091,93 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "threaddigest"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "fastapi" },
+    { name = "jinja2" },
+    { name = "markdown-it-py" },
+    { name = "nh3" },
+    { name = "praw" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "python-multipart" },
+    { name = "pyyaml" },
+    { name = "regex" },
+    { name = "rich" },
+    { name = "sqlalchemy" },
+    { name = "typer" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "complexipy" },
+    { name = "httpx" },
+    { name = "hypothesis" },
+    { name = "import-linter" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pylint" },
+    { name = "pytest" },
+    { name = "pytest-alembic" },
+    { name = "pytest-cov" },
+    { name = "pytest-recording" },
+    { name = "radon" },
+    { name = "responses" },
+    { name = "ruff" },
+    { name = "selectolax" },
+    { name = "time-machine" },
+    { name = "types-pyyaml" },
+    { name = "types-regex" },
+    { name = "vulture" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = ">=1.14" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "jinja2", specifier = ">=3.1" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
+    { name = "nh3", specifier = ">=0.2.18" },
+    { name = "praw", specifier = ">=8,<9" },
+    { name = "pydantic", specifier = ">=2.9" },
+    { name = "pydantic-settings", specifier = ">=2.6" },
+    { name = "python-multipart", specifier = ">=0.0.12" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "regex", specifier = ">=2024.11.6" },
+    { name = "rich", specifier = ">=13.9" },
+    { name = "sqlalchemy", specifier = ">=2.0.36" },
+    { name = "typer", specifier = ">=0.15" },
+    { name = "uvicorn", specifier = ">=0.32" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "complexipy", specifier = ">=8.0.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "hypothesis", specifier = ">=6.115" },
+    { name = "import-linter", specifier = ">=2.1" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pre-commit", specifier = ">=4.0" },
+    { name = "pylint", specifier = ">=4.0.8" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-alembic", specifier = ">=0.11" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-recording", specifier = ">=0.13" },
+    { name = "radon", specifier = ">=6.0.1" },
+    { name = "responses", specifier = ">=0.25" },
+    { name = "ruff", specifier = ">=0.8" },
+    { name = "selectolax", specifier = ">=0.3.21" },
+    { name = "time-machine", specifier = ">=2.16" },
+    { name = "types-pyyaml" },
+    { name = "types-regex", specifier = ">=2026.9.10.20260911" },
+    { name = "vulture", specifier = ">=2.16" },
 ]
 
 [[package]]

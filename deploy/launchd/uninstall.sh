@@ -1,5 +1,5 @@
 #!/bin/bash
-# deploy/launchd/uninstall.sh: unload and remove the Insight Miner launchd agents for this user.
+# deploy/launchd/uninstall.sh: unload and remove the Thread Digest launchd agents for this user.
 #
 #   deploy/launchd/uninstall.sh            bootout both agents and delete their plists
 #   deploy/launchd/uninstall.sh --dry-run  print what would happen; change nothing
@@ -34,7 +34,7 @@ done
 ROOT="$(repo_root_of "${BASH_SOURCE[0]}")"
 AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
-LABELS="com.wesmax.insightminer.run com.wesmax.insightminer.doctor"
+LABELS="com.wesmax.threaddigest.run com.wesmax.threaddigest.doctor"
 
 say() {
   if [ "$DRY_RUN" = 1 ]; then

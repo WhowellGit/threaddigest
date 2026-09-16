@@ -63,7 +63,7 @@ DEAD_CODE_IGNORED_DECORATORS = (
     "@*.fixture",
     "@pytest.fixture",
 )
-SOURCE = Path("src") / "insightminer"
+SOURCE = Path("src") / "threaddigest"
 DEAD_CODE_PATHS = ("src", "tests", "tools")
 WHITELIST = Path("tools") / "vulture_whitelist.py"
 REPORT = Path(".build") / "code_health.json"

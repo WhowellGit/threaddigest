@@ -1,7 +1,7 @@
 [project]
-name = "insightminer"
+name = "threaddigest"
 version = "0.1.0"
-description = "Personal, rules-compliant Reddit harvester that surfaces Premiere Pro quality signals"
+description = "Personal, rules-compliant Reddit reader that surfaces Premiere Pro quality signals"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-insightminer = "insightminer.cli:app"
+threaddigest = "threaddigest.cli:app"
 
 [dependency-groups]
 dev = [
@@ -57,7 +57,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/insightminer"]
+packages = ["src/threaddigest"]
 
 # ---------------------------------------------------------------------------
 # pytest
@@ -85,7 +85,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["insightminer"]
+source = ["threaddigest"]
 branch = true
 
 # ---------------------------------------------------------------------------
@@ -129,15 +129,15 @@ extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends", "
 
 # Connection chokepoint and no-mocking-internals policy (docs/PLAN.md, Silent-failure controls).
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"sqlalchemy.create_engine".msg = "Engines are created only in insightminer.db.engine (WAL, foreign_keys, secure_delete are applied there)."
-"sqlalchemy.text".msg = "Raw SQL lives inside insightminer.db only; go through the repository or insightminer.db.engine."
-"sqlite3.connect".msg = "Open the database through insightminer.db.engine, never sqlite3 directly."
-"unittest.mock.patch".msg = "Do not patch internals: test through the fake gateway (insightminer.adapters.reddit_fake) and a real temp DB. Allowed only under tests/adapters/."
+"sqlalchemy.create_engine".msg = "Engines are created only in threaddigest.db.engine (WAL, foreign_keys, secure_delete are applied there)."
+"sqlalchemy.text".msg = "Raw SQL lives inside threaddigest.db only; go through the repository or threaddigest.db.engine."
+"sqlite3.connect".msg = "Open the database through threaddigest.db.engine, never sqlite3 directly."
+"unittest.mock.patch".msg = "Do not patch internals: test through the fake gateway (threaddigest.adapters.reddit_fake) and a real temp DB. Allowed only under tests/adapters/."
 
 # Ruff can only lift TID251 as a whole per path, not per banned name. db/ and tests/db/ are
 # lifted for create_engine/text/sqlite3; tests/adapters/ for mock.patch. Review keeps the split.
 [tool.ruff.lint.per-file-ignores]
-"src/insightminer/db/**" = ["TID251"]
+"src/threaddigest/db/**" = ["TID251"]
 "tests/db/**" = ["TID251"]
 "tests/adapters/**" = ["TID251"]
 

@@ -19,9 +19,9 @@ import pytest
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 
-from insightminer.core.models import PostRow
-from insightminer.db.ownership import OWNERSHIP, IngestPath
-from insightminer.db.repo import (
+from threaddigest.core.models import PostRow
+from threaddigest.db.ownership import OWNERSHIP, IngestPath
+from threaddigest.db.repo import (
     AuthorWrite,
     PostWrite,
     _upsert_for,
@@ -30,7 +30,7 @@ from insightminer.db.repo import (
     post_values,
     recount_authors,
 )
-from insightminer.db.schema import Base
+from threaddigest.db.schema import Base
 
 OWNERSHIP_ROWS = list(OWNERSHIP.values())
 OWNERSHIP_IDS = [f"{own.table}/{own.path.value}" for own in OWNERSHIP_ROWS]

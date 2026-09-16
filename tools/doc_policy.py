@@ -34,7 +34,7 @@ gates made the reading side mechanical. What it checks, and honestly what it doe
   one row; every mirror must contain the literal (outside code fences and comments); a
   configuration, code, or file home must agree with the literal.
 - **Identifiers.** A rewritten document or the working agreement that names a repository path, a
-  ``make`` target, a test id, an ``insightminer`` command line, a package module or attribute, or a
+  ``make`` target, a test id, an ``threaddigest`` command line, a package module or attribute, or a
   ``table.column`` in backticks names something that exists in the tree. A token is exempt when
   its own neighbourhood on the line (the text between it and the next backticked token either
   side) names a milestone later than the status page's, the word "planned", a tranche, or a
@@ -411,9 +411,9 @@ NOT_A_PATH = ("data/", ".build/", ".env", "~", "/", "http")
 TEMPLATE_CHARS = "<>{}*…"
 NODE_ID = re.compile(r"^(tests/[\w./-]+\.py)::([\w-]+)(?:\[[^\]]*\])?(?:::[\w-]+)?$")
 MAKE_TARGET = re.compile(r"^make\s+([\w.-]+)")
-COMMAND_LINE = re.compile(r"^(?:uv run\s+)?insightminer\s+(.*)$")
+COMMAND_LINE = re.compile(r"^(?:uv run\s+)?threaddigest\s+(.*)$")
 PACKAGE_REF = re.compile(
-    r"^(?:insightminer\.)?(?:core|db|services|adapters|web|ports|cli|settings|tools)"
+    r"^(?:threaddigest\.)?(?:core|db|services|adapters|web|ports|cli|settings|tools)"
     r"(?:\.\w+)+(?:\(\))?$"
 )
 TABLE_COLUMN = re.compile(r"^([a-z_]+)\.([a-z_]+)$")
@@ -506,7 +506,7 @@ def load_tree(root: Path) -> Tree:
             literals.update(a or b for a, b in STRING_LITERAL.findall(text))
         elif rel.endswith(STRUCTURED_SUFFIXES):
             code.append(text)  # keys and values the system reads: a hook event, a plist key
-    package = "src/insightminer/"
+    package = "src/threaddigest/"
     settings_path = root / "config" / "settings.yaml"
     try:
         settings = yaml.safe_load(_read(settings_path)) if settings_path.is_file() else {}
@@ -526,8 +526,8 @@ def load_tree(root: Path) -> Tree:
             if f.startswith(package) and f[len(package) :].count("/") >= 1
         ),
         make_targets=frozenset(re.findall(r"^([\w.-]+):", _read(root / "Makefile"), re.M)),
-        cli_text=_read(root / "src" / "insightminer" / "cli.py"),
-        schema_sql=_read(root / "src" / "insightminer" / "db" / "schema.sql"),
+        cli_text=_read(root / "src" / "threaddigest" / "cli.py"),
+        schema_sql=_read(root / "src" / "threaddigest" / "db" / "schema.sql"),
     )
 
 
@@ -542,7 +542,7 @@ def _word_in(name: str, text: str) -> bool:
 
 def _path_resolves(tree: Tree, source: Path, token: str) -> bool:
     token = token.rstrip("/")
-    bases = (tree.root, tree.root / DOCS, tree.root / "src" / "insightminer", tree.root / "tools")
+    bases = (tree.root, tree.root / DOCS, tree.root / "src" / "threaddigest", tree.root / "tools")
     for base in (*bases, source.parent):
         if any((base / cand).exists() for cand in (token, token + ".py")):
             return True
@@ -570,9 +570,9 @@ def _looks_like_path(tree: Tree, token: str) -> bool:
 
 
 def _package_ref_resolves(tree: Tree, token: str) -> bool:
-    parts = token.removesuffix("()").removeprefix("insightminer.").split(".")
+    parts = token.removesuffix("()").removeprefix("threaddigest.").split(".")
     for k in range(len(parts), 0, -1):
-        for base in ("src/insightminer", ""):
+        for base in ("src/threaddigest", ""):
             stem = "/".join(([base] if base else []) + parts[:k])
             for cand in (stem + ".py", stem + "/__init__.py"):
                 path = tree.root / cand
@@ -598,7 +598,7 @@ def _table_block(schema_sql: str, table: str) -> str | None:
 
 
 def _command_missing(tree: Tree, rest: str) -> list[str]:
-    """The command words and ``--options`` of an ``insightminer`` line the CLI does not define;
+    """The command words and ``--options`` of an ``threaddigest`` line the CLI does not define;
     a word written as alternatives (``init/upgrade/current``) needs every alternative."""
     missing: list[str] = []
     for word in rest.split()[:2]:

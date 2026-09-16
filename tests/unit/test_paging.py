@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.paging import (
+from threaddigest.core.paging import (
     KnownPost,
     PageItem,
     StopDecision,

@@ -1,8 +1,8 @@
 """Shared fixtures.
 
 Data-directory isolation (docs/learnings rank 1, guard G19): every test runs with
-``INSIGHTMINER_DATA_DIR`` pointing at a fresh temp directory and with every other
-``INSIGHTMINER_*`` variable removed, so a developer's real ``.env`` values never reach a
+``THREADDIGEST_DATA_DIR`` pointing at a fresh temp directory and with every other
+``THREADDIGEST_*`` variable removed, so a developer's real ``.env`` values never reach a
 test and the real ``data/`` directory is never written. ``Settings`` refuses the default
 data directory while pytest is loaded, so a test that bypasses this fixture fails instead
 of touching live data.
@@ -23,10 +23,10 @@ from pathlib import Path
 import pytest
 from tools.make_demo_fixture import build_demo_fixture
 
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.settings import Settings
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.settings import Settings
 
-ENV_PREFIX = "INSIGHTMINER_"
+ENV_PREFIX = "THREADDIGEST_"
 BASE = 1_757_700_000  # 2025-09-12T18:40:00Z; seeded posts are spaced one minute apart from here
 
 

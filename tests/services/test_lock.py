@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from insightminer.services import lock
+from threaddigest.services import lock
 
 
 @pytest.fixture

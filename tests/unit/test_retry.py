@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.retry import (
+from threaddigest.core.retry import (
     DEFAULT_LADDER_SECONDS,
     DEFAULT_RATE_LIMIT_WAIT_SECONDS,
     EXIT_CODES,
@@ -259,7 +259,7 @@ def test_retry_module_imports_only_the_standard_library() -> None:
     import sys
     from pathlib import Path
 
-    import insightminer.core.retry as retry_module
+    import threaddigest.core.retry as retry_module
 
     tree = ast.parse(Path(retry_module.__file__).read_text(encoding="utf-8"))
     imported: set[str] = set()

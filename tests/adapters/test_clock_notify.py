@@ -9,15 +9,15 @@ from collections.abc import Sequence
 
 import pytest
 
-from insightminer.adapters.clock import FakeClock, SystemClock
-from insightminer.adapters.notify import (
+from threaddigest.adapters.clock import FakeClock, SystemClock
+from threaddigest.adapters.notify import (
     FakeNotifier,
     LogNotifier,
     MacNotifier,
     NullNotifier,
     run_osascript,
 )
-from insightminer.ports import Clock, Notifier
+from threaddigest.ports import Clock, Notifier
 
 
 class TestFakeClock:
@@ -172,11 +172,11 @@ class TestMacNotifier:
     def test_message_is_an_argument_not_script_source(self) -> None:
         runner = _Recorder()
         message = 'crashed: "quoted" \\ and\nnewline'
-        MacNotifier(title="Insight Miner", runner=runner).notify("error", message)
+        MacNotifier(title="Thread Digest", runner=runner).notify("error", message)
         argv = runner.argvs[0]
         assert argv[0] == "osascript"
         separator = argv.index("--")
-        assert argv[separator + 1 :] == [message, "Insight Miner", "ERROR"]
+        assert argv[separator + 1 :] == [message, "Thread Digest", "ERROR"]
         statements = [argv[i + 1] for i, flag in enumerate(argv[:separator]) if flag == "-e"]
         assert all(message not in s for s in statements)
         assert any("display notification" in s for s in statements)

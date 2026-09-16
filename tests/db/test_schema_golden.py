@@ -8,8 +8,8 @@ import difflib
 import pytest
 from sqlalchemy import Engine, text
 
-from insightminer.db.migrate import head_revision
-from insightminer.db.schema_dump import (
+from threaddigest.db.migrate import head_revision
+from threaddigest.db.schema_dump import (
     SCHEMA_SQL,
     canonical,
     dump_schema,
@@ -31,7 +31,7 @@ def test_dump_of_fresh_head_db_equals_packaged_schema_sql(engine: Engine) -> Non
             )
         )
         pytest.fail(
-            "schema.sql is stale: run `uv run python -m insightminer.db.schema_dump`\n" + diff
+            "schema.sql is stale: run `uv run python -m threaddigest.db.schema_dump`\n" + diff
         )
 
 

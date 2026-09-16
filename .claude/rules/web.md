@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/insightminer/web/**"
+  - "src/threaddigest/web/**"
   - "tests/web/**"
 ---
 # Web UI rules (load when a web file is edited)

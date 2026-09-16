@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from insightminer.core.budget import Budget
-from insightminer.core.paging import StopReason
-from insightminer.services import sweep
+from threaddigest.core.budget import Budget
+from threaddigest.core.paging import StopReason
+from threaddigest.services import sweep
 
 BASE = 1_757_700_000  # matches tests/conftest.py's ``seeded`` fixture
 
@@ -217,7 +217,7 @@ def test_a_source_at_the_cap_on_every_run_does_not_accumulate_a_standing_gap(
         fake.add_post("premiere", title=f"post {i}", created_utc=BASE + i * 60)
     source = add_source("premiere")
 
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     ctx = run_context
     for extra in range(3):
@@ -320,7 +320,7 @@ def test_zero_new_run_records_zero_new_items(
     clock: Any,
     settings: Any,
 ) -> None:
-    from insightminer.services import runs
+    from threaddigest.services import runs
 
     fake.add_subreddit("premiere")
     for i in range(20):

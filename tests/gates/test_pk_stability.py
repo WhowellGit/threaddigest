@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
 
 
 @pytest.mark.gate("GT-02")

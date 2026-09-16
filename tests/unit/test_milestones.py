@@ -8,7 +8,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.milestones import DAY_SECONDS, DEFAULT_LADDER_DAYS, next_check
+from threaddigest.core.milestones import DAY_SECONDS, DEFAULT_LADDER_DAYS, next_check
 
 CREATED = 1_757_700_000  # an arbitrary epoch second in 2025
 

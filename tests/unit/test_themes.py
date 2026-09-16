@@ -1,4 +1,4 @@
-"""Tests for ``insightminer.core.themes``: rule compilation and matching with regex timeouts."""
+"""Tests for ``threaddigest.core.themes``: rule compilation and matching with regex timeouts."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from insightminer.core.models import PostRow
-from insightminer.core.normalize import normalize_post
-from insightminer.core.themes import (
+from threaddigest.core.models import PostRow
+from threaddigest.core.normalize import normalize_post
+from threaddigest.core.themes import (
     MATCH_TIMEOUT_SECONDS,
     MAX_PATTERN_LENGTH,
     Candidate,

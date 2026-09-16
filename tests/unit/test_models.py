@@ -1,4 +1,4 @@
-"""Contract tests for the normalized row models in ``insightminer.core.models``.
+"""Contract tests for the normalized row models in ``threaddigest.core.models``.
 
 The rows are the only shape that crosses the normalize boundary, so these tests pin the
 contract other layers rely on: strict types (no silent coercion), every column required
@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from insightminer.core.models import (
+from threaddigest.core.models import (
     KNOWN_VALUES,
     NORMALIZER_VERSION,
     UNKNOWN_ENUM_COUNTER,

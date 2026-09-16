@@ -1,4 +1,4 @@
-# Insight Miner digest for 2026-09-13
+# Thread Digest for 2026-09-13
 
 ## Run summary
 

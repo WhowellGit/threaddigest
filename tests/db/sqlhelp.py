@@ -1,7 +1,7 @@
 """The one legal home for a ``text()``-based test helper, if one is ever wanted.
 
 ``pyproject``'s ``TID251`` per-file-ignore lifts the banned-API rule for
-``src/insightminer/db/**``, ``tests/db/**`` and ``tests/adapters/**`` only. The three
+``src/threaddigest/db/**``, ``tests/db/**`` and ``tests/adapters/**`` only. The three
 packages this tranche creates -- ``tests/services/``, ``tests/e2e/``, ``tests/gates/`` --
 are not on that list and must not import ``sqlalchemy.text`` or ``create_engine``
 themselves (design-round5.md §2.3). Both helpers below are built with plain SQLAlchemy
@@ -18,7 +18,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy import Connection, select
 
-from insightminer.db.schema import Base
+from threaddigest.db.schema import Base
 
 __all__ = ["read_run", "run_pks", "table_digest"]
 

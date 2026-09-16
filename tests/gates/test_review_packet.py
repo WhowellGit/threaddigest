@@ -31,18 +31,18 @@ PLANTED: dict[str, str | bytes] = {
     "docs/PLAN.md": "# plan\n\n## Intent (read this first)\n\nThe intent paragraph.\n\n## Next\n",
     TEMPLATE: "# brief for {project} at {commit} on {date}, packet {packet_hash}\n",
     CLAIMS: "# claims\n",
-    "src/insightminer/thing.py": "def thing() -> int:\n    return 1\n",
+    "src/threaddigest/thing.py": "def thing() -> int:\n    return 1\n",
     "tests/gates/test_gate.py": "def test_gate() -> None:\n    assert True\n",
     "tests/unit/test_thing.py": "def test_thing() -> None:\n    assert True\n",
     "tools/ratchet.py": "print('ratchet')\n",
     ".ratchets/tests.txt": "collected=2\n",
     ".claude/settings.json": '{"hooks": {}}\n',
     ".env": "REDDIT_CLIENT_SECRET=never-in-a-packet\n",
-    "data/insightminer.db": "not really a database but must never be packed\n",
+    "data/threaddigest.db": "not really a database but must never be packed\n",
     "docs/reference/earlier-project-retrospectives/notes.md": "# from another system: keep out\n",
     "docs/reference/reviews/2026-01-01-prior-verdict.md": "# a prior verdict: keep out\n",
     "tests/fixtures/db/rev1.db": b"\x00\x01\x02binary",
-    "src/insightminer/blob.bin": b"\xff\xfe\x00binary-in-src",
+    "src/threaddigest/blob.bin": b"\xff\xfe\x00binary-in-src",
     "docs/runbook/RUNBOOK.md": (
         "Git identity: Packet Owner <packet.owner@owner-domain.test>; account OwnerHandle;\n"
         "site https://owner-domain.test/; the operator is Packet.\n"
@@ -104,18 +104,18 @@ def test_a_packet_holds_only_the_allowlist_from_head(repo: Path, tmp_path: Path)
     assert proc.returncode == 0, proc.stderr
     manifest = json.loads((out / "MANIFEST.json").read_text(encoding="utf-8"))
     packed = {entry["path"] for entry in manifest["files"]}
-    assert "src/insightminer/thing.py" in packed
+    assert "src/threaddigest/thing.py" in packed
     assert "tests/gates/test_gate.py" in packed and "tests/unit/test_thing.py" in packed
     assert ".claude/settings.json" in packed and ".ratchets/tests.txt" in packed
     for never in (
         ".env",
-        "data/insightminer.db",
+        "data/threaddigest.db",
         "docs/reference/earlier-project-retrospectives/notes.md",
         "docs/reference/reviews/2026-01-01-prior-verdict.md",
         "tests/fixtures/db/rev1.db",
     ):
         assert never not in packed, never
-    assert manifest["skipped_binary"] == ["src/insightminer/blob.bin"]
+    assert manifest["skipped_binary"] == ["src/threaddigest/blob.bin"]
     everything = "".join(
         (out / name).read_text(encoding="utf-8")
         for name in (

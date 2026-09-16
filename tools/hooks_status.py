@@ -3,7 +3,7 @@
 
 "Pre-commit runs on every commit" was in CLAUDE.md for a week while the hooks were not
 installed on the machine at all: the claim was narrated, never checked. The first line asks
-:func:`insightminer.services.doctor.check_hooks_installed` -- the same function the doctor
+:func:`threaddigest.services.doctor.check_hooks_installed` -- the same function the doctor
 check contract covers, with its states tested -- so it is derived from the filesystem rather
 than written by hand. The second line (2026-09-14) compares the hook scripts under
 ``tools/hooks/`` with the commands registered in the Claude Code hook settings, because a
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from insightminer.services.doctor import check_hooks_installed
+from threaddigest.services.doctor import check_hooks_installed
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTINGS = ROOT / ".claude" / "settings.json"

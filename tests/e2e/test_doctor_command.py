@@ -9,9 +9,9 @@ import json
 import os
 from pathlib import Path
 
-from insightminer import cli
-from insightminer.db import repo
-from insightminer.db.engine import db_path_for, engine_for
+from threaddigest import cli
+from threaddigest.db import repo
+from threaddigest.db.engine import db_path_for, engine_for
 
 #: Every check name ``services.doctor.run_checks`` emits with a database present (section
 #: 15.2's twelve, plus ``hooks_installed`` wired in as the thirteenth).

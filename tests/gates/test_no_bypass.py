@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 from tests.db.sqlhelp import table_digest
 
-from insightminer import cli
-from insightminer.adapters.reddit_fake import FakeRedditGateway
-from insightminer.db import repo
-from insightminer.db.engine import db_path_for, engine_for
-from insightminer.db.schema import Base
-from insightminer.settings import default_data_dir
+from threaddigest import cli
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.db import repo
+from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.db.schema import Base
+from threaddigest.settings import default_data_dir
 
 
 @pytest.mark.gate("CF-01")
@@ -149,21 +149,21 @@ def test_fake_gateway_refused_against_the_default_data_dir(
 ) -> None:
     """section 11.3 step 2 (D-10): ``--gateway fake`` is refused when ``settings.data_dir``
     resolves to the REAL default directory -- distinct from ``Settings``' own pytest
-    refusal, so ``INSIGHTMINER_ALLOW_REAL_DATA_DIR`` is set here to isolate it.
+    refusal, so ``THREADDIGEST_ALLOW_REAL_DATA_DIR`` is set here to isolate it.
 
     **The message, not just the code** (round5-findings.json panel P1). This is the one test
     that runs with the data-directory safety net switched off, and it asserted only
     ``exit_code == 78`` -- which step 4's missing-database precondition also returns. On CI,
     where no default database exists, it therefore passed whether or not ``_guard_gateway``
-    existed at all; on a machine where the shipped ``./data/insightminer.db`` does exist, a
+    existed at all; on a machine where the shipped ``./data/threaddigest.db`` does exist, a
     regression in the guard would have driven a real fake-gateway run against live data (a run
     row, and every seeded source stamped ``not_found`` with ``consecutive_failures``
     incremented) and the test would still have gone green. Asserting the sentence
     discriminates the guard from the precondition, and the stat comparison proves nothing was
     written or created either way.
     """
-    monkeypatch.setenv("INSIGHTMINER_ALLOW_REAL_DATA_DIR", "1")
-    monkeypatch.delenv("INSIGHTMINER_DATA_DIR", raising=False)
+    monkeypatch.setenv("THREADDIGEST_ALLOW_REAL_DATA_DIR", "1")
+    monkeypatch.delenv("THREADDIGEST_DATA_DIR", raising=False)
     before = _default_data_dir_state()
 
     result = cli_runner.invoke(cli.app, ["run", "--gateway", "fake"])

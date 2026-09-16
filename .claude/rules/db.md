@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/insightminer/db/**"
+  - "src/threaddigest/db/**"
   - "tests/db/**"
 ---
 # Database rules (load when a database file is edited)

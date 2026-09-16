@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from insightminer.core.budget import DEFAULT_HARD_CAP, Budget, tree_cost
+from threaddigest.core.budget import DEFAULT_HARD_CAP, Budget, tree_cost
 
 
 def test_defaults_match_plan() -> None:
