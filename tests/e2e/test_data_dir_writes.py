@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from threaddigest import cli
 from threaddigest.adapters.reddit_fake import FakeRedditGateway
 
@@ -76,6 +78,34 @@ def test_a_full_run_changes_no_file_outside_the_data_dir(
         cli.app, ["run", "--gateway", "fake", "--fixture", str(demo_fixture_path)]
     )
     assert result.exit_code == 0, result.output
+    after = _snapshot(REPO_ROOT)
+    assert after == before
+
+
+@pytest.mark.gate("G19")
+def test_a_probe_save_fixture_changes_no_file_outside_the_data_dir(
+    cli_runner, loaded_gateway: FakeRedditGateway, isolated_data_dir: Path
+) -> None:
+    """The same DB-19 recipe as the run test above, for `probe --save-fixture`: it writes
+    under ``<data_dir>/probe/``, never into the repository tree (irreversible rule 1). This is
+    the mechanical enforcer for that rule on this command; without it the rule is review-only
+    here.
+    """
+    before = _snapshot(REPO_ROOT)
+    result = cli_runner.invoke(
+        cli.app,
+        [
+            "probe",
+            "--gateway",
+            "fake",
+            "about",
+            "r/premiere",
+            "--save-fixture",
+            "repo_root_write_check",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert (isolated_data_dir / "probe" / "repo_root_write_check.json").is_file()
     after = _snapshot(REPO_ROOT)
     assert after == before
 

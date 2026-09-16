@@ -39,6 +39,11 @@ EXPECTED_COMMAND_TREE = {
     "db upgrade",
     "db current",
     "config validate",
+    "probe about",
+    "probe listing",
+    "probe tree",
+    "probe info",
+    "probe search",
 }
 
 
@@ -150,6 +155,11 @@ EXCLUDED_COMMANDS: list[tuple[str, list[str], int]] = [
     (
         "run_dry_run",
         ["run", "--dry-run", "--gateway", "fake", "--fixture", FIXTURE_PLACEHOLDER],
+        0,
+    ),
+    (
+        "probe_about",
+        ["probe", "--gateway", "fake", "--fixture", FIXTURE_PLACEHOLDER, "about", "r/premiere"],
         0,
     ),
 ]

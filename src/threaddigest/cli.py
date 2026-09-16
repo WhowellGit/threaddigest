@@ -54,6 +54,7 @@ from threaddigest.services import collect as collect_service
 from threaddigest.services import doctor as doctor_service
 from threaddigest.services import invariants, lock, runs
 from threaddigest.services import migrate as migrate_service
+from threaddigest.services import probe as probe_service
 from threaddigest.settings import (
     DataDirRefusedError,
     Settings,
@@ -77,8 +78,10 @@ __all__ = [
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Thread Digest CLI")
 db_app = typer.Typer(no_args_is_help=True, help="Database lifecycle: init, upgrade, current.")
 config_app = typer.Typer(no_args_is_help=True, help="Configuration: validate.")
+probe_app = typer.Typer(no_args_is_help=True, help="Dump Reddit's wire JSON (the probe day).")
 app.add_typer(db_app, name="db")
 app.add_typer(config_app, name="config")
+app.add_typer(probe_app, name="probe")
 
 #: The lock every mutating command takes, relative to the data directory (§12.2).
 LOCK_RELATIVE_PATH: Final = Path("locks") / "collector.lock"
@@ -700,6 +703,239 @@ def config_validate() -> None:
     typer.echo(f"data_dir: {settings.data_dir}")
     typer.echo(f"settings_file: {settings.settings_file}")
     typer.echo(f"fingerprint: {settings_fingerprint(settings)}")
+    _exit(int(ExitCode.OK))
+
+
+# --- probe (plan § CLI; the credentialed probe day, runbook § 9) -------------------------------
+#
+# `probe` writes no database row and takes no lock (RL-04 excludes it: tests/gates/
+# test_mutating_commands.py's EXCLUDED_COMMANDS), so it has none of `run`'s lock/db/engine
+# steps -- just the two gateway guards, one gateway, one capture, and an optional save.
+#
+# `--gateway`/`--fixture` (identical to `run`'s) are declared once, on the `probe` group's own
+# callback, rather than repeated on all five sub-commands: it resolves and guards the gateway
+# exactly once per invocation, before any sub-command body runs, and hands it down through a
+# module-level slot (`_probe_ctx`) instead of five copies of the same two parameters --
+# `click.get_current_context()` was tried first and does not work here: Typer 0.15 calls a
+# sub-command's function directly rather than through `ctx.invoke`, so no click context is
+# active by the time a sub-command body runs, even though the group's own callback just set
+# one. The CLI is one synchronous invocation per process, so a module-level slot set once by
+# `probe_main` and read once by the sub-command that follows it is safe. `--save-fixture`/
+# `--blank-bodies` (services/probe.py's `save`) stay on each sub-command, where CONTRACT item 4
+# places them.
+
+
+def _strip_leading(text: str, prefix: str) -> str:
+    return text[len(prefix) :] if text.lower().startswith(prefix) else text
+
+
+def _subreddit_name(raw: str) -> str:
+    """Accept ``r/<sub>`` or a bare ``<sub>``."""
+    return _strip_leading(raw, "r/")
+
+
+def _listing_target(raw: str) -> str:
+    """Accept ``r/<sub>/new``, ``<sub>/new``, or a bare ``<sub>``."""
+    name = _subreddit_name(raw)
+    return name[: -len("/new")] if name.lower().endswith("/new") else name
+
+
+@dataclass(frozen=True, slots=True)
+class _ProbeContext:
+    """What ``probe_main`` resolves once and every sub-mode reuses: the settings, and the
+    already-guarded, already-constructed gateway."""
+
+    settings: Settings
+    gateway: RedditGateway
+
+
+#: Set once by ``probe_main`` (the group callback), read once by the sub-command that follows
+#: it in the same process. See the module note above for why this is a plain slot and not
+#: ``click``'s context.
+_probe_ctx_holder: _ProbeContext | None = None
+
+
+def _probe_ctx() -> _ProbeContext:
+    """The context ``probe_main`` resolved for this invocation.
+
+    Fetched rather than taken as a parameter so each sub-command keeps only its own
+    mode-specific options and the two universal ones (``--save-fixture``/``--blank-bodies``),
+    which is what keeps every sub-command at or under five arguments (the size ratchet).
+    """
+    assert _probe_ctx_holder is not None  # set by probe_main, which always runs first
+    return _probe_ctx_holder
+
+
+def _emit_capture(
+    capture: probe_service.Capture,
+    *,
+    settings: Settings,
+    save_fixture: str | None,
+    blank_bodies: bool,
+) -> None:
+    """Print the scrubbed payload -- what is printed is what would be saved -- then, when
+    ``--save-fixture`` is given, save it and print the promotion command it returns."""
+    typer.echo(json.dumps(capture.payload, indent=2, sort_keys=True))
+    typer.echo(f"requests_used: {capture.requests_used}")
+    if save_fixture is None:
+        return
+    try:
+        path = probe_service.save(
+            capture, data_dir=settings.data_dir, name=save_fixture, blank_bodies=blank_bodies
+        )
+    except probe_service.FixtureExistsError as exc:
+        raise ConfigError(str(exc)) from exc
+    typer.echo(f"wrote {path}")
+    typer.echo(probe_service.promotion_command(path, save_fixture))
+
+
+_SAVE_FIXTURE_HELP: Final = "Save the scrubbed capture under <data_dir>/probe/<name>.json."
+_BLANK_BODIES_HELP: Final = "Blank selftext/body/selftext_html/body_html before saving."
+
+
+@probe_app.callback()
+def probe_main(
+    gateway: str = typer.Option("praw", "--gateway", help="praw | fake."),
+    fixture: Path | None = typer.Option(
+        None, "--fixture", help="Scenario JSON for --gateway fake."
+    ),
+) -> None:
+    """Dump Reddit's wire JSON for the probe day (runbook § 9): ``about``, ``listing``,
+    ``tree``, ``info``, ``search``, each with ``--save-fixture``/``--blank-bodies``."""
+    global _probe_ctx_holder
+    try:
+        settings = _settings()
+        _guard_gateway(gateway, settings)
+        reddit_gateway = GATEWAY_FACTORY(
+            GatewaySpec(kind=gateway, fixture=fixture, settings=settings)
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    _probe_ctx_holder = _ProbeContext(settings=settings, gateway=reddit_gateway)
+
+
+@probe_app.command("about")
+def probe_about(
+    subreddit: str = typer.Argument(..., help="r/<sub> or <sub>."),
+    save_fixture: str | None = typer.Option(None, "--save-fixture", help=_SAVE_FIXTURE_HELP),
+    blank_bodies: bool = typer.Option(False, "--blank-bodies", help=_BLANK_BODIES_HELP),
+) -> None:
+    """Dump ``/r/<sub>/about`` as scrubbed JSON."""
+    probe_ctx = _probe_ctx()
+    try:
+        capture = probe_service.capture_about(probe_ctx.gateway, _subreddit_name(subreddit))
+        _emit_capture(
+            capture,
+            settings=probe_ctx.settings,
+            save_fixture=save_fixture,
+            blank_bodies=blank_bodies,
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    _exit(int(ExitCode.OK))
+
+
+@probe_app.command("listing")
+def probe_listing(
+    target: str = typer.Argument(..., help="r/<sub>/new (or <sub>/new, or <sub>)."),
+    limit: int = typer.Option(25, "--limit", min=1, help="Items to collect, across pages."),
+    save_fixture: str | None = typer.Option(None, "--save-fixture", help=_SAVE_FIXTURE_HELP),
+    blank_bodies: bool = typer.Option(False, "--blank-bodies", help=_BLANK_BODIES_HELP),
+) -> None:
+    """Dump up to ``--limit`` items of ``/r/<sub>/new``, paging as needed, cursors recorded."""
+    probe_ctx = _probe_ctx()
+    try:
+        capture = probe_service.capture_listing(
+            probe_ctx.gateway, _listing_target(target), limit=limit
+        )
+        _emit_capture(
+            capture,
+            settings=probe_ctx.settings,
+            save_fixture=save_fixture,
+            blank_bodies=blank_bodies,
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    _exit(int(ExitCode.OK))
+
+
+@probe_app.command("tree")
+def probe_tree(
+    post_id: str = typer.Argument(..., help="A post id or fullname (t3_...)."),
+    more_limit: int = typer.Option(
+        16,
+        "--more-limit",
+        min=0,
+        help="`more` stubs to expand (comments.replace_more_limit's shipped default).",
+    ),
+    save_fixture: str | None = typer.Option(None, "--save-fixture", help=_SAVE_FIXTURE_HELP),
+    blank_bodies: bool = typer.Option(False, "--blank-bodies", help=_BLANK_BODIES_HELP),
+) -> None:
+    """Dump a comment tree: the post, the flattened comments, and the `more` stubs."""
+    probe_ctx = _probe_ctx()
+    try:
+        capture = probe_service.capture_tree(probe_ctx.gateway, post_id, more_limit=more_limit)
+        _emit_capture(
+            capture,
+            settings=probe_ctx.settings,
+            save_fixture=save_fixture,
+            blank_bodies=blank_bodies,
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    _exit(int(ExitCode.OK))
+
+
+@probe_app.command("info")
+def probe_info(
+    fullnames: str = typer.Argument(..., help="Comma-separated fullnames, e.g. t3_abc,t1_def."),
+    save_fixture: str | None = typer.Option(None, "--save-fixture", help=_SAVE_FIXTURE_HELP),
+    blank_bodies: bool = typer.Option(False, "--blank-bodies", help=_BLANK_BODIES_HELP),
+) -> None:
+    """Dump one ``/api/info`` batch."""
+    probe_ctx = _probe_ctx()
+    try:
+        names = [name.strip() for name in fullnames.split(",") if name.strip()]
+        capture = probe_service.capture_info(probe_ctx.gateway, names)
+        _emit_capture(
+            capture,
+            settings=probe_ctx.settings,
+            save_fixture=save_fixture,
+            blank_bodies=blank_bodies,
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    _exit(int(ExitCode.OK))
+
+
+@probe_app.command("search")
+def probe_search(
+    query: str = typer.Argument(..., help="Search query."),
+    sort: str = typer.Option("new", "--sort", help="Reddit's search sort."),
+    time_filter: str = typer.Option("week", "--time-filter", help="Reddit's search window."),
+    save_fixture: str | None = typer.Option(None, "--save-fixture", help=_SAVE_FIXTURE_HELP),
+    blank_bodies: bool = typer.Option(False, "--blank-bodies", help=_BLANK_BODIES_HELP),
+) -> None:
+    """Dump ``/r/all/search`` pages for one saved-search query."""
+    probe_ctx = _probe_ctx()
+    try:
+        capture = probe_service.capture_search(
+            probe_ctx.gateway, query, sort=sort, time_filter=time_filter
+        )
+        _emit_capture(
+            capture,
+            settings=probe_ctx.settings,
+            save_fixture=save_fixture,
+            blank_bodies=blank_bodies,
+        )
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
     _exit(int(ExitCode.OK))
 
 
