@@ -9,10 +9,13 @@ users; nothing it reads is published, shared, or sent anywhere.
 ## What it never does
 
 It never posts, comments, votes, or sends a message: every call it makes is a read. It never
-redistributes or sells the content it reads, never uses it to train a model, and never
-profiles anyone — no per-author records, no tracking a person across communities. It reads
-only the subreddits its owner has listed, under a per-run request budget with a hard cap, so
-a run cannot quietly grow.
+redistributes or sells the content it reads and never uses it to train a model. It keeps one
+record per author — a name, an id, when they were first and last seen, and a running count of
+their posts and comments, added up across every subreddit it monitors rather than kept apart
+per subreddit. That record exists only to label whose post or comment is whose; nothing else is
+built from it, and it is dropped outright the moment the account itself is deleted. It reads
+only the subreddits its owner has listed, under a per-run request budget with a hard cap, so a
+run cannot quietly grow.
 
 ## Deleted and removed content
 
@@ -27,10 +30,11 @@ before the first real fetch; today there is nothing to scrub, because nothing ha
 ## Status
 
 The design and the offline build are complete and green. The collector, the database and
-the digest are built and tested against an in-process fake of Reddit, which is the only
-gateway in the tree: **no Reddit data has been read, and the code that talks to the real API
-is not written yet.** The project is waiting on Reddit Data API access approval; the real
-adapter, its recorded fixtures and the first fetch all come after that.
+the digest are built and tested against an in-process fake of Reddit. The code that talks to
+the real API is written too, and is tested against mocked HTTP for its failure paths, its
+request counting, and its error translation, but **it has never been run against Reddit, and
+no Reddit data has been read.** The project is waiting on Reddit Data API access approval;
+the recorded fixtures and the first real fetch both come after that.
 
 ## Building and checking it
 
