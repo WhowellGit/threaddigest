@@ -28,10 +28,6 @@ forbidden_modules =
 ignore_imports =
     threaddigest.adapters.reddit_praw -> praw
     threaddigest.adapters.reddit_praw -> prawcore
-# The adapter module does not exist yet, so its allow-list entries match nothing today.
-# "warn" keeps the contract passing on the current tree; the contract still fails the
-# moment any other module imports praw.
-unmatched_ignore_imports_alerting = warn
 
 [importlinter:contract:web-never-imports-cli]
 name = web must not import cli (the CLI mirrors the UI, never the reverse)

@@ -11,6 +11,7 @@ import pytest
 from threaddigest import cli
 from threaddigest.adapters.notify import LogNotifier, MacNotifier
 from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.adapters.reddit_praw import PrawGateway
 from threaddigest.settings import Settings
 
 
@@ -40,6 +41,30 @@ def test_default_gateway_factory_without_a_fixture_builds_an_empty_gateway(
     gateway = cli.default_gateway_factory(spec)
     assert isinstance(gateway, FakeRedditGateway)
     assert gateway.requests_made == 0
+
+
+def test_default_gateway_factory_builds_the_real_adapter_for_praw(settings: Settings) -> None:
+    """``--gateway praw`` is the production default, so the factory must build it here.
+
+    Constructing the adapter issues no request (PRAW's update check is off and the OAuth
+    token is bought lazily), which is why this is safe under ``--block-network``: the test
+    proves the wiring, not a call to Reddit. ``run --gateway praw`` is still refused under
+    pytest by ``_guard_gateway``, one layer above.
+    """
+    spec = cli.GatewaySpec(kind="praw", fixture=None, settings=settings)
+
+    gateway = cli.default_gateway_factory(spec)
+
+    assert isinstance(gateway, PrawGateway)
+    assert gateway.requests_made == 0
+
+
+def test_default_gateway_factory_refuses_a_gateway_that_does_not_exist(settings: Settings) -> None:
+    """A typo'd ``--gateway`` is a precondition failure (exit 78), never a default."""
+    spec = cli.GatewaySpec(kind="fakee", fixture=None, settings=settings)
+
+    with pytest.raises(cli.ConfigError, match="unknown gateway"):
+        cli.default_gateway_factory(spec)
 
 
 def test_gateway_factory_is_restored_after_the_seam_is_used(fake: FakeRedditGateway) -> None:

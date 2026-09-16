@@ -72,7 +72,7 @@ Everything about how the data is stored and queried follows from the one questio
                      launchd (Mac) / supercronic (Docker) ── runs `threaddigest run` Monday and Thursday
 ```
 
-One Python package, two entry points: a FastAPI app (`threaddigest serve`, M2) that is the operator's surface, and a `typer` CLI used by the scheduler, containers, tests, and break-glass recovery. Both are thin wrappers over the same service functions; after installation no routine operation requires a terminal. Ports and adapters inside: `core/` (pure logic) and `services/` never import `praw`; only the PRAW adapter module (tranche B) does. The UI never talks to Reddit except to validate a subreddit when one is added.
+One Python package, two entry points: a FastAPI app (`threaddigest serve`, M2) that is the operator's surface, and a `typer` CLI used by the scheduler, containers, tests, and break-glass recovery. Both are thin wrappers over the same service functions; after installation no routine operation requires a terminal. Ports and adapters inside: `core/` (pure logic) and `services/` never import `praw`; only the PRAW adapter module does. The UI never talks to Reddit except to validate a subreddit when one is added.
 
 ## Tech stack
 
@@ -106,7 +106,7 @@ One Python package, two entry points: a FastAPI app (`threaddigest serve`, M2) t
 ├── src/threaddigest/
 │   ├── cli.py  settings.py  ports.py                     # ports = Protocols + domain exceptions
 │   ├── core/      models normalize paging deletion milestones themes budget retry digest   # pure, no I/O
-│   ├── adapters/  clock notify reddit_fake/ (package)    reddit_praw (tranche B)
+│   ├── adapters/  clock notify reddit_fake/ (package)    reddit_praw
 │   ├── db/        engine schema schema.sql schema_dump repo ownership fts backup migrate migrations/versions/0001..0004
 │   ├── services/  lock runs collect sweep seed invariants doctor migrate   (trees, revisit, reconcile, scrub, tag, report, export: M1b–M1d)
 │   └── web/       (M2) app deps filters routes/ templates/ static/{app.css, app.js, vendor/htmx.min.js}
@@ -121,7 +121,7 @@ The corpus lives in `docs/` and travels with the code. Every living document und
 
 ## Module map (layering enforced by import-linter, not convention)
 
-Layers, outermost to innermost: `web` | `cli` → `services` → `db` | `adapters` → `ports` → `core`. `core` imports nothing from the project or from `praw`; only `adapters/reddit_praw.py` (tranche B) imports `praw`; `web` never imports `cli`. Boundaries speak typed values: pydantic models for normalized rows, dataclasses for gateway results, `Protocol`s in `ports.py`. `mypy --strict` on the whole `src` tree.
+Layers, outermost to innermost: `web` | `cli` → `services` → `db` | `adapters` → `ports` → `core`. `core` imports nothing from the project or from `praw`; only `adapters/reddit_praw.py` imports `praw`, and the import-linter contract that says so is an error contract since the module landed; `web` never imports `cli`. Boundaries speak typed values: pydantic models for normalized rows, dataclasses for gateway results, `Protocol`s in `ports.py`. `mypy --strict` on the whole `src` tree.
 
 | Module | Responsibility | Depends on | Tested by | State |
 |---|---|---|---|---|
@@ -134,7 +134,7 @@ Layers, outermost to innermost: `web` | `cli` → `services` → `db` | `adapter
 | `core.retry` | retry ladder, exception classification, run statuses and exit codes, rate-limit wait planning | — | unit, hypothesis | built |
 | `core.digest` | digest model (ranking, theme, untagged, rising, workspace, backlog, compliance sections) → markdown and HTML | jinja2 | golden file | built, not yet assembled from the DB (M1d) |
 | `adapters.reddit_fake` | scenario-building fake gateway, a package | — | contract suite (same cases as the real adapter) | built |
-| `adapters.reddit_praw` | `RedditGateway` over PRAW; request counting; exception translation | praw | cassettes + `responses` + contract suite | tranche B |
+| `adapters.reddit_praw` | `RedditGateway` over PRAW; request counting; exception translation | praw | cassettes + `responses` + contract suite | built; failure paths covered by `responses`, cassettes and the contract suite follow the probe day |
 | `adapters.notify`, `adapters.clock` | `Notifier` (macOS `osascript`, log, null, and a fake for tests; ntfy is a later option, D-10); injected clock | subprocess | unit | built |
 | `db.*` | pragmas, models, upsert repository with the field-ownership table, FTS, backup and restore, migrations, schema dump | sqlalchemy, alembic | db tests, pytest-alembic, snapshot diff | built |
 | `services.*` | use cases: lock, runs, collect, sweep, seed, invariants, doctor, migrate | core + ports + db | e2e against the fake | built; trees, revisit, reconcile, scrub, tag, report, export follow in M1b–M1d |
@@ -270,13 +270,13 @@ Old-Reddit density and Reddit's URL scheme so muscle memory works: `/r/{sub}`, `
 
 ## Testing strategy
 
-**Principle:** the collector never touches the network in tests (`--block-network`). `RedditGateway`, `Clock`, `Notifier`, and `ProcessRunner` are Protocols speaking plain values; `PrawGateway` (tranche B) is the only adapter doing HTTP. `FakeRedditGateway` is a scenario builder (`add_post`, `add_comment`, `add_more`, `delete`, `remove`, `vanish`, `delete_account`, `fail_page`, `rate_limit_next`, `set_status`) that records every call, ships in `src/` so `threaddigest run --gateway fake` works for demos, and drives the whole failure matrix; its known fidelity limits (a single large `more` subtree is revealed in one request, KI-023) are validated against the real adapter on the probe day. Tests control time through the injected `Clock` and never sleep. The spec-level detail (every test id with its layer, phase, and status) is `docs/TEST_STRATEGY.md`, gated so that every cited test exists.
+**Principle:** the collector never touches the network in tests (`--block-network`). `RedditGateway`, `Clock`, `Notifier`, and `ProcessRunner` are Protocols speaking plain values; `PrawGateway` is the only adapter doing HTTP. `FakeRedditGateway` is a scenario builder (`add_post`, `add_comment`, `add_more`, `delete`, `remove`, `vanish`, `delete_account`, `fail_page`, `rate_limit_next`, `set_status`) that records every call, ships in `src/` so `threaddigest run --gateway fake` works for demos, and drives the whole failure matrix; its known fidelity limits (a single large `more` subtree is revealed in one request, KI-023) are validated against the real adapter on the probe day. Tests control time through the injected `Clock` and never sleep. The spec-level detail (every test id with its layer, phase, and status) is `docs/TEST_STRATEGY.md`, gated so that every cited test exists.
 
 | Layer | What | Tools |
 |---|---|---|
 | Unit (`core/`) | normalize, the deletion state machine, paging, the ladder, budget, theme rules including the regex timeout, the digest golden file, UA format | pytest, hypothesis |
 | Collector e2e | Full `run` against the fake and a temp DB created by `alembic upgrade head`: idempotent rerun, counters and `run_subreddits`, ladder and reconcile transitions, the **compliance canary** (ingest a unique phrase, delete it in the fake, reconcile, scan the DB, the index bytes, and a fresh export) | pytest, tmp_path, time-machine |
-| Adapter (tranche B) | Happy paths from recorded cassettes (`--record-mode=none` in CI, auth headers and tokens filtered); failure paths with `responses` asserting exact request counts; a contract suite runs the same cases against the fake and PRAW so the fake stays honest | pytest-recording, responses |
+| Adapter | Failure paths with `responses` asserting exact request counts, built and green; happy paths from recorded cassettes (`--record-mode=none`, auth headers and tokens filtered by the `vcr_config` fixture, which ships before the first cassette) and a contract suite running the same cases against the fake and PRAW so the fake stays honest, both after the probe day | pytest-recording, responses |
 | Migrations | pytest-alembic built-ins plus upgrade-from-fixture per prior revision, FTS works after upgrade, integrity ok, pre-migration backup created; the migration checklist (sequence re-stamped, triggers present, FTS integrity) lands before the next migration on posts or comments (KI-014) | pytest-alembic |
 | Web (M2) | TestClient per route with a seeded DB and DOM assertions; tombstones, deep links, escaping, fragment versus page, CRUD round-trips, Run now, cross-site rejection, export integrity, FTS sanitizer under adversarial input | TestClient, selectolax, hypothesis |
 | Workflow | Cross-stage scenarios through one fake corpus (sweep → trees → revisit → reconcile → tag → digest → backup) and the operator workflows (setup → first sweep; theme edit → retag; backup → restore drill; pending migration → apply; export → import), asserting end state, counters, and the delivered artifacts | pytest, fake gateway, temp data dir |
@@ -361,7 +361,7 @@ Source: `WHY_THE_GUARDS_EXIST.md` in `docs/reference/earlier-project-retrospecti
 |---|---|
 | `core/` | Strict TDD: red test → green → refactor. Every failure-matrix row is a failing test before the service code exists |
 | `services/` | TDD against `FakeRedditGateway` and a temp DB created by `alembic upgrade head` |
-| `adapters/reddit_praw.py` (tranche B) | Probe-first: `probe` captures the real payload → scrubbed fixture or cassette → characterization test → adapter code. Reddit's behaviour is observed, never assumed; one credentialed probe day precedes M1b |
+| `adapters/reddit_praw.py` | Probe-first for every wire shape: `probe` captures the real payload → scrubbed fixture or cassette → characterization test → adapter code. Reddit's behaviour is observed, never assumed; one credentialed probe day precedes M1b. The offline half landed first because it needs no capture: the exception translation and the request counting are read from the installed library and driven with `responses` |
 | `db/migrations/` | Test-first: add the fixture DB of the previous revision and the expected `schema.sql` snapshot, then write the migration until both pass |
 | `web/` | Test-with: the route test with DOM assertions is written alongside the template; Playwright smoke after each page lands |
 | Bug fixes | A failing test that reproduces the bug, a `KNOWN_ISSUES.md` row citing it, the strongest enforcer that fits, mirrors swept, proof pasted (the `harden` skill) |

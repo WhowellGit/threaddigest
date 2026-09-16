@@ -1,0 +1,857 @@
+"""AD-02: the PRAW adapter's failure paths, with the exact request count each one costs.
+
+No cassettes and no network: ``responses`` answers at the transport, so ``--block-network``
+never sees a socket and every byte in this file is synthetic. The counts are the point.
+``requests_made`` is what the run budget spends (the irreversible rule against an unbounded
+fetch), and the interesting thing about PRAW is that a single gateway call is rarely a single
+round-trip: the first call of a run buys an OAuth token, a 401 buys another one, and prawcore
+retries a 5xx or a dropped connection twice before the adapter ever sees it. Each test below
+therefore asserts the translated exception *and* the number of round-trips, and the two
+numbers -- ``responses``' own tally and the adapter's counter -- are asserted to agree, so a
+counter that stopped counting cannot pass.
+
+What this file does **not** cover, and why: the wire shapes themselves. Every payload here is
+hand-built from Reddit's documented structure, not captured, so a field Reddit spells
+differently would satisfy these tests and fail in production. That is AD-01, AD-03, AD-04 and
+PA-01, each of which needs a real capture from the probe day (``docs/runbook/RUNBOOK.md``
+§ 9).
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import time
+from collections.abc import Iterator
+from typing import Any
+
+import praw
+import prawcore
+import pytest
+import requests
+import responses
+
+from threaddigest.adapters.reddit_praw import (
+    MORE_CHUNK,
+    CountingSession,
+    PrawConfig,
+    PrawGateway,
+    translate,
+)
+from threaddigest.ports import (
+    AuthFailed,
+    GatewayError,
+    HtmlBlocked,
+    RateLimited,
+    RedditGateway,
+    SubredditForbidden,
+    SubredditNotFound,
+    SubredditQuarantined,
+    SubredditRedirected,
+    TransientError,
+)
+
+OAUTH = "https://oauth.reddit.com"
+TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+TOKEN_BODY = {
+    "access_token": "fake-token",
+    "token_type": "bearer",
+    "expires_in": 3600,
+    "scope": "*",
+}
+
+#: Obviously fake, and never a real account: the identifier gate refuses a real author name
+#: anywhere under tests, and the credentials here are strings no Reddit app would accept.
+CONFIG = PrawConfig(
+    client_id="fake-id",
+    client_secret="fake-secret",
+    user_agent="python:threaddigest-tests:v0 (by /u/synthetic-operator)",
+)
+
+NEW_URL = f"{OAUTH}/r/premiere/new"
+ABOUT_URL = f"{OAUTH}/r/premiere/about/"
+INFO_URL = f"{OAUTH}/api/info/"
+SEARCH_URL = f"{OAUTH}/r/all/search/"
+TREE_URL = f"{OAUTH}/comments/p1/"
+MORE_URL = f"{OAUTH}/api/morechildren/"
+
+INVALID_TOKEN_HEADER = {"www-authenticate": 'Bearer realm="reddit", error="invalid_token"'}
+
+
+# --------------------------------------------------------------------------- fixtures
+
+
+@pytest.fixture
+def http() -> Iterator[responses.RequestsMock]:
+    """Every outbound request answered at the transport; nothing is registered by default."""
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
+        yield mock
+
+
+@pytest.fixture
+def gateway() -> PrawGateway:
+    """A gateway that has issued nothing yet: constructing one costs no round-trip."""
+    return PrawGateway(CONFIG)
+
+
+@pytest.fixture
+def retry_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record prawcore's retry waits instead of serving them.
+
+    prawcore's retry strategy sleeps zero-to-two seconds and then two-to-four before its two
+    retries. That is real wall time, and this project's rule is that a test never sleeps.
+    Recording the waits is also the stronger assertion: the length of this list *is* the
+    number of retries prawcore performed, which a wall-clock test could only infer.
+    """
+    waits: list[float] = []
+    monkeypatch.setattr(time, "sleep", waits.append)
+    return waits
+
+
+# ---------------------------------------------------------------------------- helpers
+
+
+def _token(http: responses.RequestsMock, *, status: int = 200, body: Any = None) -> None:
+    http.post(TOKEN_URL, json=TOKEN_BODY if body is None else body, status=status)
+
+
+def _post(pid: str, **extra: Any) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": pid,
+        "name": f"t3_{pid}",
+        "title": f"post {pid}",
+        "selftext": f"body {pid}",
+        "author": "synthetic-author",
+        "created_utc": 1_757_700_000.0,
+        "stickied": False,
+        "subreddit": "premiere",
+    }
+    data.update(extra)
+    return {"kind": "t3", "data": data}
+
+
+def _listing(children: list[Any], after: str | None = None) -> dict[str, Any]:
+    return {"kind": "Listing", "data": {"after": after, "before": None, "children": children}}
+
+
+def _comment(
+    cid: str, parent: str, replies: list[Any] | None = None, **extra: Any
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": cid,
+        "name": f"t1_{cid}",
+        "parent_id": parent,
+        "link_id": "t3_p1",
+        "body": f"comment {cid}",
+        "author": "synthetic-author",
+        "replies": _listing(replies) if replies else "",
+    }
+    data.update(extra)
+    return {"kind": "t1", "data": data}
+
+
+def _more_node(parent: str, count: int, children: list[str]) -> dict[str, Any]:
+    return {
+        "kind": "more",
+        "data": {
+            "count": count,
+            "name": f"t1_{children[0]}" if children else f"{parent}_more",
+            "id": children[0] if children else "_",
+            "parent_id": parent,
+            "children": children,
+        },
+    }
+
+
+def _tree(comments: list[Any], post: dict[str, Any] | None = None) -> list[Any]:
+    return [_listing([post or _post("p1")]), _listing(comments)]
+
+
+def _things(children: list[Any]) -> dict[str, Any]:
+    return {"json": {"errors": [], "data": {"things": children}}}
+
+
+def _round_trips(http: responses.RequestsMock, gateway: PrawGateway, expected: int) -> None:
+    """The transport's tally and the adapter's counter, which must never disagree."""
+    assert len(http.calls) == expected
+    assert gateway.requests_made == expected
+
+
+# ------------------------------------------------------------------ construction, shape
+
+
+def test_the_gateway_satisfies_the_port(gateway: PrawGateway) -> None:
+    assert isinstance(gateway, RedditGateway)
+
+
+def test_construction_issues_no_request_and_opens_no_socket(gateway: PrawGateway) -> None:
+    """Nothing is registered and the network is blocked, so a request here would be an error.
+
+    This is the test that keeps ``check_for_updates=False`` honest: PRAW ships that setting
+    on and the update checker is installed, so a bare constructor would reach the package
+    index before any Reddit call.
+    """
+    assert gateway.requests_made == 0
+
+
+def test_an_unset_client_id_is_an_auth_failure_at_construction() -> None:
+    """A credential PRAW considers unset, which is what a fresh install without ``.env`` has.
+
+    ``None`` is the shape PRAW tests for, so the config is built that way deliberately; the
+    point is that the library's ``MissingRequiredAttributeException`` reaches the caller as
+    the port's ``AuthFailed`` and therefore as the CLI's exit 78, not as a traceback out of a
+    third-party constructor.
+    """
+    unset = dataclasses.replace(CONFIG, client_id=None)
+    with pytest.raises(AuthFailed):
+        PrawGateway(unset)
+
+
+def test_an_injected_client_without_its_counting_session_is_refused() -> None:
+    """The seam cannot be used to smuggle in a client whose round-trips nothing counts."""
+    session = CountingSession()
+    reddit = praw.Reddit(
+        client_id="fake-id",
+        client_secret="fake-secret",
+        user_agent=CONFIG.user_agent,
+        check_for_updates=False,
+        check_for_async=False,
+        requestor_kwargs={"session": session},
+    )
+    with pytest.raises(GatewayError):
+        PrawGateway(CONFIG, reddit=reddit)
+
+
+def test_a_client_that_is_not_read_only_is_refused() -> None:
+    """Read-only is the whole authorisation model (settled negative N-03), so it is checked."""
+    session = CountingSession()
+    reddit = praw.Reddit(
+        client_id="fake-id",
+        client_secret="fake-secret",
+        user_agent=CONFIG.user_agent,
+        refresh_token="fake-refresh-token",
+        check_for_updates=False,
+        check_for_async=False,
+        requestor_kwargs={"session": session},
+    )
+    assert reddit.read_only is False
+    with pytest.raises(GatewayError):
+        PrawGateway(CONFIG, reddit=reddit, session=session)
+
+
+# ------------------------------------------------------------------ the failure paths
+
+
+def test_a_401_at_the_token_endpoint_costs_one_request(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The credentials are rejected before anything is asked of Reddit: one round-trip, no more."""
+    _token(http, status=401, body={"message": "Unauthorized", "error": 401})
+
+    with pytest.raises(AuthFailed):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 1)
+
+
+def test_an_invalid_token_midrun_buys_a_fresh_token_for_every_retry(
+    http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
+) -> None:
+    """prawcore clears the token on a 401 and retries twice, refreshing each time.
+
+    Six round-trips for one ``about()`` -- three tokens and three listings -- which is the
+    reason the counter lives in the session and not in the gateway's own methods.
+    """
+    _token(http)
+    http.get(ABOUT_URL, status=401, json={"message": "Unauthorized"}, headers=INVALID_TOKEN_HEADER)
+
+    with pytest.raises(AuthFailed):
+        gateway.about("premiere")
+
+    assert len(retry_sleeps) == 2
+    _round_trips(http, gateway, 6)
+
+
+def test_a_private_subreddit_is_forbidden(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    body = {"message": "Forbidden", "error": 403, "reason": "private"}
+    http.get(ABOUT_URL, status=403, json=body)
+
+    with pytest.raises(SubredditForbidden):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_an_html_403_is_an_edge_block_and_not_a_private_subreddit(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """A ``text/html`` 403 is the edge refusing us, which must abort the run, not skip a source."""
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=403,
+        body="<html><body>Blocked</body></html>",
+        content_type="text/html; charset=utf-8",
+    )
+
+    with pytest.raises(HtmlBlocked):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_a_quarantine_body_is_named_as_such(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """Provisional until probe P-07 captures a real one; this is the documented shape."""
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=403,
+        json={
+            "reason": "quarantined",
+            "quarantine_message": "This community is quarantined.",
+            "message": "Forbidden",
+            "error": 403,
+        },
+    )
+
+    with pytest.raises(SubredditQuarantined):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_a_404_is_a_missing_subreddit(http: responses.RequestsMock, gateway: PrawGateway) -> None:
+    _token(http)
+    http.get(ABOUT_URL, status=404, json={"message": "Not Found", "error": 404})
+
+    with pytest.raises(SubredditNotFound):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_a_302_carries_the_path_it_redirected_to(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """Reddit answers a name that does not exist with a redirect to its search page (P-14)."""
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=302,
+        body="",
+        headers={"Location": "https://www.reddit.com/subreddits/search.json?q=premiere"},
+    )
+
+    with pytest.raises(SubredditRedirected) as caught:
+        gateway.about("premiere")
+
+    assert caught.value.path == "/subreddits/search"
+    _round_trips(http, gateway, 2)
+
+
+def test_a_429_carries_its_retry_after_as_a_number(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """prawcore hands the header over as a string; the port promises seconds as a number."""
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=429,
+        json={"message": "Too Many Requests", "error": 429},
+        headers={"Retry-After": "120"},
+    )
+
+    with pytest.raises(RateLimited) as caught:
+        gateway.about("premiere")
+
+    assert caught.value.retry_after == 120.0
+    _round_trips(http, gateway, 2)
+
+
+def test_a_429_without_the_header_has_no_retry_after(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(ABOUT_URL, status=429, json={"message": "Too Many Requests", "error": 429})
+
+    with pytest.raises(RateLimited) as caught:
+        gateway.about("premiere")
+
+    assert caught.value.retry_after is None
+    _round_trips(http, gateway, 2)
+
+
+def test_a_429_whose_retry_after_is_an_http_date_does_not_escape_as_a_library_crash(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """``Retry-After`` is legally either seconds or an HTTP date, and prawcore assumes seconds.
+
+    Found here, not in production: the library formats the header with ``float()`` while
+    building its own ``TooManyRequests``, so the date form raises ``ValueError`` from inside
+    the constructor and never becomes a prawcore exception at all. Reddit sends seconds in
+    practice, but a crash out of a third-party constructor is not an outcome the run can
+    record, so the adapter turns it into the port's own error.
+    """
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=429,
+        json={"message": "Too Many Requests"},
+        headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"},
+    )
+
+    with pytest.raises(GatewayError, match="could not describe"):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_a_retry_after_that_is_not_a_number_becomes_none(gateway: PrawGateway) -> None:
+    """The adapter's own half of the same question, asserted on the translation directly.
+
+    prawcore hands ``retry_after`` over as the raw header string, so the conversion belongs to
+    the adapter; a value it cannot read must become ``None``, never an exception, because the
+    caller's fallback is its own wait ladder.
+    """
+    response = requests.Response()
+    response.status_code = 429
+    response.headers["Retry-After"] = "600"
+    response._content = b""
+    exc = prawcore.exceptions.TooManyRequests(response)
+    exc.retry_after = "Wed, 21 Oct 2026 07:28:00 GMT"
+
+    translated = translate(exc)
+
+    assert isinstance(translated, RateLimited)
+    assert translated.retry_after is None
+
+
+def test_a_451_is_that_source_forbidden_and_not_a_fatal_run_error(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """451 withholds one community, so the run skips the source and carries on (see DECISIONS)."""
+    _token(http)
+    http.get(ABOUT_URL, status=451, json={"message": "Unavailable For Legal Reasons"})
+
+    with pytest.raises(SubredditForbidden):
+        gateway.about("premiere")
+
+    _round_trips(http, gateway, 2)
+
+
+def test_a_403_whose_body_is_not_json_is_an_ordinary_forbidden(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The quarantine predicate reads the body, so a body it cannot read must not crash it."""
+    _token(http)
+    http.get(ABOUT_URL, status=403, body="forbidden", content_type="application/json")
+
+    with pytest.raises(SubredditForbidden):
+        gateway.about("premiere")
+
+
+def test_a_403_whose_body_is_not_an_object_is_an_ordinary_forbidden(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(ABOUT_URL, status=403, json=["forbidden"])
+
+    with pytest.raises(SubredditForbidden):
+        gateway.about("premiere")
+
+
+def test_a_400_is_a_programming_error_named_and_never_swallowed(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """A malformed request is ours, not Reddit's: it must not look like a skippable source."""
+    _token(http)
+    http.get(ABOUT_URL, status=400, json={"error": 400, "message": "Bad Request"})
+
+    with pytest.raises(GatewayError) as caught:
+        gateway.about("premiere")
+
+    assert not isinstance(caught.value, SubredditForbidden | TransientError | RateLimited)
+    _round_trips(http, gateway, 2)
+
+
+def test_a_401_the_library_cannot_name_is_still_an_auth_failure(
+    http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
+) -> None:
+    """prawcore looks a 401 up in a three-entry table and raises a bare ``KeyError`` on a miss.
+
+    A 401 without a ``www-authenticate`` header hits that miss. Left alone it would reach the
+    operator as a traceback out of a third-party library instead of exit 78, so the adapter
+    catches that one named exception at the same site as the rest.
+    """
+    _token(http)
+    http.get(ABOUT_URL, status=401, json={"message": "Unauthorized"})
+
+    with pytest.raises(AuthFailed):
+        gateway.about("premiere")
+
+    assert len(retry_sleeps) == 2
+    _round_trips(http, gateway, 6)
+
+
+def test_a_503_is_transient_only_after_prawcores_two_retries(
+    http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
+) -> None:
+    """One gateway call, four round-trips: the token and three attempts at the listing."""
+    _token(http)
+    http.get(ABOUT_URL, status=503, body="")
+
+    with pytest.raises(TransientError):
+        gateway.about("premiere")
+
+    assert len(retry_sleeps) == 2
+    _round_trips(http, gateway, 4)
+
+
+def test_a_dropped_connection_is_transient_and_still_counted(
+    http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
+) -> None:
+    """A request that never reached Reddit is still a request the budget spent."""
+    _token(http)
+    http.get(ABOUT_URL, body=requests.exceptions.ConnectionError("no route to host"))
+
+    with pytest.raises(TransientError):
+        gateway.about("premiere")
+
+    assert len(retry_sleeps) == 2
+    assert gateway.requests_made == 4
+
+
+def test_an_unexpected_library_exception_still_becomes_a_gateway_error() -> None:
+    """Nothing from the library may reach a service untranslated, named row or not."""
+    assert type(translate(prawcore.exceptions.InvalidInvocation("bad call"))) is GatewayError
+    assert type(translate(praw.exceptions.ClientException("odd"))) is GatewayError
+    assert type(translate(ValueError("not a library exception at all"))) is GatewayError
+
+
+def test_a_missing_required_attribute_is_an_auth_failure() -> None:
+    """The row that keeps a missing credential out of a traceback (the table's last line)."""
+    exc = praw.exceptions.MissingRequiredAttributeException("client_secret missing")
+    assert isinstance(translate(exc), AuthFailed)
+
+
+def test_a_malformed_envelope_is_a_gateway_error(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """A wire shape the port cannot read is an error, never a silently empty result."""
+    _token(http)
+    http.get(ABOUT_URL, json=["not", "an", "envelope"])
+
+    with pytest.raises(GatewayError):
+        gateway.about("premiere")
+
+
+# ------------------------------------------------------------------- the happy paths
+
+
+def test_about_returns_the_subreddit_in_wire_shape(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(ABOUT_URL, json={"kind": "t5", "data": {"display_name": "premiere", "name": "t5_1"}})
+
+    assert gateway.about("premiere") == {"display_name": "premiere", "name": "t5_1"}
+    _round_trips(http, gateway, 2)
+
+
+def test_limits_reads_the_last_response_and_costs_nothing(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        json={"kind": "t5", "data": {"display_name": "premiere"}},
+        headers={
+            "x-ratelimit-remaining": "993.0",
+            "x-ratelimit-used": "7",
+            "x-ratelimit-reset": "300",
+        },
+    )
+
+    assert gateway.limits().remaining is None  # nothing has been seen yet
+    gateway.about("premiere")
+    before = gateway.requests_made
+
+    seen = gateway.limits()
+
+    assert (seen.remaining, seen.used) == (993, 7)
+    assert gateway.requests_made == before
+
+
+def test_paging_is_lazy_until_the_first_page_is_asked_for(gateway: PrawGateway) -> None:
+    """A listing that is never consumed costs nothing, which is what makes a resume cheap."""
+    gateway.iter_new_pages("premiere", max_pages=3)
+
+    assert gateway.requests_made == 0
+
+
+def test_new_pages_follow_the_cursor_and_stop_when_the_listing_runs_out(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(NEW_URL, json=_listing([_post("a"), _post("b")], after="t3_b"))
+    http.get(NEW_URL, json=_listing([_post("c")]))
+
+    pages = list(gateway.iter_new_pages("premiere", max_pages=5))
+
+    assert [page.after for page in pages] == ["t3_b", None]
+    assert [page.complete for page in pages] == [False, True]
+    assert [item["id"] for page in pages for item in page.items] == ["a", "b", "c"]
+    _round_trips(http, gateway, 3)
+
+
+def test_new_pages_stop_at_max_pages_with_a_resumable_cursor(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(NEW_URL, json=_listing([_post("a")], after="t3_a"))
+
+    pages = list(gateway.iter_new_pages("premiere", max_pages=1, after="t3_z"))
+
+    assert pages[-1].after == "t3_a"
+    assert pages[-1].complete is False
+    assert "after=t3_z" in http.calls[1].request.url
+    _round_trips(http, gateway, 2)
+
+
+def test_new_head_skips_stickies_and_is_none_when_there_is_nothing_else(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(NEW_URL, json=_listing([_post("s", stickied=True), _post("a")]))
+    http.get(NEW_URL, json=_listing([_post("s", stickied=True)]))
+
+    head = gateway.new_head("premiere")
+    assert head is not None
+    assert head["id"] == "a"
+    assert "limit=3" in http.calls[1].request.url
+
+    assert gateway.new_head("premiere") is None
+
+
+def test_info_asks_for_a_hundred_fullnames_per_request(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(INFO_URL, json=_listing([_post(f"x{i}") for i in range(100)]))
+    http.get(INFO_URL, json=_listing([_post("x100")]))
+
+    found = gateway.info([f"t3_x{i}" for i in range(101)])
+
+    assert len(found) == 101
+    _round_trips(http, gateway, 3)
+
+
+def test_info_over_no_fullnames_asks_nothing(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    assert gateway.info([]) == []
+    _round_trips(http, gateway, 0)
+
+
+def test_search_pages_and_refuses_a_window_reddit_does_not_have(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(SEARCH_URL, json=_listing([_post("a")]))
+
+    pages = list(gateway.search("premiere pro", sort="new", time_filter="week"))
+
+    assert [item["id"] for page in pages for item in page.items] == ["a"]
+    with pytest.raises(ValueError, match="time_filter"):
+        gateway.search("x", sort="new", time_filter="fortnight")
+
+
+# ------------------------------------------------------------------------ the tree
+
+
+def test_fetch_tree_flattens_depth_first_with_depths_and_reports_its_leftovers(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """Parents before children, depth counted from the walk rather than trusted from the wire."""
+    _token(http)
+    http.get(
+        TREE_URL,
+        json=_tree(
+            [
+                _comment("c1", "t3_p1", replies=[_comment("c2", "t1_c1")]),
+                _comment("c3", "t3_p1"),
+                _more_node("t3_p1", 4, ["c4", "c5"]),
+            ]
+        ),
+    )
+
+    result = gateway.fetch_tree("t3_p1", more_limit=0)
+
+    assert [(c["id"], c["depth"]) for c in result.comments] == [("c1", 0), ("c2", 1), ("c3", 0)]
+    assert [(stub.parent_fullname, stub.count) for stub in result.more] == [("t3_p1", 4)]
+    assert result.post["id"] == "p1"
+    assert result.requests_used == 1
+    assert result.complete is False
+    assert "replies" not in result.comments[0]
+
+
+def test_fetch_tree_ignores_a_node_that_is_neither_a_comment_nor_a_stub(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """Reddit puts the post's own kind and the occasional oddity in a tree listing.
+
+    Skipping what the port has no place for is the honest reading: a comment tree promises
+    comments and ``more`` stubs, and anything else belongs to a caller that asked for it.
+    """
+    _token(http)
+    http.get(TREE_URL, json=_tree(["not a node at all", _post("p1"), _comment("c1", "t3_p1")]))
+
+    result = gateway.fetch_tree("p1", more_limit=0)
+
+    assert [c["id"] for c in result.comments] == ["c1"]
+    assert result.complete is True
+
+
+def test_fetch_tree_expands_the_largest_stub_first_one_request_each(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(
+        TREE_URL,
+        json=_tree(
+            [
+                _comment("c1", "t3_p1"),
+                _more_node("t1_c1", 1, ["small"]),
+                _more_node("t3_p1", 9, ["big"]),
+            ]
+        ),
+    )
+    http.get(MORE_URL, json=_things([_comment("big", "t3_p1")]))
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [c["id"] for c in result.comments] == ["c1", "big"]
+    assert [stub.count for stub in result.more] == [1]
+    assert result.requests_used == 2
+    assert result.complete is False
+    assert "children=big" in http.calls[2].request.url
+
+
+def test_fetch_tree_is_complete_only_when_no_stub_is_left(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(TREE_URL, json=_tree([_comment("c1", "t3_p1")]))
+
+    result = gateway.fetch_tree("p1", more_limit=3)
+
+    assert result.complete is True
+    assert result.more == []
+    assert result.requests_used == 1
+
+
+def test_a_stub_over_a_hundred_children_is_split_across_requests(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """``morechildren`` reveals at most a hundred comments per request (KI-023)."""
+    children = [f"c{i}" for i in range(MORE_CHUNK + 5)]
+    _token(http)
+    http.get(TREE_URL, json=_tree([_more_node("t3_p1", len(children), children)]))
+    http.get(MORE_URL, json=_things([_comment(cid, "t3_p1") for cid in children[:MORE_CHUNK]]))
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert len(result.comments) == MORE_CHUNK
+    assert [stub.count for stub in result.more] == [5]
+    assert result.requests_used == 2
+
+
+def test_a_continue_this_thread_stub_is_expanded_by_refetching_the_thread(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """A ``count == 0`` stub carries no children; Reddit serves it from the parent (P-11)."""
+    _token(http)
+    http.get(TREE_URL, json=_tree([_comment("c1", "t3_p1"), _more_node("t1_c1", 0, [])]))
+    http.get(TREE_URL, json=_tree([_comment("deep", "t1_c1")]))
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [(c["id"], c["depth"]) for c in result.comments] == [("c1", 0), ("deep", 1)]
+    assert result.requests_used == 2
+    assert "comment=c1" in http.calls[2].request.url
+
+
+def test_a_malformed_tree_answer_is_a_gateway_error(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(TREE_URL, json={"kind": "Listing", "data": {"children": []}})
+
+    with pytest.raises(GatewayError):
+        gateway.fetch_tree("p1", more_limit=0)
+
+
+def test_a_malformed_morechildren_answer_is_a_gateway_error(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(TREE_URL, json=_tree([_more_node("t3_p1", 1, ["c9"])]))
+    http.get(MORE_URL, json={"json": {"errors": []}})
+
+    with pytest.raises(GatewayError):
+        gateway.fetch_tree("p1", more_limit=1)
+
+
+def test_a_tree_answer_without_a_post_is_a_gateway_error(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    _token(http)
+    http.get(TREE_URL, json=[_listing([]), _listing([])])
+
+    with pytest.raises(GatewayError):
+        gateway.fetch_tree("p1", more_limit=0)
+
+
+# --------------------------------------------------------------- the cassette filters
+
+
+def test_the_cassette_filters_are_the_ones_the_probe_day_needs(
+    vcr_config: dict[str, Any],
+) -> None:
+    """A filter nobody has seen working is a hypothesis (runbook § 9 precondition 4)."""
+    assert vcr_config["record_mode"] == "none"
+    assert vcr_config["cassette_library_dir"].endswith("tests/adapters/cassettes")
+    assert {"authorization", "Authorization"} <= set(vcr_config["filter_headers"])
+    assert {"set-cookie", "Set-Cookie"} <= set(vcr_config["filter_headers"])
+    assert set(vcr_config["filter_post_data_parameters"]) == {"code", "password", "refresh_token"}
+
+
+def test_the_response_filter_blanks_the_token_and_the_cookie(
+    vcr_config: dict[str, Any],
+) -> None:
+    recorded = {
+        "status": {"code": 200, "message": "OK"},
+        "headers": {"Set-Cookie": ["session=abc; Path=/"], "Content-Type": ["application/json"]},
+        "body": {"string": b'{"access_token": "a-real-looking-token", "expires_in": 3600}'},
+    }
+
+    scrubbed = vcr_config["before_record_response"](recorded)
+
+    assert b"a-real-looking-token" not in scrubbed["body"]["string"]
+    assert scrubbed["headers"]["Set-Cookie"] == ["FILTERED"]
+    assert scrubbed["headers"]["Content-Type"] == ["application/json"]
+    assert b"a-real-looking-token" in recorded["body"]["string"]  # the input is not mutated
+
+
+def test_the_response_filter_leaves_a_body_it_cannot_read_alone(
+    vcr_config: dict[str, Any],
+) -> None:
+    recorded = {"headers": {}, "body": {"string": b"<html>not json</html>"}}
+
+    scrubbed = vcr_config["before_record_response"](recorded)
+
+    assert scrubbed["body"]["string"] == b"<html>not json</html>"

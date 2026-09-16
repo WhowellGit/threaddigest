@@ -43,6 +43,7 @@ from threaddigest import __version__
 from threaddigest.adapters.clock import SystemClock
 from threaddigest.adapters.notify import LogNotifier, MacNotifier
 from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.adapters.reddit_praw import PrawConfig, PrawGateway
 from threaddigest.core.budget import Budget
 from threaddigest.core.retry import ExitCode
 from threaddigest.db import migrate as db_migrate
@@ -58,6 +59,7 @@ from threaddigest.settings import (
     Settings,
     default_data_dir,
     settings_fingerprint,
+    user_agent,
 )
 
 __all__ = [
@@ -114,7 +116,18 @@ def default_gateway_factory(spec: GatewaySpec) -> RedditGateway:
         if spec.fixture is not None:
             return FakeRedditGateway.from_fixture(spec.fixture)
         return FakeRedditGateway()
-    msg = f"the {spec.kind} gateway lands in tranche B; only --gateway fake works today"
+    if spec.kind == "praw":
+        # Plain values, never the ``Settings`` object: the adapter takes what PRAW needs and
+        # nothing else, which is also what makes it a one-line construction in a test. The
+        # secret is unwrapped here, at the last possible moment, and nowhere else.
+        return PrawGateway(
+            PrawConfig(
+                client_id=spec.settings.reddit_client_id,
+                client_secret=spec.settings.reddit_client_secret.get_secret_value(),
+                user_agent=user_agent(spec.settings, __version__),
+            )
+        )
+    msg = f"unknown gateway {spec.kind!r}; --gateway takes praw or fake"
     raise ConfigError(msg)
 
 

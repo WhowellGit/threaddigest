@@ -148,11 +148,3 @@ extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends", "
 python_version = "3.13"
 strict = true
 files = ["src"]
-
-# Reason: praw and prawcore ship neither type hints nor a py.typed marker and no stubs exist.
-# The adapter (adapters/reddit_praw.py) wraps them behind the typed Protocols in ports.py,
-# so the untyped surface stops there. This override is a suppression: the suppression
-# ratchet counts it, and it is removed the day PRAW ships types.
-[[tool.mypy.overrides]]
-module = ["praw.*", "prawcore.*"]
-ignore_missing_imports = true

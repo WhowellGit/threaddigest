@@ -103,12 +103,19 @@ def _imports_of(path: Path) -> set[str]:
     return names
 
 
+def _offenders(root: Path, forbidden: tuple[str, ...], *, allow: tuple[str, ...] = ()) -> list[str]:
+    """``<path> -> <module>`` for every forbidden import outside the allowed files."""
+    hits: list[str] = []
+    for path in root.rglob("*.py"):
+        relative = path.relative_to(root).as_posix()
+        if relative in allow:
+            continue
+        hits.extend(f"{relative} -> {name}" for name in sorted(_imports_of(path) & set(forbidden)))
+    return sorted(hits)
+
+
 def _stdio_offenders(root: Path) -> list[str]:
-    return sorted(
-        f"{path.relative_to(root).as_posix()} -> {name}"
-        for path in root.rglob("*.py")
-        for name in sorted(_imports_of(path) & set(FORBIDDEN_IN_SERVICES))
-    )
+    return _offenders(root, FORBIDDEN_IN_SERVICES)
 
 
 def test_no_service_imports_the_cli_framework() -> None:
@@ -130,3 +137,47 @@ def test_the_services_stdio_scanner_catches_a_planted_import(tmp_path: Path) -> 
     (fake_services / "clean.py").write_text("import json\n", encoding="utf-8")
 
     assert _stdio_offenders(fake_services) == ["from_form.py -> click", "leaky.py -> typer"]
+
+
+# --- `praw` lives in one module: the chokepoint half of G05 that had no planted control ------
+
+PACKAGE_ROOT = REPO_ROOT / "src" / "threaddigest"
+
+#: The HTTP client and its transport. Everything above `adapters/` speaks the plain values in
+#: `ports.py`, so a `praw` import anywhere else means a PRAW object (or a PRAW exception) has
+#: escaped the adapter into `services/`, `core/` or the web layer.
+PRAW_MODULES = ("praw", "prawcore")
+
+#: The one file allowed to import them, relative to the package root.
+PRAW_ADAPTER = "adapters/reddit_praw.py"
+
+
+def test_only_the_adapter_imports_praw() -> None:
+    """The scanner's own reading of the contract import-linter checks.
+
+    It exists beside the contract rather than instead of it because the contract's allow-list
+    is data in a config file: a typo in the module name there widens the exemption silently,
+    while this scanner names the one path and nothing else.
+    """
+    assert _offenders(PACKAGE_ROOT, PRAW_MODULES, allow=(PRAW_ADAPTER,)) == []
+
+
+@pytest.mark.gate
+def test_the_praw_scanner_catches_a_planted_import(tmp_path: Path) -> None:
+    """Positive control: a scanner that finds nothing is not proof of anything (G05)."""
+    package = tmp_path / "threaddigest"
+    (package / "adapters").mkdir(parents=True)
+    (package / "services").mkdir()
+    (package / "adapters" / "reddit_praw.py").write_text("import praw\n", encoding="utf-8")
+    (package / "services" / "collect.py").write_text(
+        "import praw\n\n\ndef go() -> None:\n    praw.Reddit()\n", encoding="utf-8"
+    )
+    (package / "services" / "sweep.py").write_text(
+        "from prawcore.exceptions import NotFound\n", encoding="utf-8"
+    )
+    (package / "services" / "clean.py").write_text("import json\n", encoding="utf-8")
+
+    assert _offenders(package, PRAW_MODULES, allow=(PRAW_ADAPTER,)) == [
+        "services/collect.py -> praw",
+        "services/sweep.py -> prawcore",
+    ]
