@@ -449,11 +449,15 @@ EXPECTED_MATCHERS: dict[str, str] = {
     "enforcement_files_script_only.sh": "Bash|Edit|Write|MultiEdit",
     "read_before_touch.sh": "Edit|Write|MultiEdit",
 }
+#: Scripts registered under an event that takes no matcher (a Stop hook runs on every turn end).
+EXPECTED_UNMATCHED: dict[str, str] = {"questions_in_session.sh": "Stop"}
+TIMEOUTS = {"PreToolUse": 5, "Stop": 10}
 
 
 def test_settings_json_registers_every_hook_script_with_timeout_5() -> None:
     on_disk = sorted(p.name for p in HOOKS_DIR.glob("*.sh"))
-    assert on_disk == sorted(EXPECTED_MATCHERS), "a hook script without an expected matcher"
+    expected = sorted(EXPECTED_MATCHERS) + sorted(EXPECTED_UNMATCHED)
+    assert on_disk == sorted(expected), "a hook script without an expected registration"
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     entries = settings["hooks"]["PreToolUse"]
     by_matcher = {entry["matcher"]: entry["hooks"] for entry in entries}
@@ -462,8 +466,15 @@ def test_settings_json_registers_every_hook_script_with_timeout_5() -> None:
     for script, matcher in EXPECTED_MATCHERS.items():
         (hook,) = by_matcher[matcher]
         assert hook["type"] == "command"
-        assert hook["timeout"] == 5
+        assert hook["timeout"] == TIMEOUTS["PreToolUse"]
         assert hook["command"].endswith(f"/tools/hooks/{script}")
+        assert "$CLAUDE_PROJECT_DIR" in hook["command"]
+        assert (HOOKS_DIR / script).is_file()
+    for script, event in EXPECTED_UNMATCHED.items():
+        hooks = [hook for entry in settings["hooks"][event] for hook in entry["hooks"]]
+        (hook,) = [h for h in hooks if h["command"].endswith(f"/tools/hooks/{script}")]
+        assert hook["type"] == "command"
+        assert hook["timeout"] == TIMEOUTS[event]
         assert "$CLAUDE_PROJECT_DIR" in hook["command"]
         assert (HOOKS_DIR / script).is_file()
 
@@ -803,3 +814,155 @@ def test_make_check_removes_the_stamp_before_it_runs() -> None:
     assert body[0].startswith("@rm -f") and "check-green.json" in body[0], body[0]
     assert "check_stamp.py" in body[-1], body[-1]
     assert recipe  # the recipe was found at all
+
+
+# ------------------------------------------------------------- questions_in_session (G56)
+#
+# The fourth hook, a Stop hook (Wes, 2026-09-16): eight decisions had been recorded in the
+# decisions log and the closing message only pointed at the log. If a document gains a line
+# that parks a question for Wes during a session, the turn's closing message must present it.
+# Log-first, like read_before_touch. Every test drives the script the way Claude Code does: a
+# JSON payload on stdin naming the transcript, a git repository as the project.
+
+QUESTIONS = HOOKS_DIR / "questions_in_session.sh"
+SESSION_START = "2026-06-01T00:00:00Z"
+
+
+def _git_env(root: Path, when: str) -> dict[str, str]:
+    return {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "HOME": str(root),
+        "GIT_AUTHOR_NAME": "hook-test",
+        "GIT_AUTHOR_EMAIL": "hook-test@example.invalid",
+        "GIT_COMMITTER_NAME": "hook-test",
+        "GIT_COMMITTER_EMAIL": "hook-test@example.invalid",
+        "GIT_AUTHOR_DATE": when,
+        "GIT_COMMITTER_DATE": when,
+    }
+
+
+def _commit(root: Path, message: str, when: str) -> None:
+    env = _git_env(root, when)
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env, timeout=60)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", message], cwd=root, check=True, env=env, timeout=60
+    )
+
+
+def _questions_project(
+    tmp_path: Path, *, doc_line: str, message: str, mode: str = "log", committed: bool = False
+) -> tuple[Path, dict[str, Any]]:
+    """A project whose baseline predates the session, a document that gained ``doc_line``
+    during it (committed after the session started, or left in the working tree), and a
+    transcript whose last assistant text is ``message``."""
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "tools" / "hooks").mkdir(parents=True)
+    (root / "tools" / "hooks" / "questions_in_session.mode").write_text(mode, encoding="utf-8")
+    (root / "docs").mkdir()
+    (root / "docs" / "PLAN.md").write_text("# plan\n\nbaseline\n", encoding="utf-8")
+    make_repo_on_branch(root, "work")
+    _commit(root, "baseline", "2026-01-01T00:00:00Z")
+    (root / "docs" / "PLAN.md").write_text(f"# plan\n\nbaseline\n{doc_line}\n", encoding="utf-8")
+    if committed:
+        _commit(root, "the question", "2026-09-16T12:00:00Z")
+    transcript = root / "transcript.jsonl"
+    lines = [
+        {"type": "queue-operation", "timestamp": SESSION_START, "content": "hello"},
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": message}]}},
+    ]
+    transcript.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    payload: dict[str, Any] = {
+        "hook_event_name": "Stop",
+        "session_id": "session-1",
+        "transcript_path": str(transcript),
+        "stop_hook_active": False,
+        "cwd": str(root),
+    }
+    return root, payload
+
+
+def _questions_ledger(root: Path) -> list[dict[str, Any]]:
+    path = root / ".build" / "hooks" / "questions_in_session.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+@pytest.mark.gate("G56")
+def test_questions_in_session_logs_an_unpresented_question_and_blocks_in_block_mode(
+    tmp_path: Path,
+) -> None:
+    root, payload = _questions_project(
+        tmp_path,
+        doc_line="- The reconcile budget: pending Wes.",
+        message="Landed the sweep; all green.",
+    )
+    proc = run_hook(QUESTIONS, payload, root)
+    assert proc.returncode == 0, proc.stderr
+    (entry,) = _questions_ledger(root)
+    assert entry["presented"] is False and entry["mode"] == "log"
+    assert entry["questions"] == ["- The reconcile budget: pending Wes."]
+    (root / "tools" / "hooks" / "questions_in_session.mode").write_text("block", encoding="utf-8")
+    (root / ".build" / "hooks" / "questions_cache" / "session-1.json").unlink()
+    proc = run_hook(QUESTIONS, payload, root)
+    assert proc.returncode == 2
+    assert "BLOCKED" in proc.stderr and "pending Wes" in proc.stderr
+
+
+@pytest.mark.gate("G56")
+def test_questions_in_session_allows_a_presented_question_in_both_modes(tmp_path: Path) -> None:
+    root, payload = _questions_project(
+        tmp_path,
+        doc_line="- The reconcile budget: pending Wes.",
+        message="Pending your decision: raise the budget or accept the fallback; "
+        "I recommend the fallback.",
+        mode="block",
+    )
+    proc = run_hook(QUESTIONS, payload, root)
+    assert proc.returncode == 0, proc.stderr
+    (entry,) = _questions_ledger(root)
+    assert entry["presented"] is True
+
+
+def test_questions_in_session_is_quiet_when_no_question_was_parked(tmp_path: Path) -> None:
+    root, payload = _questions_project(
+        tmp_path, doc_line="- A fact.", message="Done.", mode="block"
+    )
+    proc = run_hook(QUESTIONS, payload, root)
+    assert proc.returncode == 0, proc.stderr
+    assert _questions_ledger(root) == []
+
+
+def test_questions_in_session_judges_a_committed_question_once_per_session(
+    tmp_path: Path,
+) -> None:
+    root, payload = _questions_project(
+        tmp_path,
+        doc_line="- Held for Wes: the cassette directory.",
+        message="Done.",
+        committed=True,
+    )
+    assert run_hook(QUESTIONS, payload, root).returncode == 0
+    assert run_hook(QUESTIONS, payload, root).returncode == 0
+    assert len(_questions_ledger(root)) == 1  # the second stop finds nothing new
+
+
+def test_questions_in_session_never_loops_and_follows_the_mode_on_internal_errors(
+    tmp_path: Path,
+) -> None:
+    root, payload = _questions_project(
+        tmp_path, doc_line="- pending Wes", message="Done.", mode="block"
+    )
+    assert run_hook(QUESTIONS, {**payload, "stop_hook_active": True}, root).returncode == 0
+    assert _questions_ledger(root) == []
+    broken = {**payload, "transcript_path": str(root / "missing.jsonl")}
+    proc = run_hook(QUESTIONS, broken, root)
+    assert proc.returncode == 2 and "failing closed" in proc.stderr
+    (root / "tools" / "hooks" / "questions_in_session.mode").write_text("log", encoding="utf-8")
+    proc = run_hook(QUESTIONS, broken, root)
+    assert proc.returncode == 0
+    assert "error" in _questions_ledger(root)[-1]

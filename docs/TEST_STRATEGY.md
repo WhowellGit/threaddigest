@@ -192,7 +192,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G20 | TCC path and interpreter | gate/runtime | M0, M1d | P1 | planned | |
 | G21 | Size caps | gate | M0 | P1 | changed | `C901` and `PLR0915` only (plan); the file-length test and `PLR0913` not adopted |
 | G22 | Cross-platform | gate | M0, M1 | P1 | planned | |
-| G23 | Hard-block hooks | hook | M0 | P1 | shipped | three hooks since 2026-09-14: H1 `no_bypass_git`, H3 `enforcement_files_script_only`, and `read_before_touch` (log-first; N-16 amended); H2 `no_prod_db_writes` cut (command-text list-policing, A6); the two hard blocks fail closed on internal error |
+| G23 | Hard-block hooks | hook | M0 | P1 | shipped | three hooks since 2026-09-14 and a fourth, the log-first Stop hook G56, since 2026-09-16: H1 `no_bypass_git`, H3 `enforcement_files_script_only`, and `read_before_touch` (log-first; N-16 amended); H2 `no_prod_db_writes` cut (command-text list-policing, A6); the two hard blocks fail closed on internal error |
 | G24 | Hook wiring currency | gate | M0 | P1 | shipped | every registered command names an executable script (`tests/gates/test_hooks.py`); `tools/hooks_status.py` prints which scripts are not registered, because registration is a human edit; folded into the ledger's G23 row rather than a row of its own |
 | G25 | `make check` summary | gate | M0 | P1 | planned | the pasted summary block is printed by the ratchet tool today; a structured summary artifact gets its own ledger row when built |
 | G26 | PR-body gate | CI | M0 | P2 | planned | needs a GitHub remote (milestone MB defers GitHub); a ledger row when built |
