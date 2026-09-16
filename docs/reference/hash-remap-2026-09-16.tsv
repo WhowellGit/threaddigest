@@ -1,0 +1,101 @@
+# Commit hashes rewritten on 2026-09-16 by `git filter-repo --path memory-snapshot --invert-paths` (D-35: the working notes are not published).
+# One line per commit whose hash the rewrite moved: old hash, new hash, subject. Read by tools/hash_remap.py for the two gates that resolve
+# a cited hash (G40, G50), because the append-only logs, the review register and the reference records may not be edited to follow a citation.
+# A record: added once, never edited. A later rewrite adds its own file beside this one and the chain is followed in turn.
+02cd0d1f31cc36b7b982fa1ac6724ed6bd2a6251	482db6d3982976305a5b9d6c04d9a87b6b8d4a61	Add the read-before-touch hook, log-first, and report hook registration
+05d3240eaa523ed663f329f4e9abc24690b09bf3	e1dc415f454628631dc1ad745b3f45fb896ba6e6	Status page: state the guard's approval without a dated aside
+0764b38a26670e04ab5684b14c6da642021a7e7e	1f30f5410bd8857ed0b8f7f81055eb1f958a3fbb	Record Wes's five rulings: ratchet files off the register surface, a probe day before M1b, three M1d blockers, the memory audit stays, guard deletion waits a quarter
+07d261dd7f53e5114e1889f63951eea0c356808f	ba8022e94ef5a5a56b6f1963a43121b2c2e1501b	The FTS membership invariant also runs the content integrity check (KI-022); scope the hook's interpreter check to its own inline code
+0b4a5ec6d2ca169236447241afc2bda0f98b39f9	271613393ae2937f3d66b52886290245dc0b3abf	Add the review register and its gate; record the day's rulings
+0b71bf3e1b5f750213c32340054934bf763dfb1d	6473bd0f255c9be07e50d7113ad90bb32889beb5	A hold on a returned item no longer counts toward gone; only info() omissions escalate (KI-021)
+0d3b5344e5b6a03f9ab38b94890fdfe58702b9ae	4b782526b78b9a8617f17bf9968ff0ddd1845713	docs: flip M1a tranche A spec rows to shipped in TEST_STRATEGY.md
+0df8e2caacdc7dc93b10843e5b77ed1738a474e5	e64977c0ea8ae0bf9eeb061bdc3ccfe99bdf00ef	docs: log KI-002..KI-008 for today's user-facing fixes in KNOWN_ISSUES.md
+1028db254718b57803f4140cfd52f04b94b36916	123d23b506b3b099a370c520eb800403f0739d56	State the third hook's registration as the gate reports it; record the two-sessions incident
+1652648b157fa14b22d299324a7a1acfdce15276	57c7b54b6132aba0eaab56930f791e3a25a8e81f	Register the read-before-touch hook in the hook settings
+1809f59678e32dcfd03a0684dc8f2946d990071a	c986253029f04fc10722fa4b54b291a153e2a961	Renumber today's open issues to KI-009 and KI-010; the register gate refuses a reused id
+1b0801ccff176c2c746efb70179fea66553473f8	cc7ff86189b13d942be8dcb011b6763bc52b0284	Record the second set of rulings (Wes, 2026-09-16): the compliance bounds confirmed as written; the rest per the recommendations
+1e10e848aea6462b2e7445e9ed978a2b516457a6	e30bf85d6b544d86123ed4832c79bbc84d4e7490	Register the fourth hook's build (b3809a2)
+2212a7e2fd5252d697f549260608068ae4dcc843	66cde307a7349e6f4a099af80f86b88ec0f0203e	Register the plan-version-two review (03d5ef3)
+25785abf31fed1247ab3a3c498f77497217e0cbc	bc304fb0073dc7e70f10366b2d29c766240705e9	Round-one panel correctness follow-ups: KI-016 non-mapping crosspost, KI-017 forbidden-enabled sources, KI-021 non-consecutive omissions, KI-023 single-large-subtree limit, KI-015 docstring
+2655c14ac55ecd3215946c790332599870ee78ac	2def2d90c7e4c06b6633153e343a4d6a934c2e76	doctor: wire hooks_installed into run_checks as the 13th check
+268633a29e8540ef1f2da8d4c734852d4d6fa56c	5e2c3c5154b636618553cbe7c2280d767cf4bff9	Close the KI-017 and KI-022 rows with their regression tests (rows missed when their fixes landed)
+26ca5db8ab53b1ef257d6c64430b4141e1225692	7793f0b0c363ac2002f99136b3499015d27f7926	Plan version two, the deep review: correct what the plan stated against the code, specify the probe day, and carry the packet's missing documents
+2bb7857173201bdb398586f351d7e04568ae3217	fd0cb169bd7cfbdc995b511224624cc1b4ec52a7	Remap the commit hashes cited in the documents after the trailer rewrite; refresh the memory snapshot
+2de58bf2e54888f75ad21dbe8e8032f2ca479ff7	471c9f2924460fb244c7f52d7b7ca172f7e739d1	Refine the review packet and brief from the internal panel; record the panel, two open compliance issues, and the hardening queue
+2ef9dcb1209242ef9052e87fbaa792dfc2396af1	bd675caf96367c9643a7e0e35fe3a9e3c54efcd7	Triage the fourth seat's full report: KI-021 to KI-023 open, two claims reworded, the access-approval setup step; D-30: automatic twice-weekly runs
+32393db9c9d9aff8970b82da16e9a93a7e96d0f1	522d9f01c721f32cb9094c8dc65f6bf4a5175292	Record the request for a self-contained earlier-project reference and its proposed shape
+3336e81b7b5c276d7698301638b9dd961384d2c2	00dc5b30b6b53f8c0dded8c7a2bab93698223fde	Build the probe command and --save-fixture, tested offline against the fake gateway
+3db5ec487790134b6385d97584dabd629160db37	b3809a2b701f40de08f878ed824b83ea0630d307	The fourth hook: open questions reach Wes in the session (a log-first Stop hook, G56)
+3de95776f31af539a08ceda1f16b97af194fd2d8	9a245afa6eaa7e06d1a92a42d6c558a17d05aad6	Hook tokenizer ignores trailing shell comments so they cannot inflate an argument count or smuggle a bypass (KI-020 follow-up)
+41376d0564dee79d4cd253f804a5e55b7fee7778	2352775c283a430e607ed9209130e34fa8c73fa1	Record Reddit's refusal of the first Data API access request and the ticket-reply route
+4238992f9f316cb3804f4569238e73aaa9e4e2bc	d3ea9f095a507c3bb142c99a6faa1e700795681f	Register the document-contract review (5f4fdd1)
+473db6676269be35512444a7be0ba9c9f8ba98d8	181ab8083cae4aac5d1d62b65c148d0124604ebd	The working notes leave the public tree: the memory snapshot moves to a private home (D-35)
+484ecf3eeec22510bf6d37d1037a33651ff18c14	f23aa15f89da81fa23a17ffd897a6518c7afb1cf	An end of listing on the tenth page is recorded as the cap, never exhausted (KI-018)
+49a2cc8ee5d4bbf5d1bb75cdef5952c787c9b15b	c722c171dcf225aa6207859ba6e13b0fee4f4619	Scan untracked files in the identifier gate; renumber the clashing panel proposals; fix one register id
+4a82b88d07842ee5e4ae11a98ceed7340b5b6032	5537e9eaacfedf4c2a042cde2f3fd107f3d86f92	Rank ties break deterministically by post_id (C-8); pin praw>=8,<9 (C-11)
+4b56f2fb1f1ebabbe9c31e4e213b5b95ffde2d73	b99fcb4e0f308b4554118c58c23213858d5fd67c	Record Wes's rulings: the relaxation date stands; the argument-count ceiling is held until the M1d retrospective
+50a2032dd1467e5970b189a4b5316b4d1867796b	621c0b7eab9df8b6a918d6a9a11fe91e3c948f2d	Update status, learnings, and memory for the landed round-one fixes, the cadence decision, and KI-011
+54e9fc447b056dd26635c252905727973bb3d0b0	ef2d299f7918e7ea8871f67693e29ddf0b4fddbf	Close the switch-then-merge hole in the git hook; clear the stamp before every check; unique ids across all three registers; open the timezone issue
+5664835d61749e28f0d14d1442583cc169b065f7	4503030f424fa8c4ad67c030bf3a337ee97ebc5e	Reword the memory rule without its banned literals and refresh the snapshot; bump the floors
+59a20b982b5a4d9a7bac9d6e21c0668e4607ebd0	aa4fa062d727ad56f1779e4f97e2f4d706f2e5a6	Register the rulings of 2026-09-16 (the gates widened for fixtures and the live suite)
+5f5e1e5bd5d92a8c2cd5947f8cfe857fb74916de	cb4e9ae65d4861dc25eea73befcefad5930f7a01	Separate the earlier project's residue before the first push
+616f9b9f871c2b4d052f42f6daf6b489d8d938e5	0169834136469266a5cd7fa92735aa6d900ddd71	Record the five-seat panel on testing, workflows, failure modes, the change workflow, and SQLite; open KI-012 to KI-014; re-aim the external brief
+61dd677d8df20a9cfd4f0cd809d38ddfecf52eae	ab78b19adf94bbbc0aa9e1e1cf75c5e9d7fa3b37	Correct two README claims and note the per-worktree stamp
+62d9e8a707a85061b2d1e12922a7a52ea7744116	f3e3802c1dd80ee54c1e993b89bd528469306927	A crosspost stores only its parent's pointer, in the raw copy and in rejects (KI-016)
+659e81c70600c6fc6760cfed6ae4dc2627c12ba7	3073ef3f90a88b669f06a19d38d52472c1d3be2a	A README for the public repository
+662b59bafdb37e8c66dac457e177ba833d6649f9	39d18a0b17a08b94c099b7b1004e02a28ba433d5	Rename the project to Thread Digest: package, CLI, env prefix, launchd, prose
+6f0b087bc906173b4990f48d6670d50f9ec0ceb8	f60017d1397fbda89c3394b36d11d74dc07447ba	Regenerate the harness inventory: the fourth hook is registered as a Stop hook
+6f9c5b2516d2fbc91abb303d1ca9f72230a94412	d6c8a0c8e9acd7665bd2a8d75ee919293bd25cab	Keep the guards ledger complete and the cited hashes live; a ceiling for guards without a control
+7257522a90e8bdd783e967535a43f99eb7455926	ae53ee0295d6f67bcfbf98f6461c0a312a388e39	The fake reveals at most 100 comments per morechildren request, leaving the rest stubbed (KI-023)
+731854fcfb19dc5e995fc0f9eb6bf0a317a6cfd1	14fe1357f934b785032f496e8a5e49a43df28cbe	Record Reddit's policy facts from the live pages; close the round-one cannot-tell items; the access request becomes a tranche B prerequisite; round two aims
+7374e39dcdba8be4795bd189d2ba863d0c05b7b7	0b8bff2c1b301c85b2edf5f1686801d95012bcfd	A run with no enabled source closes partial and doctor demands an enabled source (KI-017)
+73e071c5d33ca7bc5034f0a2cdc5cc84784d9734	e4ecc86520784eafd9cff0edc4636c0c3b0069db	Close the refute pass on identifier resolution: the column check reads the one-line schema, exemptions are per token, prose exemptions are a ceiling
+7d77c5776849d6a789c7bfdcd3d4dd144662e65f	ccf43613e307e7b7e57d4690b9272ea70e384a45	Register the plan-version-two deep review (7793f0b)
+7e8412cc9b8b331c328f106ae02b93900625f958	18c4ce20296c10c68d200ac8aa8a7b3061413cb8	Reconcile the plan with the build: the search-index port and VACUUM INTO backups it never had; G55 resolves identifiers, G34 reads through backticks
+82cef0c9983afe034d504c8308179496cc024a03	2e6a801f19a946bb6fd985509d054d367f7d9179	Register the move of the working notes out of the public repository (181ab80)
+857255cb79beae36f815efb90808f62f9053ce35	4112112d315f0866c94636045cf77a60129bb708	Ship a resolvable display_timezone (UTC) and validate it at settings load (KI-011)
+85a16e2a7083fa7c81062d43f76937eeffe691e2	29ff11f9f3134331c1046822c7cea5cd1b96693f	Register the PRAW adapter's offline half (c2a15a8)
+89dcf853c78f9987be634ce3b7c4c2f1d0f4a599	89fa948cff6ab3db59cb8d90aedf25f3496e7ff3	The rulings of 2026-09-16: index membership fails the run, fixtures are scrubbed on save, the live suite has its escape, the wrapper is quiet on partial
+8bd7e4bcb7409599eb984d648b8cd0ecfc061dc2	f16e59089fbd8426a330bd368aaba309610b0c7e	docs: add G35/G36/G39/G40 guard rows and fill positive-control cells in GUARDS.md
+901ffe1dd285bad516c6d70a7bf98d5ac10e1f3a	51a98fb66ab951a8cf689a81cfadb6cbff69810c	Register the stop-time question hook (questions_in_session.sh) in the hook settings
+90219b4e5d99f340f9b641f1c823bc87821df8e2	f038abd972f830c48cb7bc4254559ff9bae96047	One memory home, the snapshot diff in make check, and a pre-push stage
+98032bff487bcc803e91e06885e410acb0501ae6	c50a9c1575d5074d33cedaa9ae43c961fc582891	Close the two-sessions incident: the earlier session archived, its transcript moved; memory in step
+9bf4a2b4017b381d5aa89ae2a739bd846a6d7c35	adb0c3a203b5b2c440df05766b51d13e95697ec6	Exempt the live-facts table from the append-only diff
+9db0f03ad82140ec15a736e2ea77a15ca6df6bd5	c2a15a85bef59c91877b831b7b736c0b0cff41fb	Build the PRAW adapter's offline half: request counting, exception translation, and the failure paths
+a0d8e8a416332f10a861949e9c5ae660e8ba22da	ffa63f165938928be31eda39958257946221f725	Close KI-009, KI-010, KI-012, KI-013: change-gated index triggers (revision 0003), optimize after a scrub, a checked checkpoint, hidden parameters
+a16804bf13c72babe6a9b1a3471d94d8835f924d	bd017b0768dad52b24f008e53bb3abfeed8eb1dc	Add the self-contained earlier-project reference and route to it first
+a2b61f98749bedd947062c1344867489b7fd5aa7	afe4fc25dcbb3f098f73b7d9aa1e09ca83c60d79	Close the round-one panel's hook holes: join line continuations, catch --config-env hooksPath, slash-tolerant and case-insensitive protected-path matching
+a572c5f0569aa23adb4d1270a1dd35a311ede60d	03d5ef3ceefca9d530d5f6b3cf22962b44c6719f	Plan version two, the overview and harness pages, and the cadence residues the rewrite exposed
+a88fe33a1623de171749642859559a306e7f304b	13097bc2fd767e5763f5f41bfb93028272692bfe	Remap the cited commit hashes after the identifier rewrite; require cited commits to be ancestors of HEAD
+a9e9ec2746e824b91e63c62500357207d6a45ea0	5f4fdd1f3ea9af3133af5ea539a7d198c47bf6b8	Mechanize the document and memory process: contracts, the append-only diff, the accretion ceiling, milestone lag, live facts, memory rules
+aa5cbb3561217cdd8b527109764279cd6b85892d	1365068f78dfee0be556743c83ee2b9320a1114b	Dry-run summary claims no rows written, not nothing at all (external round one, finding 12)
+aa8422dec65a894a5b82ad14d2723d1ff15b3102	82941ec413776432556e08442ec9a996b41d1fc2	Commit the first memory snapshot and put the audit in make check
+aca3503626a14074e266d0b43107f154daeec084	c3574550d7e176846ff768ef9aaa11ff92827a54	Revision 0004: FTS5 persistent secure-delete clears scrubbed term bytes without an optimize (KI-009); doctor checks the SQLite version
+b6b02a398e29efb7cdbdb30b1004236a1b76cf2f	f7441aa35becacf7abe46e5ae6f24555be7d31e7	Register the hook registration (51a98fb)
+bc88ad1e6cab6dd55102687c0b0839faf4dc3315	33592388c47876ea5af61a375f37dd7ef24bf6b2	doctor: parse --alert-if-stale once, before database_present can hide it
+bf21fb61d166049c946fbe0113a70e75517521af	2900be860b30f69a98631df8b2fdb026552f1d9c	Triage external review round one: six defects confirmed by reproduction (KI-015 to KI-020), secure-delete proposed, seven claims swept, four rulings held
+c438bbc8aee34d33271c56087af18a9259da2f0b	5aae4713ce11d99811f4c44f961af334fdaf4f89	Hook tokenizer ignores shell redirections so they cannot inflate an argument count (KI-020 follow-up)
+c4c3b291dfdfa31eb2a5fc630527ae06a219bfeb	821718ba954222fc99a704d803450f1797c3ac6d	Record the code-health gate assessment and its baseline; queue layer one for the next session
+c545874adf79363660b765f4911e29aa88f357a8	fc57cbcb1535a5d28ebe85abcae12d0710c78b18	Split the fake gateway into a package so every module reaches radon rank A
+c8bf036bc6ea9e3264ae0b1db0998dca4a07af92	f50c1a19baaa5493380e69a9e6fbbf99de4f30c6	Twice-weekly cadence sweep (D-30): Monday/Thursday schedule, 5d staleness, reconcile and digest wording, backups after reconcile
+c960aa69fa3762d1683765e61f84563040ef45d8	c38cd82513c8b52a98eaa3d06f3b1001035f0ed6	Add the harden skill and record the day's decisions, drift findings, and audit
+cb1b941b08fee82549afb0f2a3e433293487d921	3285fec94680d806264502ba534f5f1c15d57879	Add the code-health ratchet family (layer one): seven ceilings measured by tools/code_health.py, three dated birth relaxations
+cd98e640eceb6d7308eea37e25d8863d12f8dde1	845c1d586087d586ed4097ed5d3127b79e152895	Move the app-id namespace from com.wesmax to io.github.whowellgit
+cfbc615d5bd1e33d33983e7c376953cd81d5d99b	38fb503aeb9b5d8f80a4b55e22d181c3b58ebbe7	Human-only edits arrive as generated scripts: hook message, runbook, decisions, memory
+dc947ff0d5c03f189fa94a4fde8fb6ba077a864e	338e4744bd1aa9a057ad2f6daaea0277aa99f410	Register the identifier-resolution review (18c4ce2 and its fix commit)
+e780433a1c4ff5e9c380acd08659c0b016a1a9c8	136e8c12734ab11876d106c201956ec6879de540	The brief carries no table: a list-shaped state map and list-shaped output, for pasting into a text field
+ea83fa784ef3c0c31097d68c87de809f2aeae853	30fa971476f6acabfcd59b01153422a4f7b9eacb	doctor: stop lock.is_held and the writable probe from touching disk
+ec2b455b7896a2acab84a9535bbbea6eeb358189	de3f657ac5ac38dbda8e649c020922530a6a9990	Register the probe command's offline half (00dc5b3)
+ece5385cc8bc4d63ba847dbc438e31d30534580c	e0bd425568087731b3ad2b62545861e14f50c882	Fold the packet's file index into its README so the upload set fits a ten-file cap
+ee3ad7d7e03d9e407e363baf354c7ab51cb72f98	72ed1702a6550bbd28c194c6b5f384aa8732b10e	Pre-build the hook environments when installing the hooks
+ee955bb25ba985ae7e65662c4f2ad358b92aaf0e	a98099846f2292dc42d1a56c60db7f291ff73e9c	main receives only a tree make check stamped green: the stamp step and the merge refusal in the git hook
+f3dcc0eef993f0dd01671e650830b83e1cea1812	f66ea0a5b75d3970bc6e2f71a8558a00d7fe2e2a	Hooks: merge into main must be --ff-only (KI-019); resolve or refuse shell indirection in both hooks (KI-020)
+f3f4ac580f1a92f7979611d18fec8ca003bec8db	ebe65291722c006ba48ee907e4d85b22cfbabb60	The fifth hook: one live agent session per checkout (a log-first lock, G57)
+f60031890a02c82740ee4d1ae3c41a70ee5fb196	73b91497fa75e538d1236fa4f462f710cd5252ab	Record the round-one fix panel on the status page and in memory
+f6bf851b5a18c3db26f555cdda327b63fbaac7ea	4d569afca45a61a0c04ddcd66bfbc8d6b3634851	Redact the owner's identity in review packets; state intent, success, and acceptance in the brief
+f90f9d2c79020e2107fd5f585750d9f8b44d1da6	5f12bc862ded40428da8631cee1c0ae7b3865a39	Restore copies before it deletes (KI-015); record Wes's rulings on the round-one record and the backup options
+fc7b74a67e65fe9af43b7de89e3bd4f4858a9762	07bae16c2e817e9f8f15af98ccdc8d2ce1dc4767	Panel enforcement-reach fixes: platform-independent schedule contract, praw pin control (G53), gated TEST_STRATEGY citations; record the round-one fix panel
+fe0f9d82cde6e54ae9de935e8665db542570c276	2375bf9655e2a16f040e5576965b2657c70b39d9	Add the external review packet builder, the refute-framed brief, and the claims register (G52)
+fe1e5cfc95ea9c3dd246b47136d8689f028c9d24	328868e31630e6ae2cec16b3ac1cc4046d57c470	Land the 26 harness answers in the reviews folder; note what they change in the transfer record
+ff36d4862741b83d2bf7163065233b3b22360afb	673dc8d28b919165194ee97b090d90434364e217	Register the rename (39d18a0)
+fff91b265882c1bd5b16aee5538519265e2c2906	dbb1602c632c8ed3a1208091fb8d191d7edacde5	Record N-18: no conversational agent inside the UI before M5; memory in step
