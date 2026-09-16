@@ -211,7 +211,7 @@ The system has until its next scheduled run to succeed, so it pauses, retries, a
 | Command | Purpose | State |
 |---|---|---|
 | `threaddigest run [--budget N] [--no-comments] [--dry-run] [--gateway fake]` | Steps 0–6 above; `--dry-run` fetches and writes nothing, not even a run row; `--no-comments` records a written reason on the run row (N-06) | built (posts; trees and later stages arrive with M1b–M1d) |
-| `threaddigest doctor [--no-network] [--alert-if-stale 5d] [--json]` | Every check in `services/doctor.py` by name: config valid, the data directory writable and outside the folders launchd cannot read, credentials present, SQLite new enough for secure-delete, DB present and at head, quick integrity check, the fingerprint warning, free disk, no stale running rows, last successful run age against a threshold that defaults to longer than the schedule's longest gap, at least one collectable source, lock not stale, git hooks installed; the auth ping printing rate-limit headers arrives with tranche B | built |
+| `threaddigest doctor [--no-network] [--alert-if-stale 5d] [--json]` | Every check in `services/doctor.py` by name: config valid, the data directory writable and outside the folders launchd cannot read, credentials present, SQLite new enough for secure-delete, DB present and at head, quick integrity check, the fingerprint warning, free disk, no stale running rows, last successful run age against a threshold that defaults to longer than the schedule's longest gap, at least one collectable source, lock not stale, git hooks installed. `--no-network` is the default and makes zero requests; `--network` adds the auth ping, which reads one subreddit and prints Reddit's rate-limit view at a cost of exactly two HTTP calls (token + about) | built |
 | `threaddigest db init/upgrade/current` · `db downgrade/backup/restore/vacuum/check/reprocess` | Schema and files; `upgrade` backs up before any migration it actually runs | first three built; the rest M1c–M2 |
 | `threaddigest config validate` · `config show/export/import` | DB-backed config with YAML round-trip | `validate` built |
 | `threaddigest fetch [--sub X]` · `comments [--post ID] [--budget N]` · `revisit` · `reconcile [--older-than 30d]` · `tag [--all]` · `search-run` | Individual stages | M1b–M3 |
@@ -505,7 +505,7 @@ Built-versus-planned is stated on `docs/recent/STATUS.md`, not here.
 ## Verification (end-to-end, after each milestone)
 
 1. `make check` passes and stamps the tree.
-2. `uv run threaddigest doctor` → every check green; with the network, auth OK with rate-limit headers and exactly two HTTP calls (tranche B).
+2. `uv run threaddigest doctor` → every check green; `doctor --network` → the `auth_ping` row green, naming the subreddit it read and Reddit's rate-limit view, at exactly two HTTP calls.
 3. `uv run threaddigest run --budget 200` → rows in `posts` and `comments`; run again → zero new posts; the interim browser shows the tables.
 4. Compliance drill on the fake gateway: `run --gateway fake`, delete an item in the scenario, reconcile, then scan the data directory, the index bytes, and a fresh export for the canary phrase → no hits.
 5. `uv run threaddigest serve` (M2) → the feed shows posts, a post page renders the nested tree with coverage counts, search returns hits, add and remove a subreddit, Run now completes with live progress, the export opens and passes its integrity check.

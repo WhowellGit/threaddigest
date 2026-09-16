@@ -49,7 +49,7 @@ from threaddigest.core.retry import ExitCode
 from threaddigest.db import migrate as db_migrate
 from threaddigest.db import repo
 from threaddigest.db.engine import db_path_for, engine_for
-from threaddigest.ports import Clock, Notifier, RedditGateway
+from threaddigest.ports import Clock, GatewayError, Notifier, RedditGateway
 from threaddigest.services import collect as collect_service
 from threaddigest.services import doctor as doctor_service
 from threaddigest.services import invariants, lock, runs
@@ -556,7 +556,12 @@ def _print_run_summary(outcome: collect_service.CollectOutcome) -> None:
 
 @app.command()
 def doctor(
-    no_network: bool = typer.Option(True, "--no-network/--network", help="Make no request."),
+    no_network: bool = typer.Option(
+        True,
+        "--no-network/--network",
+        help="Make no request (the default). --network adds the auth ping: one `about` "
+        "plus a free rate-limit read, two HTTP calls in total.",
+    ),
     alert_if_stale: str = typer.Option(
         doctor_service.DEFAULT_ALERT_IF_STALE,
         "--alert-if-stale",
@@ -587,15 +592,44 @@ def doctor(
     _exit(report.exit_code)
 
 
+#: The gateway ``doctor --network`` builds. Named once so the guard and the factory cannot
+#: drift apart, and so the refusal an operator reads names the kind they would recognise.
+_DOCTOR_GATEWAY: Final = "praw"
+
+
+def _doctor_gateway(settings: Settings, *, no_network: bool) -> RedditGateway | None:
+    """The gateway the auth ping speaks through, or ``None`` on the default no-network path.
+
+    :func:`_guard_gateway` runs **first**, exactly as it does in ``run`` and ``probe``: under
+    pytest it raises before ``GATEWAY_FACTORY`` is called at all, so the one ``doctor`` path
+    that can reach Reddit is unreachable from a test and exits 78 with a message.
+
+    A gateway this build cannot construct -- credentials PRAW refuses to build a client from,
+    say -- is the case :class:`ConfigError` already names, so the port's error is translated
+    here rather than escaping as a traceback out of a command whose job is to report.
+    """
+    if no_network:
+        return None
+    _guard_gateway(_DOCTOR_GATEWAY, settings)
+    try:
+        return GATEWAY_FACTORY(GatewaySpec(kind=_DOCTOR_GATEWAY, fixture=None, settings=settings))
+    except GatewayError as exc:
+        msg = f"cannot build the {_DOCTOR_GATEWAY} gateway for the auth ping: {exc}"
+        raise ConfigError(msg) from exc
+
+
 def _doctor_report(
     settings: Settings, *, alert_if_stale: str, no_network: bool
 ) -> doctor_service.DoctorReport:
     """``--alert-if-stale`` is parsed by the service; a bad duration is a config error, not a
-    traceback."""
+    traceback. ``--network`` additionally builds the gateway the auth ping speaks through;
+    ``--no-network``, the default, builds nothing."""
+    gateway = _doctor_gateway(settings, no_network=no_network)
     try:
         return doctor_service.run_checks(
             settings=settings,
             clock=build_clock(),
+            gateway=gateway,
             alert_if_stale=alert_if_stale,
             no_network=no_network,
         )

@@ -41,6 +41,7 @@ from threaddigest.ports import (
     AuthFailed,
     GatewayError,
     HtmlBlocked,
+    Limits,
     RateLimited,
     RedditGateway,
     SubredditForbidden,
@@ -49,6 +50,7 @@ from threaddigest.ports import (
     SubredditRedirected,
     TransientError,
 )
+from threaddigest.services import doctor
 
 OAUTH = "https://oauth.reddit.com"
 TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
@@ -584,6 +586,50 @@ def test_limits_reads_the_last_response_and_costs_nothing(
 
     assert (seen.remaining, seen.used) == (993, 7)
     assert gateway.requests_made == before
+
+
+def test_the_auth_ping_costs_exactly_two_http_calls(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The plan's "exactly two HTTP calls (token + about)" claim, proven offline.
+
+    This is ``services.doctor.check_auth_ping`` itself, driven against the real adapter, not
+    a hand-rolled equivalent: the claim the plan and the runbook make is about what
+    ``doctor --network`` costs, so the thing under test has to be the function ``doctor``
+    calls. The two round-trips are the OAuth token from ``www.reddit.com`` and the subreddit
+    read from ``oauth.reddit.com`` -- two different hosts, registered separately here, so a
+    third request of any kind to either of them shows up as a third call.
+
+    ``limits()`` adds nothing, which is the half of the claim a count alone would not
+    separate: the count is taken before and after the whole check, and the check reads
+    ``limits()`` after ``about``. AD-01 owns the cassette version of this (probe P-15); a
+    ``responses`` test is not a cassette test, and it cannot prove the wire *shapes* -- the
+    payload below is hand-built. What it does prove is the cost, which is what the
+    irreversible budget rule is about.
+    """
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        json={"kind": "t5", "data": {"display_name": "premiere", "name": "t5_1"}},
+        headers={
+            "x-ratelimit-remaining": "993.0",
+            "x-ratelimit-used": "7",
+            "x-ratelimit-reset": "300",
+        },
+    )
+
+    check = doctor.check_auth_ping(gateway, subreddit="premiere")
+
+    assert check.ok is True, check.detail
+    assert len(http.calls) == 2, [call.request.url for call in http.calls]
+    assert gateway.requests_made == 2
+    # PRAW appends ``?raw_json=1`` to every data request; the two ORIGINS and paths are
+    # the claim, and they are two different hosts (token vs. oauth).
+    assert [call.request.url.split("?")[0] for call in http.calls] == [TOKEN_URL, ABOUT_URL]
+    # The free read really is free: asking again after the check moves neither counter.
+    assert gateway.limits() == Limits(remaining=993, used=7)
+    assert len(http.calls) == 2
+    assert gateway.requests_made == 2
 
 
 def test_paging_is_lazy_until_the_first_page_is_asked_for(gateway: PrawGateway) -> None:

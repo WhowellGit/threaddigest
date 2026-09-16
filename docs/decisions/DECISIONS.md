@@ -278,6 +278,52 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 
 - **D-35, the memory snapshot is private and the history is rewritten (2026-09-16).** Claude Code's auto-memory — Wes's working notes about how he works, what he has corrected, and where to look — is no longer committed. It is exported to a private folder outside the repository, named by the THREADDIGEST_PRIVATE_DIR environment variable (default ~/repos/threaddigest-private), which is a local git repository of its own and is never pushed anywhere public; `make check` still runs `check` and `diff`, and the tool now fails red, printing the command that creates it, when live memory exists and that folder does not, because an absent snapshot is a snapshot behind live memory. **Reason (Wes, 2026-09-16):** the repository is about to be published; the review records are meant to be read, the working notes are not. **Supersedes** the part of the memory design that made the snapshot a committed mirror. **What is lost, knowingly:** a clone of the public repository carries no memory (the private folder is the backup, and `tools/memory_snapshot.py restore --to …` is the way back), and on a machine without that folder — CI, a fresh clone — G44 reads no memory file, so the routing pointers inside the memory are checked on Wes's machine only. **The history was rewritten in the same change** so the folder is in no commit; because the append-only logs, the review register and the reference records may not be edited to follow their citations, every rewritten commit is recorded in a hash-map record under `docs/reference/`, which the two gates that resolve commit hashes (G40, G50) read before they fail. **Revisit when:** the repository stops being public, or a second person needs the memory.
 
+## 2026-09-16 (doctor auth ping) — the ping's shape, its severity, and what proves the two-call claim
+
+- **The ping is a pair of gateway methods, not a new port.** `doctor --network` calls
+  `ports.RedditGateway`'s existing `about` and then `limits`, and `ports.Limits` already carries
+  exactly the two fields PRAW reports (`remaining`, `used`). A dedicated auth-ping port would have
+  had one implementation, which is what settled negative N-20 forbids; the fake already implements
+  both methods, so the check is testable without one. **Revisit when:** a second thing needs to
+  authenticate without reading a subreddit — an account-level endpoint, say — at which point the
+  pair is no longer the whole ping.
+- **Severity: every failure is an ERROR, "no source to ping" is a WARNING.** Credentials that do
+  not work make every future run fail, which is what the hourly `doctor` exists to catch, so the
+  failure rows alert. A fresh install with no subreddit chosen has nothing to ping and is not an
+  incident — the same ruling `enabled_sources` carries for "no source configured yet" (KI-017) and
+  `last_run_age` for "no successful run yet". A warning is amber and never notifies (plan
+  § Silent-failure controls); getting this backwards trains the operator to ignore the alert.
+- **Which subreddit is pinged: the first enabled, collectable source of the default workspace**,
+  read through `db/repo.py::enabled_subreddits` and filtered by the same
+  `db/repo.py::UNCOLLECTABLE_STATUSES` that `enabled_sources` counts with, so the two rows can
+  never disagree about what a run would poll. Pinging a private or gone source would report red
+  credentials for working ones. No usable database means no source list: the row is still named
+  and still a WARNING, never dropped.
+- **The detail never carries a credential, and never the library's message.** KI-003 is the
+  precedent (a validation error printed the client secret). The adapter builds its `AuthFailed`
+  out of prawcore's own exception text — a response repr this project does not control — so the
+  check names the failure and where to fix it and discards the message. **Revisit when:** an
+  operator cannot diagnose a rejection from the row alone, in which case the fix is a separate
+  verbose flag, not interpolating the exception.
+- **The "exactly two HTTP calls" claim is proven offline, by `responses`, against the real
+  adapter.** `tests/adapters/test_praw_gateway.py::test_the_auth_ping_costs_exactly_two_http_calls`
+  drives `services.doctor.check_auth_ping` through a `PrawGateway`, registers the token endpoint
+  and the subreddit endpoint on their two different hosts, and asserts both the transport's tally
+  and the gateway's own counter at two, with `limits` adding neither. AD-01 stays `planned`: it is
+  defined as a cassette test and owes probe P-15 a recorded exchange, and a `responses` test is not
+  a cassette test — it cannot prove the wire shapes or the User-Agent, because every payload in it
+  is hand-built. **Revisit when:** P-15 is captured, at which point AD-01 replaces this proof of
+  the shapes and keeps it for the cost.
+- **A gateway this build cannot construct exits 78**, the case `cli.ConfigError` already names:
+  the `--network` path translates a `ports.GatewayError` raised while constructing the client into
+  a config error rather than letting it escape as a traceback out of the one command whose job is
+  to report. `cli._guard_gateway` runs before the factory, so the path is unreachable from a test.
+- **CF-01's shipped zero-HTTP proof was extended, not modified.** Its three assertions are
+  untouched; what is new is a database holding a collectable source and that source registered on
+  the fake. Without them the gateway went untouched for the wrong reason — there was nothing to
+  ping — and removing the `no_network` guard from `run_checks` left the test green. A proof that
+  has stopped discriminating is worse than no proof, because it reads as one.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

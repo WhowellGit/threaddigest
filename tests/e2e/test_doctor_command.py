@@ -12,6 +12,7 @@ from pathlib import Path
 from threaddigest import cli
 from threaddigest.db import repo
 from threaddigest.db.engine import db_path_for, engine_for
+from threaddigest.ports import AuthFailed
 
 #: Every check name ``services.doctor.run_checks`` emits with a database present (section
 #: 15.2's twelve, plus ``hooks_installed`` wired in as the thirteenth).
@@ -187,3 +188,103 @@ def test_doctor_on_a_corrupt_database_lists_its_checks_instead_of_a_traceback(
     assert listed == EXPECTED_CHECKS, result.output
     assert "database_present" in result.output
     assert "quick_check" in result.output
+
+
+# --- --network: the one doctor path that can reach Reddit (tranche B) --------------------------
+
+#: The row ``--network`` adds and ``--no-network`` must never produce.
+AUTH_PING = "auth_ping"
+
+
+def test_doctor_network_is_refused_under_pytest_with_78_and_no_traceback(
+    cli_runner, db_at_head: Path
+) -> None:
+    """``--network`` builds a PRAW gateway, and ``cli._guard_gateway`` refuses any gateway but
+    the fake while ``PYTEST_CURRENT_TEST`` is set (section 11.3 step 3, guard G06). So the one
+    doctor path that can reach Reddit cannot be reached from a test at all -- it exits 78 like
+    every other precondition, with a message rather than a traceback. A ``typer.Exit`` arrives
+    at ``CliRunner`` as ``SystemExit``; anything else here would be an unhandled exception.
+    """
+    result = cli_runner.invoke(cli.app, ["doctor", "--network"])
+
+    assert isinstance(result.exception, SystemExit), result.output
+    assert result.exit_code == 78
+    assert "refusing --gateway praw under pytest" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_doctor_no_network_json_payload_is_the_only_thing_on_stdout(
+    cli_runner, db_at_head: Path
+) -> None:
+    """``--json`` is a machine-readable mode: the payload is the output, so a check row, a
+    warning line or a stray echo alongside it would break every consumer that parses it.
+    Asserted by parsing the WHOLE of stdout, not by finding JSON inside it.
+    """
+    result = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert set(payload) == {"ok", "checks"}
+    assert EXPECTED_CHECKS <= {check["name"] for check in payload["checks"]}
+    assert AUTH_PING not in {check["name"] for check in payload["checks"]}
+
+
+def test_the_auth_ping_row_appears_only_when_the_network_is_asked_for(
+    cli_runner, db_at_head: Path, loaded_gateway, monkeypatch
+) -> None:
+    """The row's presence, end to end, through the CLI the operator actually types.
+
+    Two deliberate choices, both about not letting a test reach Reddit. The gateway comes
+    from the ``GATEWAY_FACTORY`` seam ``tests/e2e/conftest.py`` installs, so the CLI is handed
+    this in-memory fake rather than a ``PrawGateway`` -- the seam is installed by the fixture
+    before anything below runs. And ``PYTEST_CURRENT_TEST`` is removed for the duration,
+    because ``cli._guard_gateway`` reads exactly that variable to refuse a network gateway
+    under pytest (the test above proves it does): without removing it, ``--network`` exits 78
+    and this path is unreachable. Removing it does **not** unlock the data directory --
+    ``settings._pytest_is_loaded`` also checks ``sys.modules``, so the refusal of the real
+    ``data/`` directory still stands -- and ``--block-network`` still fails any real socket.
+    """
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    quiet = cli_runner.invoke(cli.app, ["doctor", "--no-network", "--json"])
+    loud = cli_runner.invoke(cli.app, ["doctor", "--network", "--json"])
+
+    assert quiet.exit_code == 0, quiet.output
+    assert AUTH_PING not in {c["name"] for c in json.loads(quiet.output)["checks"]}
+    assert loud.exit_code == 0, loud.output
+    rows = {c["name"]: c for c in json.loads(loud.output)["checks"]}
+    assert AUTH_PING in rows, sorted(rows)
+    assert rows[AUTH_PING]["ok"] is True, rows[AUTH_PING]["detail"]
+    assert loaded_gateway.count("about") == 1
+    assert loaded_gateway.requests_made == 1
+
+
+def test_doctor_network_exits_78_when_the_gateway_cannot_be_built(
+    cli_runner, db_at_head: Path, monkeypatch
+) -> None:
+    """A gateway this build cannot construct is the case ``cli.ConfigError`` already names.
+
+    PRAW refuses to build a client from some credential shapes, and the adapter translates
+    that refusal into ``ports.AuthFailed`` at construction -- before ``run_checks`` is reached,
+    so the ``auth_ping`` row cannot report it. Left alone it would escape as a traceback out of
+    the one command whose job is to report, which is the same failure shape the corrupt-database
+    finding closed. It exits 78 with a sentence instead, like every other precondition.
+
+    The failure is planted on the ``GATEWAY_FACTORY`` seam rather than by feeding real
+    credentials to PRAW, so nothing here constructs a client or opens a socket.
+    """
+
+    refusal = "credentials rejected: missing required attribute"
+
+    def _refuse(spec: object) -> object:
+        raise AuthFailed(refusal)
+
+    monkeypatch.setattr(cli, "GATEWAY_FACTORY", _refuse)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    result = cli_runner.invoke(cli.app, ["doctor", "--network"])
+
+    assert isinstance(result.exception, SystemExit), result.output
+    assert result.exit_code == 78
+    assert "cannot build the praw gateway for the auth ping" in result.output
+    assert "Traceback" not in result.output

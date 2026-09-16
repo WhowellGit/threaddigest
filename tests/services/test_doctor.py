@@ -33,6 +33,7 @@ from threaddigest.db import migrate as db_migrate
 from threaddigest.db import repo
 from threaddigest.db.engine import checkpoint_truncate, engine_for
 from threaddigest.db.schema_dump import SCHEMA_SQL, migrate_to_head
+from threaddigest.ports import AuthFailed
 from threaddigest.services import doctor, lock
 from threaddigest.settings import Settings
 
@@ -672,10 +673,24 @@ def test_lock_held_with_a_stale_heartbeat_is_not_ok_and_names_the_age(
 
 
 def test_doctor_no_network_makes_zero_http(
-    fake: FakeRedditGateway, settings: Settings, clock: FakeClock
+    fake: FakeRedditGateway, settings: Settings, clock: FakeClock, engine: Engine, now: int
 ) -> None:
     """§15.2 closing paragraph: ``run_checks`` never touches ``gateway`` when
-    ``no_network=True`` (the tranche-A default) -- proven against a routeless fake."""
+    ``no_network=True`` (the default on every shipped path) -- proven against a routeless fake.
+
+    **Extended for the tranche-B auth ping** (the ping is the first thing here that would
+    touch the gateway). The three assertions are the ones this test shipped with; what is new
+    above them is a database holding a collectable source, and that source registered on the
+    fake. Without it, the report had nothing to ping and the gateway went untouched for the
+    wrong reason: deleting the ``no_network`` guard from ``run_checks`` left this test green,
+    which is a proof that had stopped discriminating.
+    """
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn, workspace_pk=repo.default_workspace_pk(conn), names=["premiere"], now=now
+        )
+    fake.add_subreddit("premiere")
+
     report = doctor.run_checks(settings=settings, clock=clock, gateway=fake, no_network=True)
 
     assert isinstance(report, doctor.DoctorReport)
@@ -1088,3 +1103,211 @@ def test_check_hooks_installed_is_ok_where_there_is_no_repository_root(tmp_path:
 
     assert check.ok is True
     assert check.detail == "no git repository"
+
+
+# --- auth_ping: the one check that makes a request, and it makes exactly one -------------------
+#
+# Tranche B wires `doctor --network` to a single `about` plus a free `limits()` read. The rows
+# below cover every outcome the check can produce (ok with headers, ok before any header has
+# been seen, no source, auth failed, rate limited, any other gateway error) at the
+# per-function level, plus the `run_checks` wiring: present on the network path, absent on the
+# default one. The two-HTTP-call claim itself is proven against the REAL adapter in
+# tests/adapters/test_praw_gateway.py::test_the_auth_ping_costs_exactly_two_http_calls -- the
+# fake counts simulated round-trips, and a simulation cannot prove a wire cost.
+
+
+def test_check_auth_ping_costs_one_about_and_one_free_limits_read(
+    fake: FakeRedditGateway,
+) -> None:
+    """The ping is a gateway method pair, not a new port: one ``about``, then ``limits()``,
+    and nothing else. Asserted on the recorded call list, not inferred from the request
+    count, so a check that also fetched a listing "while it was there" is caught."""
+    fake.add_subreddit("premiere", subscribers=120_000)
+    fake.set_limits(993, 7)
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert [call.method for call in fake.calls] == ["about", "limits"]
+    assert fake.requests_made == 1  # limits() costs nothing; the port promises it
+    assert check.ok is True
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert check.detail == "r/premiere read; rate limit: 993 remaining, 7 used"
+
+
+def test_check_auth_ping_reports_unseen_headers_as_ok_not_as_a_failure(
+    fake: FakeRedditGateway,
+) -> None:
+    """``praw.models.Auth.limits`` starts at ``{"remaining": None, "used": None}`` and stays
+    there until a response has been parsed. Reading that as a failed ping would make the
+    first ``doctor --network`` of every installation red for a value PRAW documents as its
+    starting state."""
+    fake.add_subreddit("premiere")
+    fake.set_limits(None, None)
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert check.ok is True
+    assert check.detail == (
+        "r/premiere read; rate-limit headers not seen yet (remaining and used are both unset)"
+    )
+
+
+def test_check_auth_ping_without_a_source_is_a_warning_and_touches_the_gateway(
+    fake: FakeRedditGateway,
+) -> None:
+    """Mirrors ``enabled_sources``' "no source configured yet" (KI-017): a fresh install has
+    no subreddit to ping, which is a state to report, not an incident to alert on. The
+    gateway is not touched at all, so ``doctor --network`` on a fresh install still makes
+    zero requests."""
+    check = doctor.check_auth_ping(fake, subreddit=None)
+
+    assert check.name == "auth_ping"
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.WARNING
+    assert check.detail == "no source to ping"
+    assert fake.calls == []
+    assert fake.requests_made == 0
+
+
+def test_check_auth_ping_names_the_credentials_without_echoing_one(
+    fake: FakeRedditGateway,
+) -> None:
+    """KI-003's precedent: a validation error once printed the client secret. The adapter
+    builds its ``AuthFailed`` message out of prawcore's own exception text, which is a
+    response repr this project does not control -- so the check names the failure and where
+    to fix it and discards the message. Interpolating the exception here would put whatever
+    Reddit echoed back into an operator report and into ``--json`` output."""
+    fake.add_subreddit("premiere")
+    fake.fail_next(AuthFailed("credentials rejected: 401 client_secret=s3cret-value-abc"))
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert "credentials" in check.detail
+    assert ".env" in check.detail
+    assert "/setup" in check.detail
+    assert "s3cret-value-abc" not in check.detail
+
+
+def test_check_auth_ping_names_the_wait_when_reddit_rate_limits_the_ping(
+    fake: FakeRedditGateway,
+) -> None:
+    """A 429 on the cheapest call the system makes is worth naming with its wait: it is the
+    operator's evidence that something else is spending the quota."""
+    fake.add_subreddit("premiere")
+    fake.rate_limit_next(retry_after=120.0)
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert check.detail == "rate limited by Reddit; it asked us to wait 120 s"
+
+
+def test_check_auth_ping_says_so_when_a_429_carries_no_retry_after(
+    fake: FakeRedditGateway,
+) -> None:
+    """``RateLimited.retry_after`` is None when the header was absent or unparseable
+    (``adapters.reddit_praw._seconds``). "wait None s" would be worse than saying so."""
+    fake.add_subreddit("premiere")
+    fake.rate_limit_next(retry_after=None)
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert check.ok is False
+    assert check.detail == "rate limited by Reddit; no Retry-After header to say for how long"
+
+
+def test_check_auth_ping_names_the_class_of_any_other_gateway_error(
+    fake: FakeRedditGateway,
+) -> None:
+    """Every other failure is one of the port's named outcomes, and the class name is the
+    diagnosis: a private subreddit reads differently from an edge block. ``services/`` never
+    catches ``Exception`` and never sees a PRAW exception (the adapter translates)."""
+    fake.add_subreddit("premiere")
+    fake.set_status("premiere", "forbidden")
+
+    check = doctor.check_auth_ping(fake, subreddit="premiere")
+
+    assert check.ok is False
+    assert check.severity == doctor.CheckSeverity.ERROR
+    assert check.detail == "the ping failed: SubredditForbidden"
+
+
+# --- run_checks wiring: the row is on the network path and nowhere else ------------------------
+
+
+def test_run_checks_appends_the_auth_ping_when_the_network_is_allowed(
+    engine: Engine, settings: Settings, clock: FakeClock, fake: FakeRedditGateway, now: int
+) -> None:
+    """``--network`` adds exactly one row, second to last (``hooks_installed`` stays the
+    closing check), and it pings the first enabled, collectable source -- the one a run would
+    poll first, read through the same repository call ``enabled_sources`` counts with."""
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn, workspace_pk=repo.default_workspace_pk(conn), names=["premiere"], now=now
+        )
+    fake.add_subreddit("premiere")
+
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=fake, no_network=False)
+
+    names = [check.name for check in report.checks]
+    assert names == [*EVERY_CHECK_NAME[:-1], "auth_ping", "hooks_installed"]
+    assert fake.fullnames_requested("about") == ["premiere"]
+
+
+def test_run_checks_pings_no_disabled_or_uncollectable_source(
+    engine: Engine, settings: Settings, clock: FakeClock, fake: FakeRedditGateway, now: int
+) -> None:
+    """A source Reddit will never serve (private, or gone) is not a credentials test: pinging
+    it would report a red ``auth_ping`` for working credentials, which is the alert that
+    trains an operator to ignore the alert. With no collectable source left, the ping has
+    nothing to ask about and says so."""
+    subreddits = sa.Table("subreddits", sa.MetaData(), autoload_with=engine)
+    with engine.begin() as conn:
+        repo.seed_subreddits(
+            conn, workspace_pk=repo.default_workspace_pk(conn), names=["premiere"], now=now
+        )
+        conn.execute(sa.update(subreddits).values(status="forbidden"))
+
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=fake, no_network=False)
+
+    ping = next(check for check in report.checks if check.name == "auth_ping")
+    assert ping.detail == "no source to ping"
+    assert fake.calls == []
+
+
+def test_run_checks_without_a_database_still_reports_the_ping_row(
+    settings: Settings, clock: FakeClock, fake: FakeRedditGateway
+) -> None:
+    """No database means no source list, so there is nothing to ping -- but the row is still
+    named, like every other check a missing database makes unanswerable. A report that
+    silently drops a row reads as a shorter healthy report."""
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=fake, no_network=False)
+
+    ping = next(check for check in report.checks if check.name == "auth_ping")
+    assert ping.ok is False
+    assert ping.severity == doctor.CheckSeverity.WARNING
+    assert fake.requests_made == 0
+
+
+def test_run_checks_appends_no_ping_row_on_the_default_path(
+    engine: Engine, settings: Settings, clock: FakeClock, fake: FakeRedditGateway
+) -> None:
+    """The other half of CF-01: ``no_network=True`` is the default on every shipped path, and
+    the row it must not produce is the only one that could reach Reddit."""
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=fake, no_network=True)
+
+    assert "auth_ping" not in [check.name for check in report.checks]
+
+
+def test_run_checks_appends_no_ping_row_without_a_gateway(
+    engine: Engine, settings: Settings, clock: FakeClock
+) -> None:
+    """``--network`` with nothing to ping through is not a failure to report: ``cli`` builds
+    the gateway or exits 78, so a None here is a caller that asked for a check it did not
+    supply the collaborator for."""
+    report = doctor.run_checks(settings=settings, clock=clock, gateway=None, no_network=False)
+
+    assert "auth_ping" not in [check.name for check in report.checks]

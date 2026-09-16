@@ -12,11 +12,18 @@ hook shows up in the operator report exactly where the other twelve do. ``make c
 calls it directly (through ``tools/hooks_status.py``) for its own closing line; see its own
 section below for why it answers "no git repository" as an ok state on an installed wheel.
 
-**Zero HTTP is structural, not a promise.** ``no_network`` defaults to ``True`` and
-:func:`run_checks` never touches ``gateway`` on that path: the parameter exists so the M1c
-connectivity check has a seam to land in, and CF-01 proves the tranche-A default by handing
-``run_checks`` a routeless :class:`~threaddigest.adapters.reddit_fake.FakeRedditGateway` and
-asserting it recorded nothing.
+**Zero HTTP is structural, not a promise.** ``no_network`` defaults to ``True``, and on that
+path :func:`run_checks` never touches ``gateway`` -- CF-01 proves it by handing ``run_checks``
+a routeless :class:`~threaddigest.adapters.reddit_fake.FakeRedditGateway` and asserting it
+recorded neither a call nor a request. The hourly scheduled ``doctor`` takes that default, so
+nothing this module does can turn a diagnosis into an unannounced live request.
+
+``--network`` is the one path that reaches Reddit, and it costs **exactly two round-trips**:
+:func:`check_auth_ping` asks the gateway for one ``about`` -- the OAuth token buys the first,
+the subreddit read the second -- and then reads ``limits()``, which PRAW answers out of the
+headers it has already seen and which therefore costs nothing. Nothing else here makes a
+request. The two-call cost is proven against the real adapter, offline, in
+``tests/adapters/test_praw_gateway.py::test_the_auth_ping_costs_exactly_two_http_calls``.
 
 Severity is the severity of a **failed** check and is ignored when it passes.
 :attr:`DoctorReport.ok` is false only when an ``ERROR``-severity check failed, which is why
@@ -45,7 +52,7 @@ from threaddigest.db import migrate as db_migrate
 from threaddigest.db import repo
 from threaddigest.db.engine import db_path_for, engine_for
 from threaddigest.db.schema_dump import SCHEMA_SQL, dump_schema, fingerprint
-from threaddigest.ports import Clock, RedditGateway
+from threaddigest.ports import AuthFailed, Clock, GatewayError, Limits, RateLimited, RedditGateway
 from threaddigest.services import lock
 from threaddigest.settings import DataDirRefusedError, Settings, settings_fingerprint
 
@@ -57,6 +64,7 @@ __all__ = [
     "CheckSeverity",
     "DoctorReport",
     "check_alembic_at_head",
+    "check_auth_ping",
     "check_credentials_present",
     "check_data_dir_outside_tcc",
     "check_data_dir_writable",
@@ -495,6 +503,90 @@ def check_credentials_present(settings: Settings) -> Check:
     )
 
 
+#: What the ok detail says when Reddit's rate-limit view has not been populated yet.
+#: ``praw.models.Auth.limits`` starts at ``{"remaining": None, "used": None}`` and stays there
+#: until a response has been parsed, so this is a state to report, never a failed ping.
+_HEADERS_UNSEEN: Final = "rate-limit headers not seen yet (remaining and used are both unset)"
+
+#: The credentials failure, said without the library's message. KI-003 is the precedent: a
+#: validation error printed the client secret. The adapter builds ``AuthFailed`` out of
+#: prawcore's exception text -- a response repr this project does not control -- so the detail
+#: names the failure and where to fix it, and the message is discarded.
+_CREDENTIALS_REJECTED: Final = (
+    "Reddit rejected the credentials; fix the three values in .env (or the /setup page) "
+    "-- they are never printed here"
+)
+
+
+def _limits_detail(subreddit: str, seen: Limits) -> str:
+    """The ok detail: the subreddit that answered, and both fields of :class:`Limits`."""
+    if seen.remaining is None and seen.used is None:
+        return f"r/{subreddit} read; {_HEADERS_UNSEEN}"
+    return f"r/{subreddit} read; rate limit: {seen.remaining} remaining, {seen.used} used"
+
+
+def check_auth_ping(gateway: RedditGateway, *, subreddit: str | None) -> Check:
+    """``about`` then ``limits()``: the credentials work and Reddit's rate-limit view is readable.
+
+    The only check in this module that makes a request, and it makes exactly one. ``about`` on
+    the first source a run would poll costs the OAuth token plus the read; ``limits()`` costs
+    nothing, because the port's contract says so and PRAW answers it from the headers of the
+    response it has just seen. Two calls is the whole network cost of ``doctor --network``.
+
+    A **pair of gateway methods, not a new port**: :class:`~threaddigest.ports.RedditGateway`
+    already carries both and :class:`~threaddigest.ports.Limits` has exactly the two fields
+    PRAW reports, so an ``AuthPing`` port would have one implementation -- which is what
+    settled negative N-20 forbids.
+
+    Severity follows the same rule as the rest of the list. **No source is a WARNING**, like
+    ``enabled_sources``' "no source configured yet": a fresh install with no subreddit chosen
+    has nothing to ping, and that is not an incident. Every actual failure is an **ERROR**,
+    because credentials that do not work make every future run fail, and that is precisely
+    what the hourly ``doctor`` exists to surface.
+
+    Only the port's exceptions are caught, never ``Exception`` and never PRAW's: the adapter
+    is the single translation site (``adapters/reddit_praw.py::translate``), and ``services/``
+    does not import ``praw``.
+    """
+    name = "auth_ping"
+    if subreddit is None:
+        return Check(
+            name=name, ok=False, detail="no source to ping", severity=CheckSeverity.WARNING
+        )
+    try:
+        gateway.about(subreddit)
+        seen = gateway.limits()
+    except AuthFailed:
+        return Check(
+            name=name, ok=False, detail=_CREDENTIALS_REJECTED, severity=CheckSeverity.ERROR
+        )
+    except RateLimited as exc:
+        waited = (
+            "no Retry-After header to say for how long"
+            if exc.retry_after is None
+            else f"it asked us to wait {exc.retry_after:g} s"
+        )
+        return Check(
+            name=name,
+            ok=False,
+            detail=f"rate limited by Reddit; {waited}",
+            severity=CheckSeverity.ERROR,
+        )
+    except GatewayError as exc:
+        return Check(
+            name=name,
+            ok=False,
+            detail=f"the ping failed: {type(exc).__name__}",
+            severity=CheckSeverity.ERROR,
+        )
+    return Check(
+        name=name,
+        ok=True,
+        detail=_limits_detail(subreddit, seen),
+        severity=CheckSeverity.ERROR,
+    )
+
+
 def check_no_stale_running_rows(conn: Connection, *, now: int, stale_after_seconds: int) -> Check:
     """The reader-side mirror of §12.2: no ``running`` row with a dead pid or an old beat.
 
@@ -696,6 +788,37 @@ def _checks_with_a_database(
         ]
 
 
+def _ping_target(conn: Connection) -> str | None:
+    """The source :func:`check_auth_ping` pings: the first enabled, **collectable** one.
+
+    The same repository read ``enabled_sources`` counts with, and the same definition of
+    collectable (``repo.UNCOLLECTABLE_STATUSES``), so the two rows can never disagree about
+    what a run would poll. Pinging a private or gone source would report red credentials for
+    working ones -- the alert that trains an operator to ignore the alert.
+    """
+    rows = repo.enabled_subreddits(conn, repo.default_workspace_pk(conn))
+    collectable = [row for row in rows if row.status not in repo.UNCOLLECTABLE_STATUSES]
+    return collectable[0].display_name if collectable else None
+
+
+def _auth_ping_check(gateway: RedditGateway, *, db_path: Path, database_ok: bool) -> Check:
+    """The ping row, with its subreddit read from the database when there is a usable one.
+
+    No usable database means no source list, so there is nothing to ping -- and the row is
+    still named rather than dropped, like every other check a missing database makes
+    unanswerable.
+    """
+    if not database_ok:
+        return check_auth_ping(gateway, subreddit=None)
+    engine = engine_for(db_path)
+    try:
+        with engine.connect() as conn:
+            subreddit = _ping_target(conn)
+    finally:
+        engine.dispose()
+    return check_auth_ping(gateway, subreddit=subreddit)
+
+
 def _with_hooks_check(checks: list[Check]) -> DoctorReport:
     """Append the closing check -- ``hooks_installed``, WARNING severity -- and close out
     the report. The single call site for both of :func:`run_checks`'s return points, so a
@@ -715,10 +838,14 @@ def run_checks(
 ) -> DoctorReport:
     """Every §15.2 check, in the order that table lists them, plus ``hooks_installed``.
 
-    ``gateway`` and ``no_network`` are the seam the M1c connectivity check lands in. In
-    tranche A ``no_network`` is always true on every shipped path and **this function never
-    touches ``gateway``** -- CF-01 proves it by passing a routeless fake and asserting it
-    recorded no request and no call.
+    ``gateway`` and ``no_network`` decide whether the list reaches Reddit at all.
+    ``no_network`` stays ``True`` by default, and on that path **this function never touches
+    ``gateway``** -- CF-01 proves it by passing a routeless fake and asserting it recorded no
+    request and no call. With ``no_network=False`` **and** a gateway to speak through,
+    :func:`check_auth_ping` is appended after the credentials row and before the closing
+    ``hooks_installed``, costing exactly one ``about`` and one free ``limits()`` read. A
+    ``no_network=False`` with no gateway adds nothing: ``cli`` either builds one or exits 78,
+    so a ``None`` here is a caller that asked for a check without supplying its collaborator.
 
     **``database_present`` short-circuits the list, and both of its failure modes do**
     (round5-findings.json panel P1). Branching on ``db_path.is_file()`` covered only the
@@ -729,7 +856,6 @@ def run_checks(
     branch is now on the ``Check`` itself, so "doctor lists its checks" holds for every
     database this installation can have.
     """
-    del gateway, no_network  # tranche A makes no request; see the docstring and CF-01.
     # Parsed once, up front, before ``database_present`` gets a chance to short-circuit the
     # list (round5 doctor-panel finding): the old call site sat inside
     # ``_checks_with_a_database``, so ``doctor --alert-if-stale banana`` on a data dir with
@@ -753,20 +879,22 @@ def run_checks(
             if not db_path.is_file()
             else _checks_with_an_unusable_database(settings, db_path)
         )
-        return _with_hooks_check(checks)
-    engine = engine_for(db_path)
-    try:
-        checks.extend(
-            _checks_with_a_database(
-                engine,
-                settings=settings,
-                db_path=db_path,
-                lock_path=lock_path,
-                now=now,
-                stale_after_seconds=settings.static.run.stale_after_minutes * 60,
-                max_age_seconds=max_age_seconds,
+    else:
+        engine = engine_for(db_path)
+        try:
+            checks.extend(
+                _checks_with_a_database(
+                    engine,
+                    settings=settings,
+                    db_path=db_path,
+                    lock_path=lock_path,
+                    now=now,
+                    stale_after_seconds=settings.static.run.stale_after_minutes * 60,
+                    max_age_seconds=max_age_seconds,
+                )
             )
-        )
-    finally:
-        engine.dispose()
+        finally:
+            engine.dispose()
+    if not no_network and gateway is not None:
+        checks.append(_auth_ping_check(gateway, db_path=db_path, database_ok=present.ok))
     return _with_hooks_check(checks)
