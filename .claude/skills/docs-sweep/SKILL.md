@@ -8,6 +8,8 @@ audit, G47), so a skipped step shows up red. The reasoning is `docs/runbook/RUNB
 1. **Name the fact and its home.** One sentence; the home is a configuration key, a code constant,
    a plist, a decision entry, or a table row. If the home is a configured value, name its code
    twin too (a default parameter, a constant), because a wrapper is not the only mirror (KI-024).
+   If a build deviated from a mechanism the plan names, the plan's sentence is the fact to
+   change, and the reason goes there or in the decisions log, never only in a docstring.
 2. **List the mirrors.** The `mirrors` in the front matter of the document you are changing; every
    living document whose `mirrors` names it (`grep -l` the path); the live-facts row, if one
    exists; the working agreement; the launchd templates and their README when the fact is
@@ -28,7 +30,9 @@ audit, G47), so a skipped step shows up red. The reasoning is `docs/runbook/RUNB
    there; delete a superseded memory rather than annotate it; keep every topic file under the cap;
    never store state the status page or the decisions log holds. Then `make memory-export`.
 7. **Prove it.** `uv run python tools/doc_policy.py --check`, then `make check`; paste the
-   output. If the accretion ceiling is red, the fix is a rewrite, not a loosening.
+   output. If the accretion ceiling is red, the fix is a rewrite, not a loosening. An
+   unresolved identifier is corrected, or its line names the milestone it waits on; a
+   class-like name the code does not define is the same choice.
 8. **Record.** A decision entry if a choice was made; the PR body names the documents swept.
 
 Rules that bite: never delete a line from an append-only document; never write a count into prose

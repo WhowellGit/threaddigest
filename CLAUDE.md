@@ -52,7 +52,7 @@ that only goes down.
 | Report results by pasting the `make check` block, never by describing it | review of the PR body against the pasted-block section of the PR template; CI is the authority, not the message |
 | A new guard needs a birth incident, a positive control in `tests/gates/`, a `docs/runbook/GUARDS.md` row, and a check whether an existing guard can be widened | `gate` marker; `tests/gates/` review; GUARDS.md quarterly review |
 | No new abstraction without two concrete uses | review |
-| Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |
+| Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` (tranche B) | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |
 | `create_engine`, `text()`, `sqlite3.connect` only inside `db/`; `mock.patch` only in `tests/adapters/`; `encoding=` on every text open | ruff `TID251`, `PLW1514` |
 | Never import another system's identifiers, attribution trailers, or model names into tracked text | `tests/gates/test_no_imported_identifiers.py`; `tools/hooks/no_bypass_git.sh` refuses a commit whose message carries a trailer |
 | Every rule in this table names an enforcer that exists, or says review; review-only rules are a ceiling that only goes down | `tests/gates/test_rules_name_their_enforcer.py`; `.ratchets/review_only_rules.txt` |
@@ -63,8 +63,8 @@ that only goes down.
 | Every gate file and every `gate` marker id has a `docs/runbook/GUARDS.md` row; every commit hash cited in a document resolves; Active rows without a positive control are a ceiling | `tests/gates/test_known_issues_cite_collected_tests.py`; `.ratchets/review_only_rules.txt` |
 | One memory home; the committed snapshot is never behind live memory | `tools/memory_snapshot.py` `check` and `diff` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | The harness page's inventory of mechanisms is generated from the tree, never typed | `tools/harness_page.py` (`--check`, `--write`); `tests/gates/test_harness_page.py` |
-| Every living document under `docs/` declares its purpose, update policy, mirrors (existing, declared from both sides), and verification milestone; an append-only document never loses a line it had at the merge base with `main`, and a reference record is never edited; a rewritten document lags the status page's milestone by at most one and is never stamped ahead of it; a document path with a directory, named in a rewritten document, resolves | `tools/doc_policy.py --check` in `make check`; `tests/gates/test_doc_policy.py` |
-| A fact listed in the live-facts table has one home and one literal that every listed mirror states; dated annotations in the prose of rewritten documents are a ceiling that only goes down, a pressure the milestone pass reads (rewrite the section, do not annotate it) | the live-facts table in `docs/decisions/DECISIONS.md`, read by `tools/doc_policy.py`; `.ratchets/docs.txt` through `tools/ratchet.py` |
+| Every living document under `docs/` declares its purpose, update policy, mirrors (existing, declared from both sides), and verification milestone; an append-only document never loses a line it had at the merge base with `main`, and a reference record is never edited; a rewritten document lags the status page's milestone by at most one and is never stamped ahead of it; a document path with a directory, named in a rewritten document, resolves; every repository path, `make` target, test id, `insightminer` command line, package reference, and `table.column` named in a rewritten document or this file resolves against the tree, unless its line names a later milestone, a tranche, or a retirement | `tools/doc_policy.py --check` in `make check`; `tests/gates/test_doc_policy.py` |
+| A fact listed in the live-facts table has one home and one literal that every listed mirror states; dated annotations in the prose of rewritten documents, and class-like names no code file defines, are ceilings that only go down, a pressure the milestone pass reads (rewrite the section, do not annotate it; a class named before it exists says which milestone it waits on) | the live-facts table in `docs/decisions/DECISIONS.md`, read by `tools/doc_policy.py`; `.ratchets/docs.txt` through `tools/ratchet.py` |
 | Memory routes to documents and never restates state that has a document home: a topic file is capped by bytes and a project memory names at least one existing repository path (that it routes rather than restates is review) | `tools/memory_snapshot.py` `check` in `make check`; `tests/gates/test_memory_snapshot.py` |
 | Numbers have one home: a count or percentage lives where a tool prints it (`make check`, `.ratchets/`, the guards ledger) and prose points at it | `tests/gates/test_status_page.py` for the status page; elsewhere review |
 | Never edit a file a rule file governs without reading the documents it names first | `tools/hooks/read_before_touch.sh` (log-first; ledger `.build/hooks/read_before_touch.jsonl`, reviewed 2026-09-28; mode in `tools/hooks/read_before_touch.mode`); `tests/gates/test_hooks.py` |
@@ -101,8 +101,8 @@ that only goes down.
    `src` tree, gitleaks, no files over 1 MB, no commits on `main`.
 3. Open the PR with `.github/pull_request_template.md`: **What**; **Tests changed** (every file
    under `tests/`, with a reason); the pasted **make check** block; **Ratchets** moved;
-   **Independent review** for anything under `db/migrations`, `services/scrub`, `core/deletion`,
-   or `db/repo`.
+   **Independent review** for anything under `db/migrations`, `services/scrub` (M1c),
+   `core/deletion`, or `db/repo`.
 4. Ratchets move only through `make ratchet-bump` (tighter) or
    `make ratchet-loosen KEY=… REASON="…"` (a loosening pauses for approval and lands a
    `GUARDS.md` row).
@@ -144,9 +144,12 @@ recommendation and a confidence level. Applies to chat, PR bodies, and document 
   every document stating the old fact is corrected in the same PR, and the PR body names the
   documents swept. The list to sweep is declared since 2026-09-15: the `mirrors` in a document's
   front matter (checked to exist and to be declared from both sides), the live-facts table, and
-  the code defaults behind a configured value (KI-024). What is mechanical: the facts table's
-  literal in every mirror, the retired-claims scan, and the append-only diff; whether a mirror's
-  prose still agrees with its source is review, done through the `docs-sweep` skill. In a
+  the code defaults behind a configured value (KI-024). A build that deviates from a mechanism
+  the plan names is a changed fact: the plan changes in the same commit, and the reason lives in
+  the plan or the decisions log, never only in a docstring (the search-index port and the backup
+  statement, drift findings 23 and 24). What is mechanical: the facts table's literal in every
+  mirror, the retired-claims scan, the identifier resolution, and the append-only diff; whether a
+  mirror's prose still agrees with its source is review, done through the `docs-sweep` skill. In a
   rewritten document the move is a targeted rewrite of the affected section, never an appended
   paragraph or a dated annotation; annotations belong in the append-only logs.
 - **Swept and clean.** A suspicion investigated and found not to be a bug is recorded in
@@ -165,7 +168,8 @@ recommendation and a confidence level. Applies to chat, PR bodies, and document 
 Every sub-agent call (the `Agent` tool or a workflow `agent()`) names its model; nothing inherits.
 The main session carries planning, synthesis, decisions, and edits to the plan or enforcement
 surfaces. **Opus** for judgement-bearing work: reviewers, judges and critics, migrations,
-`core/deletion`, `services/scrub`, `db/repo`, under-specified services, red-gate debugging.
+`core/deletion`, `services/scrub` (M1c), `db/repo`, under-specified services, red-gate
+debugging.
 **Sonnet** for well-specified mechanical work: inventories, scans, codemods, tests written from a
 spec row, fixture scrubbing, residue sweeps. Unsure → the higher tier, with the reason in the
 workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → "Agent model tiers". Every brief follows `docs/reference/AGENT_BRIEF.md`: purpose, the routing rows to read, the rules that bite, the files in scope, the output contract, and the model tier.

@@ -305,7 +305,7 @@ def test_dated_annotations_are_counted_in_prose_only(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     rep = dp.report(root)
-    assert rep["values"] == {"dated_annotations": 1}
+    assert rep["values"] == {"dated_annotations": 1, "unresolved_class_names": 0}
     hits = rep["hits"]
     assert isinstance(hits, list) and len(hits) == 1
     assert hits[0].startswith("dated_annotation docs/PLAN.md:") and hits[0].endswith(
@@ -323,3 +323,126 @@ def test_the_command_line_exits_1_only_with_check(
     assert dp.main(["--root", str(root), "--write", str(out), "--check"]) == 1
     assert "`docs/GONE.md` does not exist" in capsys.readouterr().out
     assert out.is_file() and '"dated_annotations"' in out.read_text(encoding="utf-8")
+
+
+def _code_tree(tmp_path: Path) -> Path:
+    """The document tree plus a small code tree: a package module, a test, a Makefile, a CLI
+    and a schema, so identifiers have something to resolve against."""
+    root = _tree(tmp_path)
+    (root / "src" / "insightminer" / "db").mkdir(parents=True)
+    (root / "src" / "insightminer" / "db" / "fts.py").write_text(
+        "class FtsHelper:\n    pass\n\n\ndef optimize() -> None:\n    pass\n", encoding="utf-8"
+    )
+    (root / "src" / "insightminer" / "db" / "schema.sql").write_text(
+        'CREATE TABLE "posts" (\n\tpk INTEGER NOT NULL,\n\ttitle TEXT\n);\n', encoding="utf-8"
+    )
+    (root / "src" / "insightminer" / "cli.py").write_text(
+        'app.add_typer(db_app, name="db")\n\n\ndef run(gateway: str = "--gateway") -> None:\n'
+        "    pass\n",
+        encoding="utf-8",
+    )
+    (root / "tests" / "gates").mkdir(parents=True)
+    (root / "tests" / "gates" / "test_x.py").write_text(
+        "def test_ok() -> None:\n    pass\n", encoding="utf-8"
+    )
+    (root / "tools").mkdir()
+    (root / "tools" / "present.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "Makefile").write_text("check:\n\ttrue\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "code")
+    return root
+
+
+def _plan_with(root: Path, body: str) -> None:
+    (root / "docs" / "PLAN.md").write_text(
+        _doc("the plan", "versioned", mirrors="docs/INDEX.md")
+        + "# plan\n\nThe zone is UTC. The question is what people say.\n"
+        + body,
+        encoding="utf-8",
+    )
+
+
+def test_a_clean_code_tree_reports_nothing(tmp_path: Path) -> None:
+    root = _code_tree(tmp_path)
+    _plan_with(
+        root,
+        "Read `tools/present.py`, `db/fts.py`, `src/insightminer/db/schema.sql`, `Makefile`;\n"
+        "run `make check`; `tests/gates/test_x.py::test_ok` proves it; `db.fts.optimize` and\n"
+        "`FtsHelper` live there; `posts.title` is a column; `insightminer run --gateway fake`;\n"
+        "`insightminer db` is the group. Not judged: `<placeholder>.py`, `data/x.db`,\n"
+        "`.env`, `ok/partial/failed`, `retention.backups_days`, `BARE.md`.\n",
+    )
+    assert _problems(root) == []
+    assert dp.report(root)["values"] == {"dated_annotations": 0, "unresolved_class_names": 0}
+
+
+def test_positive_control_a_dead_path_target_test_id_or_command_is_red(tmp_path: Path) -> None:
+    root = _code_tree(tmp_path)
+    _plan_with(
+        root,
+        "Read `tools/gone.py` and `db/nope.py`; run `make nope`;\n"
+        "`tests/gates/test_x.py::test_missing` proves it;\n"
+        "`insightminer serve --port 1` and `insightminer db nuke`.\n",
+    )
+    found = dp.report(root)["problems"]
+    assert isinstance(found, dict)
+    assert found["identifiers"] == [
+        "docs/PLAN.md:10: `tools/gone.py` does not exist",
+        "docs/PLAN.md:10: `db/nope.py` does not exist",
+        "docs/PLAN.md:10: `make nope` names a make target that does not exist",
+        "docs/PLAN.md:11: `tests/gates/test_x.py::test_missing` names a test that does not exist",
+        "docs/PLAN.md:12: `insightminer serve --port 1` names a command or option the CLI does "
+        "not have (serve, --port)",
+        "docs/PLAN.md:12: `insightminer db nuke` names a command or option the CLI does not "
+        "have (nuke)",
+    ]
+
+
+def test_positive_control_a_dead_module_attribute_or_column_is_red(tmp_path: Path) -> None:
+    root = _code_tree(tmp_path)
+    _plan_with(root, "Call `db.fts.optimise()` or `db.gone.thing`; read `posts.watch_until`.\n")
+    found = dp.report(root)["problems"]
+    assert isinstance(found, dict)
+    assert found["identifiers"] == [
+        "docs/PLAN.md:10: `db.fts.optimise()` names a module or attribute that does not exist",
+        "docs/PLAN.md:10: `db.gone.thing` names a module or attribute that does not exist",
+        "docs/PLAN.md:10: `posts.watch_until` names a column that table posts does not have",
+    ]
+
+
+def test_a_line_about_the_future_the_past_or_a_dated_record_is_not_judged(tmp_path: Path) -> None:
+    root = _code_tree(tmp_path)
+    _plan_with(
+        root,
+        "`tools/gone.py` arrives at M2.\n"
+        "`tools/gone.py` is planned.\n"
+        "`tools/gone.py` lands with tranche B.\n"
+        "`tools/gone.py` was cut (N-09).\n"
+        "| 2026-09-14 | `tools/gone.py` was checked | fine |\n"
+        "```\n`tools/gone.py` in a fence\n```\n"
+        "<!-- `tools/gone.py` in a comment -->\n"
+        "`tools/gone.py` at M1a-A, the current milestone, is judged.\n",
+    )
+    found = dp.report(root)["problems"]
+    assert isinstance(found, dict)
+    assert found["identifiers"] == ["docs/PLAN.md:19: `tools/gone.py` does not exist"]
+
+
+def test_an_unresolved_class_name_is_counted_not_failed(tmp_path: Path) -> None:
+    root = _code_tree(tmp_path)
+    _plan_with(
+        root,
+        "Behind a `SearchIndex` port; `FtsHelper` exists.\n"
+        "`PrawGateway` arrives at M1b, so its line is not judged.\n",
+    )
+    rep = dp.report(root)
+    assert dp.flat_problems(rep) == []
+    assert rep["values"] == {"dated_annotations": 0, "unresolved_class_names": 1}
+    assert rep["hits"] == ["unresolved_class_name docs/PLAN.md:10 `SearchIndex`"]
+    # A name the code only talks about (a docstring, a string, a comment) does not resolve it.
+    (root / "src" / "insightminer" / "db" / "fts.py").write_text(
+        '"""The SearchIndex port was never built."""\nclass FtsHelper:\n    pass\n\n\n'
+        'NAME = "SearchIndex"  # SearchIndex\n',
+        encoding="utf-8",
+    )
+    assert dp.report(root)["values"]["unresolved_class_names"] == 1

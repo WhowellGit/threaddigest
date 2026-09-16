@@ -26,6 +26,9 @@ have a ledger row; the review-only ceilings only go down), so skipping one shows
    list); hold the count.
 6. **Sweep the mirrors.** Every document that states the old fact changes in the same commit; a
    replaced mechanism's phrase goes into the retired-claims table in `docs/decisions/DECISIONS.md`.
+   A build that deviates from a mechanism the plan names is a changed fact: the plan's sentence
+   changes in the same commit, with the reason there or in the decisions log, never only in a
+   docstring.
 7. **Check installed-ness, not existence.** A hook or a config that is present but not installed
    has never run (`make check` prints the hooks line; `doctor` reports it).
 8. **Prove it.** Paste the check output (the `make check` tail or the gate's own run); a claim of

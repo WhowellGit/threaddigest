@@ -46,7 +46,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-12 | pragmas_effective_on_public_write_connection | db | M0 | H | planned | |
 | DB-13 | foreign_keys_enforced_behaviorally | db | M1a | H | shipped | tests/db/test_engine_pragmas.py::test_foreign_keys_are_enforced |
 | DB-14 | busy_timeout_waits_then_fails_cleanly | db | M1a | M | shipped | tests/db/test_repo_busy_timeout.py::test_second_writer_waits_then_page_fails_with_nothing_committed |
-| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1a | H | shipped | pulled forward 2026-09-14 (KI-009), strengthened by revision 0004 (2026-09-15): `tests/db/test_fts.py::test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize` asserts the term absent from the index's data blocks, the database file, and a `VACUUM INTO` copy immediately after the scrub; the first byte-level assertion, the class the methodology seat asked for |
+| DB-15 | secure_delete_leaves_no_canary_bytes | db | M1a | H | shipped | pulled forward 2026-09-14 (KI-009), strengthened by revision 0004 (2026-09-15): `tests/db/test_fts.py::test_scrub_with_secure_delete_leaves_no_term_bytes_without_an_optimize` asserts the term absent from the index's data blocks, the database file, and a fresh copy the test takes with `VACUUM INTO` immediately after the scrub (the test's own control, not the backup mechanism); the first byte-level assertion, the class the methodology seat asked for |
 | DB-16 | read_only_paths_cannot_write | db/web | M2 | H | changed | web `mode=ro` read session cut (one rw engine behind the writer-map repository, DB-52); Datasette `mode=ro` launcher assertion kept |
 | DB-17 | wal_truncated_at_end_of_run | e2e | M1a | L | shipped | tests/e2e/test_run_happy_path.py::test_wal_is_truncated_at_end_of_run |
 | DB-18 | settings_refuse_default_data_dir_under_pytest | unit/gate | M0 | H | planned | |
@@ -306,7 +306,7 @@ Gaps the adversarial review named that have no spec ID yet (write them as tests 
 8. Hold the count: a new guard only for a recurring class, after checking whether an existing one can be widened; `GUARDS.md` records birth, control, and derived firings; reviewed quarterly.
 9. Derive state, never narrate it (Runs page, digest, `make check` summary, "catches since" all come from tool output).
 10. Show the denominator: every count carries its population; one metric function shared by UI, digest, export.
-11. Probe each item the way a real record presents it: fixtures come through `probe`, tombstones through the real `scrub()`, bot rows through `normalize()`.
+11. Probe each item the way a real record presents it: fixtures come through `probe`, tombstones through the real scrub stage (M1c), bot rows through `normalize_post()` and `normalize_comment()`.
 
 ## 6. Owner questions still open (deduplicated across the five panels and the plan; recommendations in parentheses; questions the plan already answered are omitted)
 

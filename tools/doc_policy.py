@@ -33,6 +33,17 @@ gates made the reading side mechanical. What it checks, and honestly what it doe
 - **Live facts.** The machine-read table in the decisions log must exist, parse, and hold at least
   one row; every mirror must contain the literal (outside code fences and comments); a
   configuration, code, or file home must agree with the literal.
+- **Identifiers.** A rewritten document or the working agreement that names a repository path, a
+  ``make`` target, a test id, an ``insightminer`` command line, a package module or attribute, or a
+  ``table.column`` in backticks names something that exists in the tree. A line that names a
+  milestone later than the status page's, the word "planned", a tranche, a retirement word, or a
+  decision id is not judged (it speaks of the future or the past), and neither is a table row whose
+  first cell is a date (a record of that day). A class-like name (``SearchIndex``) that appears in
+  no code file is counted into the ratchet ceiling rather than failed, because a design may name a
+  class before it exists; the line then says which milestone it waits on. Born 2026-09-16: the
+  plan, the decisions log, and the runbook described a search-index port and a ``VACUUM INTO``
+  backup that the database layer never had, written before the build and carried through the
+  plan's second version; only the identifier-shaped part of that drift is mechanical.
 
 Usage: ``--check`` (exit 1 with every problem), ``--write PATH`` (the JSON report the ratchet
 reads), ``--report`` (print the report); ``--write --check`` is what ``make check`` runs. The gate
@@ -382,6 +393,286 @@ def dangling_document_references(root: Path) -> list[str]:
     return found
 
 
+# ---------------------------------------------------------------------- identifier resolution
+
+#: Suffixes that make a backticked token a repository path. ``.md`` paths belong to the dangling
+#: reference check above, which has a deliberately weaker rule for bare names.
+CODE_SUFFIXES = (
+    ".py", ".sh", ".yaml", ".yml", ".toml", ".sql", ".txt", ".json", ".jsonl", ".css", ".html",
+    ".cfg", ".ini", ".mode", ".plist", ".lock",
+)  # fmt: skip
+NOT_A_PATH = ("data/", ".build/", ".env", "~", "/", "http")
+TEMPLATE_CHARS = "<>{}*…"
+NODE_ID = re.compile(r"^(tests/[\w./-]+\.py)::([\w-]+)(?:\[[^\]]*\])?(?:::[\w-]+)?$")
+MAKE_TARGET = re.compile(r"^make\s+([\w.-]+)")
+COMMAND_LINE = re.compile(r"^(?:uv run\s+)?insightminer\s+(.*)$")
+PACKAGE_REF = re.compile(
+    r"^(?:insightminer\.)?(?:core|db|services|adapters|web|ports|cli|settings|tools)"
+    r"(?:\.\w+)+(?:\(\))?$"
+)
+TABLE_COLUMN = re.compile(r"^([a-z_]+)\.([a-z_]+)$")
+CLASS_NAME = re.compile(r"^[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+$")
+PATH_TOKEN = re.compile(r"^\.?[\w.-]+(?:/[\w.-]+)*/?$")
+DATED_ROW = re.compile(r"^\|\s*20\d\d-\d\d-\d\d\s*\|")
+RETIRED = re.compile(
+    r"\b[DN]-\d{2}\b|\b(?:cut|retired|superseded|downgraded|dropped|deferred|declined|replaced"
+    r"|removed|renamed)\b",
+    re.IGNORECASE,
+)
+
+
+def future_marker(current: str | None) -> re.Pattern[str]:
+    """A line naming a milestone later than ``current``, the word planned, or a tranche."""
+    later = MILESTONES[MILESTONES.index(current) + 1 :] if current in MILESTONES else MILESTONES
+    names = "|".join(re.escape(m) for m in later)
+    return re.compile(rf"(?<![\w-])(?:{names})(?![\w-])|\b(?:planned|tranche [AB])\b")
+
+
+#: Docstrings, string literals, and comments in a Python file: a class name mentioned there is
+#: talk about the class, not the class.
+PY_NOISE = re.compile(
+    r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|#[^\n]*'
+)
+
+
+def _code_only(text: str) -> str:
+    return PY_NOISE.sub(" ", text)
+
+
+@dataclass(frozen=True)
+class Tree:
+    """What the tree offers a backticked token to resolve against: ``corpus`` is every
+    non-document file as written (a bare file name the code writes resolves there);
+    ``code_corpus`` is the Python with its strings and comments removed (a class name resolves
+    only where code uses it)."""
+
+    root: Path
+    files: tuple[str, ...]
+    corpus: str
+    code_corpus: str
+    top_dirs: frozenset[str]
+    package_dirs: frozenset[str]
+    make_targets: frozenset[str]
+    cli_text: str
+    schema_sql: str
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def load_tree(root: Path) -> Tree:
+    """Tracked and untracked (not ignored) files, and the text of every non-document file."""
+    listed = _git(root, "ls-files", "--cached", "--others", "--exclude-standard")
+    files = tuple(sorted(set(listed.split()))) if listed else ()
+    texts: list[str] = []
+    code: list[str] = []
+    for rel in files:
+        path = root / rel
+        if rel.endswith(".md") or rel.startswith("memory-snapshot/") or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        texts.append(text)
+        code.append(_code_only(text) if rel.endswith(".py") else text)
+    package = "src/insightminer/"
+    return Tree(
+        root=root,
+        files=files,
+        corpus="\n".join(texts),
+        code_corpus="\n".join(code),
+        top_dirs=frozenset(f.split("/")[0] for f in files if "/" in f),
+        package_dirs=frozenset(
+            f[len(package) :].split("/")[0]
+            for f in files
+            if f.startswith(package) and f[len(package) :].count("/") >= 1
+        ),
+        make_targets=frozenset(re.findall(r"^([\w.-]+):", _read(root / "Makefile"), re.M)),
+        cli_text=_read(root / "src" / "insightminer" / "cli.py"),
+        schema_sql=_read(root / "src" / "insightminer" / "db" / "schema.sql"),
+    )
+
+
+def _defined_in(name: str, text: str) -> bool:
+    pattern = rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(name)}\b"
+    return re.search(pattern, text, re.M) is not None
+
+
+def _word_in(name: str, text: str) -> bool:
+    return re.search(rf"\b{re.escape(name)}\b", text) is not None
+
+
+def _path_resolves(tree: Tree, source: Path, token: str) -> bool:
+    token = token.rstrip("/")
+    bases = (tree.root, tree.root / DOCS, tree.root / "src" / "insightminer", tree.root / "tools")
+    for base in (*bases, source.parent):
+        if any((base / cand).exists() for cand in (token, token + ".py")):
+            return True
+    if any(f == token or f.endswith("/" + token) for f in tree.files):
+        return True
+    if "/" not in token and (
+        any(f.rsplit("/", 1)[-1] == token for f in tree.files) or token in tree.corpus
+    ):
+        return True  # a bare name some tracked file has, or a name the code writes
+    ignored = subprocess.run(
+        ["git", "-C", str(tree.root), "check-ignore", "-q", token],
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    return ignored.returncode == 0  # a declared generated artifact
+
+
+def _looks_like_path(tree: Tree, token: str) -> bool:
+    if not PATH_TOKEN.match(token):
+        return False
+    if token.endswith(CODE_SUFFIXES):
+        return True
+    return "/" in token and token.split("/")[0] in (tree.top_dirs | tree.package_dirs)
+
+
+def _package_ref_resolves(tree: Tree, token: str) -> bool:
+    parts = token.removesuffix("()").removeprefix("insightminer.").split(".")
+    for k in range(len(parts), 0, -1):
+        for base in ("src/insightminer", ""):
+            stem = "/".join(([base] if base else []) + parts[:k])
+            for cand in (stem + ".py", stem + "/__init__.py"):
+                path = tree.root / cand
+                if not path.is_file():
+                    continue
+                attrs = parts[k:]
+                return not attrs or _word_in(attrs[0], _code_only(path.read_text(encoding="utf-8")))
+    return False
+
+
+def _table_block(schema_sql: str, table: str) -> str | None:
+    m = re.search(rf'CREATE TABLE "?{re.escape(table)}"?\s*\((.*?)\n\)', schema_sql, re.S)
+    return m.group(1) if m else None
+
+
+def _command_missing(tree: Tree, rest: str) -> list[str]:
+    """The command words and ``--options`` of an ``insightminer`` line the CLI does not define."""
+    missing: list[str] = []
+    for word in rest.split()[:2]:
+        if word.startswith(("-", "[", "<")):
+            break
+        if not (f'"{word}"' in tree.cli_text or _defined_in(word.replace("-", "_"), tree.cli_text)):
+            missing.append(word)
+    missing += [opt for opt in re.findall(r"--[a-z][\w-]*", rest) if opt not in tree.cli_text]
+    return missing
+
+
+Verdict = tuple[str, str]
+OK: Verdict = ("ok", "")
+
+
+def _not_judged(token: str) -> bool:
+    return (
+        not token
+        or any(c in token for c in TEMPLATE_CHARS)
+        or token.startswith(NOT_A_PATH)
+        or token.endswith(".md")
+    )
+
+
+def _judge_invocation(tree: Tree, token: str) -> Verdict | None:
+    """A test id, a make target, or a command line; ``None`` when the token is none of those."""
+    if m := NODE_ID.match(token):
+        path = tree.root / m.group(1)
+        if path.is_file() and _defined_in(m.group(2), path.read_text(encoding="utf-8")):
+            return OK
+        return "problem", "names a test that does not exist"
+    if m := MAKE_TARGET.match(token):
+        if not tree.make_targets or m.group(1) in tree.make_targets:
+            return OK
+        return "problem", "names a make target that does not exist"
+    if m := COMMAND_LINE.match(token):
+        missing = _command_missing(tree, m.group(1)) if tree.cli_text else []
+        if not missing:
+            return OK
+        return "problem", f"names a command or option the CLI does not have ({', '.join(missing)})"
+    return None
+
+
+def _judge_reference(tree: Tree, source: Path, token: str) -> Verdict:
+    """A package reference, a table column, a path, or a class-like name."""
+    if PACKAGE_REF.match(token) and not token.endswith(CODE_SUFFIXES):
+        if _package_ref_resolves(tree, token):
+            return OK
+        return "problem", "names a module or attribute that does not exist"
+    if m := TABLE_COLUMN.match(token):
+        block = _table_block(tree.schema_sql, m.group(1))
+        if block is None or _word_in(m.group(2), block):
+            return OK
+        return "problem", f"names a column that table {m.group(1)} does not have"
+    if _looks_like_path(tree, token):
+        return OK if _path_resolves(tree, source, token) else ("problem", "does not exist")
+    if CLASS_NAME.match(token) and not _word_in(token, tree.code_corpus):
+        return "class", ""
+    return OK
+
+
+def judge(tree: Tree, source: Path, token: str) -> Verdict:
+    """``("ok", "")``, ``("problem", why)``, or ``("class", "")`` for a class-like name that no
+    code file uses."""
+    token = token.strip()
+    if _not_judged(token):
+        return OK
+    return _judge_invocation(tree, token) or _judge_reference(tree, source, token)
+
+
+def _judged_lines(text: str, future: re.Pattern[str]) -> list[tuple[int, str]]:
+    """``(number, line)`` for every prose line the identifier check judges."""
+    out: list[tuple[int, str]] = []
+    in_code = in_comment = False
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if FENCE.match(raw):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        line = HTML_COMMENT.sub("", raw)
+        if in_comment:
+            if "-->" not in line:
+                continue
+            in_comment, line = False, line.split("-->", 1)[1]
+        if "<!--" in line:
+            in_comment, line = True, line.split("<!--", 1)[0]
+        if DATED_ROW.match(line) or future.search(line) or RETIRED.search(line):
+            continue
+        out.append((number, line))
+    return out
+
+
+def identifier_problems(root: Path) -> tuple[list[str], list[str]]:
+    """``(problems, class_hits)``: unresolved identifiers in rewritten documents and the working
+    agreement, and the class-like names the ratchet counts."""
+    tree = load_tree(root)
+    future = future_marker(current_milestone(root))
+    sources = [
+        p
+        for p in living_documents(root)
+        if _policy(front_matter(p.read_text(encoding="utf-8"))) in ACCRETION_POLICIES
+    ]
+    sources.append(root / WORKING_AGREEMENT)
+    problems: list[str] = []
+    classes: list[str] = []
+    for path in sources:
+        if not path.is_file():
+            continue
+        rel = _rel(root, path)
+        for number, line in _judged_lines(path.read_text(encoding="utf-8"), future):
+            for token in BACKTICKED.findall(line):
+                kind, why = judge(tree, path, token)
+                if kind == "problem":
+                    problems.append(f"{rel}:{number}: `{token.strip()}` {why}")
+                elif kind == "class":
+                    classes.append(f"unresolved_class_name {rel}:{number} `{token.strip()}`")
+    return problems, classes
+
+
 # ------------------------------------------------------------------------------ live facts
 
 
@@ -474,11 +765,13 @@ def report(root: Path = ROOT) -> dict[str, object]:
         _rel(root, p): front_matter(p.read_text(encoding="utf-8")) or {}
         for p in living_documents(root)
     }
+    unresolved, class_hits = identifier_problems(root)
     problems: dict[str, list[str]] = {
         "contract": [],
         "append_only": append_only_problems(root, baseline_ref(root)),
         "milestone_lag": milestone_lag_problems(root),
         "dangling": dangling_document_references(root),
+        "identifiers": unresolved,
         "facts": fact_problems(root),
     }
     hits: list[str] = []
@@ -491,7 +784,12 @@ def report(root: Path = ROOT) -> dict[str, object]:
             annotations = dated_annotations(text)
             total += len(annotations)
             hits += [f"dated_annotation {rel}:{n} {snippet}" for n, snippet in annotations]
-    return {"values": {"dated_annotations": total}, "hits": hits, "problems": problems}
+    hits += class_hits
+    return {
+        "values": {"dated_annotations": total, "unresolved_class_names": len(class_hits)},
+        "hits": hits,
+        "problems": problems,
+    }
 
 
 def flat_problems(rep: dict[str, object]) -> list[str]:

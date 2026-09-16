@@ -10,7 +10,9 @@ in ``docs/decisions/DECISIONS.md``, each row citing the decision that retired it
 live document that mentions a retired phrase must carry a retirement marker on the same line (a
 ``D-NN``/``N-NN`` id or a word such as cut, retired, superseded, downgraded, dropped, deferred,
 declined). Historical material (``reference/``, ``insights/``) and the decisions log itself are
-outside the scan: they are allowed to describe the past.
+outside the scan: they are allowed to describe the past. Backticks are stripped before a phrase
+is matched (widened 2026-09-16, drift finding 24: the retired backup statement was written with
+backticks around it, which a literal match would have read as a different claim).
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ def violations(docs: Path) -> list[str]:
     for path in live_documents(docs):
         rel = path.relative_to(docs).as_posix()
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            lowered = line.lower()
+            lowered = line.replace("`", "").lower()
             for phrase, _ in claims:
                 if phrase.lower() in lowered and not MARKER.search(line):
                     found.append(f"{rel}:{number}: states retired claim `{phrase}`")
@@ -78,7 +80,7 @@ def source_violations(root: Path) -> list[str]:
         for path in sorted(root.glob(pattern)):
             rel = path.relative_to(root).as_posix()
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                lowered = line.lower()
+                lowered = line.replace("`", "").lower()
                 for phrase, _ in claims:
                     if phrase.lower() in lowered and not MARKER.search(line):
                         found.append(f"{rel}:{number}: states retired claim `{phrase}`")
@@ -134,6 +136,9 @@ def test_positive_control_stale_claim_is_red_and_annotated_claim_is_green(tmp_pa
     assert violations(stale) == ["PLAN.md:3: states retired claim `widget`"]
     annotated = _docs_tree(tmp_path / "b", "The widget runs nightly (cut 2026-01-01, N-99).")
     assert violations(annotated) == []
+    # Backticks around the phrase, or inside it, are not a different claim (2026-09-16).
+    ticked = _docs_tree(tmp_path / "c", "One `widget` per run.")
+    assert violations(ticked) == ["PLAN.md:3: states retired claim `widget`"]
 
 
 @pytest.mark.gate

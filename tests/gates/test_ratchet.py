@@ -91,7 +91,7 @@ EXPECTED = {
         "dead_code_whitelisted": 0,
         "duplicate_blocks": 0,
     },
-    "docs": {"dated_annotations": 0},
+    "docs": {"dated_annotations": 0, "unresolved_class_names": 0},
 }
 
 
@@ -112,12 +112,20 @@ def write_code_health(root: Path, values: dict[str, int], hits: list[str] | None
     )
 
 
-def write_doc_policy(root: Path, count: int, hits: list[str] | None = None) -> None:
+def write_doc_policy(
+    root: Path, count: int, hits: list[str] | None = None, *, class_names: int = 0
+) -> None:
     """The report tools/doc_policy.py would write; the ratchet reads it like code_health.json."""
     build = root / ".build"
     build.mkdir(exist_ok=True)
     (build / "doc_policy.json").write_text(
-        json.dumps({"values": {"dated_annotations": count}, "hits": hits or [], "problems": {}}),
+        json.dumps(
+            {
+                "values": {"dated_annotations": count, "unresolved_class_names": class_names},
+                "hits": hits or [],
+                "problems": {},
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -513,7 +521,7 @@ def test_compare_is_red_when_dated_annotations_accrete(project: Path) -> None:
     """Wes, 2026-09-15: an accreting count of dated annotations in a rewritten document means a
     targeted rewrite is due, never another annotation; the ceiling only goes down."""
     assert ratchet(project, "bump").returncode == 0
-    assert read(project, "docs") == "dated_annotations=0\n"
+    assert read(project, "docs") == "dated_annotations=0\nunresolved_class_names=0\n"
     write_doc_policy(project, 2, ["dated_annotation docs/PLAN.md:12 (corrected 2026-09-13)"])
     proc = ratchet(project, "compare", "--main-ref", "none")
     assert proc.returncode == 1, proc.stdout
@@ -562,3 +570,18 @@ def test_bump_clears_a_hard_after_once_a_ceiling_reaches_zero(project: Path) -> 
     assert "CLEARED   code_health.cognitive_over_15" in proc.stdout
     assert "hard_after" not in read(project, "code_health")
     assert ratchet(project, "compare", "--main-ref", "none").returncode == 0
+
+
+def test_compare_is_red_when_unresolved_class_names_accrete(project: Path) -> None:
+    """2026-09-16: the plan named a ``SearchIndex`` port the database layer never had; a
+    class-like name no code file defines is counted, and the count only goes down."""
+    assert ratchet(project, "bump").returncode == 0
+    write_doc_policy(
+        project, 0, ["unresolved_class_name docs/PLAN.md:92 `SearchIndex`"], class_names=1
+    )
+    proc = ratchet(project, "compare", "--main-ref", "none")
+    assert proc.returncode == 1, proc.stdout
+    assert "RED       docs.unresolved_class_names" in proc.stdout
+    assert "HIT       unresolved_class_name docs/PLAN.md:92 `SearchIndex` [doc-policy]" in (
+        proc.stdout
+    )
