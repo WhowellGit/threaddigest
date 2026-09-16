@@ -2,6 +2,7 @@
 purpose: The append-only log of settled choices, settled negatives, compliance bounds, and retired claims, each with a revisit trigger.
 update-policy: append-only
 mirrors: [docs/PLAN.md, docs/recent/STATUS.md, docs/runbook/GUARDS.md]
+exempt-sections: ['## Live facts']
 ---
 # Decisions — settled choices, settled negatives, and their revisit triggers
 
