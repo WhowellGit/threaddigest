@@ -94,10 +94,12 @@ class Severity(StrEnum):
     """A violation's consequence for ``runs.status`` (§19.1)."""
 
     WARNING = "warning"
-    """The run ends ``partial`` (amber): the floors, freshness, FTS membership, DB-48."""
+    """The run ends ``partial`` (amber): the floors, freshness, the normalizer stamp, DB-48."""
 
     FAILURE = "failure"
-    """The run ends ``failed`` (red): DB-54's counter deltas, a second ``running`` row."""
+    """The run ends ``failed`` (red): DB-54's counter deltas, a second ``running`` row, and
+    the search index disagreeing with the live rows (DB-26; a failure since 2026-09-16,
+    because an index that holds what the store does not is a compliance surface)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,13 +219,13 @@ def fts_membership_equals_live(ctx: InvariantContext) -> Violation | None:
         if membership != live_rows:
             return _violation(
                 fts_membership_equals_live,
-                Severity.WARNING,
+                Severity.FAILURE,
                 f"{table}: fts membership {membership} != {table}_live {live_rows}",
             )
         if not fts.integrity_check(ctx.conn, fts_table):
             return _violation(
                 fts_membership_equals_live,
-                Severity.WARNING,
+                Severity.FAILURE,
                 f"{table}: fts index does not match its content rows (integrity-check failed)",
             )
     return None

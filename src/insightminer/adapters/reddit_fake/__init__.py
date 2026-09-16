@@ -76,7 +76,8 @@ A JSON object::
                      "children": ["c1", "c2"]}, ... ]
     }
 
-``posts`` and ``comments`` are the ``data`` objects exactly as Reddit returned them (at least
+``posts`` and ``comments`` are the ``data`` objects as Reddit returned them, with every author
+name and account id replaced by ``core.fixture_scrub`` before saving (at least
 ``id``, ``subreddit``, ``title``, ``created_utc`` for posts; ``id``, ``link_id``,
 ``parent_id``, ``body``, ``created_utc`` for comments); ``name`` is derived when absent,
 ``depth`` is dropped (recomputed) and ``num_comments`` is kept as captured. Subreddits

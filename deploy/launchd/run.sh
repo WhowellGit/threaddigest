@@ -17,7 +17,8 @@
 #   0 ok, 75 locked, 130 cancelled     log only
 #   4 rate limited, 5 network          log "will retry at the next interval": launchd runs the
 #                                      job again at the next StartCalendarInterval entry
-#   1 failed, 3 partial, 78 config     macOS notification with the status and the UI address
+#   1 failed, 78 config               macOS notification with the status and the UI address
+#   3 partial                         logged only: amber is read in the digest, never notified
 #   anything else                      macOS notification "unexpected exit"
 #
 # Must stay /bin/bash 3.2 compatible: that is the interpreter launchd runs it with.
@@ -145,7 +146,7 @@ case "$rc" in
   4) log "rate limited by Reddit; will retry at the next interval" ;;
   5) log "network unavailable; will retry at the next interval" ;;
   1) notify "failed" "Scheduled $JOB failed (exit 1). Details: $UI_PAGE" ;;
-  3) notify "partial" "Scheduled $JOB finished with warnings (exit 3). Details: $UI_PAGE" ;;
+  3) log "$JOB finished with warnings (exit 3); amber is read in the digest and on the Runs page, never notified (ruled 2026-09-16)" ;;
   78) notify "config error" "Scheduled $JOB refused to start: configuration or credentials (exit 78). Details: $UI_PAGE" ;;
   *) notify "unexpected exit $rc" "Scheduled $JOB exited with code $rc. Details: $UI_PAGE" ;;
 esac

@@ -16,7 +16,7 @@ RATCHET := $(UV) run python tools/ratchet.py
 CODE_HEALTH := $(BUILD_DIR)/code_health.json
 DOC_POLICY := $(BUILD_DIR)/doc_policy.json
 
-.PHONY: help setup hooks check test run fixture schema ratchet-bump ratchet-loosen plan-html \
+.PHONY: help setup hooks check test test-live run fixture schema ratchet-bump ratchet-loosen plan-html \
         memory-check memory-export code-health
 
 help:
@@ -119,6 +119,9 @@ schema:
 
 test:
 	$(UV) run pytest -m "$(MARKEXPR)"
+
+test-live:  ## the opt-in live suite (tranche B): needs .env credentials; the network block is lifted for Reddit only
+	$(UV) run --env-file .env pytest tests/live -m live --allowed-hosts='.*\.reddit\.com,.*\.redditmedia\.com'
 
 # `run` is the documented first-run sequence (design-round5 §19.10, Wes's Q9): `db init`
 # creates the schema, `run` refuses a database that does not exist. INSIGHTMINER_DATA_DIR is

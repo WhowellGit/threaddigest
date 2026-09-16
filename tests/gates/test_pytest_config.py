@@ -7,6 +7,8 @@ the pytest-recording error, not reach the operating system.
 
 from __future__ import annotations
 
+import importlib.util
+import os
 import socket
 import tomllib
 import warnings
@@ -72,3 +74,31 @@ def test_sqlhelp_is_importable_from_every_test_package() -> None:
 
     assert callable(table_digest)
     assert callable(read_run)
+
+
+def test_the_live_suite_keeps_the_reddit_credentials_and_nothing_else(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Widened 2026-09-16 (readiness seat F1): the root fixture strips every INSIGHTMINER_*
+    variable, credentials included, so a live test could not pass even with credentials. The
+    live suite's conftest keeps exactly the three Reddit variables and still isolates the data
+    directory; ``make test-live`` is the one invocation and lifts the block for Reddit only."""
+    spec = importlib.util.spec_from_file_location(
+        "live_conftest", REPO_ROOT / "tests" / "live" / "conftest.py"
+    )
+    assert spec is not None and spec.loader is not None
+    live = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(live)
+    monkeypatch.setenv("INSIGHTMINER_REDDIT_CLIENT_ID", "id")
+    monkeypatch.setenv("INSIGHTMINER_REDDIT_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("INSIGHTMINER_REDDIT_USERNAME", "user")
+    monkeypatch.setenv("INSIGHTMINER_UI_PASSWORD", "must-go")
+    data_dir = live.keep_credentials_only(monkeypatch, tmp_path)
+    assert os.environ["INSIGHTMINER_REDDIT_CLIENT_ID"] == "id"
+    assert os.environ["INSIGHTMINER_REDDIT_USERNAME"] == "user"
+    assert "INSIGHTMINER_UI_PASSWORD" not in os.environ
+    assert os.environ["INSIGHTMINER_DATA_DIR"] == str(data_dir) and data_dir.is_dir()
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile[makefile.index("test-live:") :].split("\n\n", 1)[0]
+    assert "pytest tests/live -m live" in target and "--allowed-hosts=" in target
+    assert "reddit" in target and "--env-file .env" in target

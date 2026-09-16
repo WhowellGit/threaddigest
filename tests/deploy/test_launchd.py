@@ -36,9 +36,12 @@ UI = "http://127.0.0.1:8765"
 TIMESTAMPED = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4} \[(?:run|doctor)\] ", re.M)
 
 # Exit codes the wrapper must handle, grouped by the action docs/PLAN.md assigns to them.
-NOTIFY = {1: "failed", 3: "partial", 78: "config error", 2: "unexpected exit 2"}
+NOTIFY = {1: "failed", 78: "config error", 2: "unexpected exit 2"}
 RETRY = {4: "rate limited", 5: "network"}
-QUIET = {0: "ok", 75: "lock", 130: "cancelled"}
+# 3 (partial) is quiet since 2026-09-16: an amber run is read in the digest and on the Runs
+# page, and alerting on it would train the operator to ignore the alert (the code's own
+# rule in services/collect.py, which the wrapper had contradicted).
+QUIET = {0: "ok", 75: "lock", 130: "cancelled", 3: "partial"}
 
 STUB_MAIN = '''\
 """Stand-in for `python -m insightminer`: records how it was called, exits as told."""

@@ -34,6 +34,7 @@ simpler and would leave a hole exactly where someone would hide something.
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from collections.abc import Iterable
@@ -273,3 +274,74 @@ def test_positive_control_the_carve_outs_are_narrow(tmp_path: Path) -> None:
     )
     other, other_paths = _tree(tmp_path / "near", f"# s\n\n{near}\n")
     assert len(violations(other, other_paths)) == 5
+
+
+# ---------------------------------------------------------------------------- fixtures (2026-09-16)
+# Widened on 2026-09-16 (the plan-version-two deep review, readiness seat F2): a fixture committed
+# under tests/fixtures/ is permanent history, and a Reddit username or account id in it is another
+# person's identifier, the class this gate exists for. Every capture is scrubbed on save by
+# core.fixture_scrub; the hand-written synthetic set is invented by construction and exempt.
+
+FIXTURE_ROOTS = ("tests/fixtures/", "tests/adapters/cassettes/")
+HAND_WRITTEN = ("tests/fixtures/json/synthetic/",)
+CASSETTE_AUTHOR = re.compile(r'"author":\s*"([^"]*)"')
+CASSETTE_ID = re.compile(r"\bt2_[0-9a-z]+\b")
+
+
+def fixture_violations(root: Path, rel_paths: Iterable[str]) -> list[str]:
+    """Every author name or account id under the fixture roots that is neither kept nor
+    synthetic, as ``path: value``; JSON is walked, a cassette is scanned as text."""
+    from insightminer.core import fixture_scrub as fs
+
+    found: list[str] = []
+    for rel in sorted(rel_paths):
+        if not rel.startswith(FIXTURE_ROOTS) or rel.startswith(HAND_WRITTEN):
+            continue
+        path = root / rel
+        if rel.endswith(".json"):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            found += [f"{rel}: {v}" for v in fs.offending_values(payload)]
+        elif rel.endswith((".yaml", ".yml")):
+            text = path.read_text(encoding="utf-8")
+            names = [m for m in CASSETTE_AUTHOR.findall(text) if fs._needs_name(m)]
+            ids = [m for m in CASSETTE_ID.findall(text) if not fs.SYNTHETIC_ID.match(m)]
+            found += [f"{rel}: {v}" for v in names + ids]
+    return found
+
+
+def test_fixtures_carry_synthetic_authors_only() -> None:
+    found = fixture_violations(ROOT, tracked_files(ROOT))
+    assert not found, "real author names or ids in fixtures:\n" + "\n".join(found)
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_a_real_author_in_a_fixture_is_red(tmp_path: Path) -> None:
+    from insightminer.core import fixture_scrub as fs
+
+    raw = {"posts": [{"id": "x", "author": "a_real_person", "author_fullname": "t2_9zq8x"}]}
+    capture = tmp_path / "tests" / "fixtures" / "json" / "captures" / "post.json"
+    capture.parent.mkdir(parents=True)
+    capture.write_text(json.dumps(raw), encoding="utf-8")
+    cassette = tmp_path / "tests" / "adapters" / "cassettes" / "auth.yaml"
+    cassette.parent.mkdir(parents=True)
+    cassette.write_text(
+        'body: \'{"author": "a_real_person", "author_fullname": "t2_9zq8x"}\'\n',
+        encoding="utf-8",
+    )
+    synthetic = tmp_path / "tests" / "fixtures" / "json" / "synthetic" / "post.json"
+    synthetic.parent.mkdir(parents=True)
+    synthetic.write_text(json.dumps(raw), encoding="utf-8")
+    rels = [
+        "tests/fixtures/json/captures/post.json",
+        "tests/adapters/cassettes/auth.yaml",
+        "tests/fixtures/json/synthetic/post.json",
+    ]
+    assert fixture_violations(tmp_path, rels) == [
+        "tests/adapters/cassettes/auth.yaml: a_real_person",
+        "tests/adapters/cassettes/auth.yaml: t2_9zq8x",
+        "tests/fixtures/json/captures/post.json: a_real_person",
+        "tests/fixtures/json/captures/post.json: t2_9zq8x",
+    ]
+    # The scrubbed capture is green; the hand-written synthetic set is exempt by construction.
+    capture.write_text(json.dumps(fs.scrub(raw)), encoding="utf-8")
+    assert fixture_violations(tmp_path, rels[:1]) == []

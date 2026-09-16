@@ -93,7 +93,7 @@ display still sleeps).
 | 4 | rate limited | log "will retry at the next interval" |
 | 5 | network unavailable | log "will retry at the next interval" |
 | 1 | failed | macOS notification, subtitle `failed` |
-| 3 | partial (warnings recorded) | macOS notification, subtitle `partial` |
+| 3 | partial (warnings recorded) | log line only; amber is read in the digest and on the Runs page, never notified |
 | 78 | configuration or credentials refused | macOS notification, subtitle `config error` |
 | other | unexpected | macOS notification, subtitle `unexpected exit N` |
 

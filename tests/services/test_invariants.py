@@ -315,7 +315,7 @@ def test_fts_membership_equals_live_flags_a_membership_mismatch(
     with engine.connect() as conn:
         violation = invariants.fts_membership_equals_live(_inv_ctx(conn, run_context))
     assert violation is not None
-    assert violation.severity == invariants.Severity.WARNING
+    assert violation.severity == invariants.Severity.FAILURE
     assert "posts" in violation.detail
 
 
@@ -359,7 +359,7 @@ def test_fts_membership_equals_live_flags_an_equal_count_substitution(
             ).scalars()
         )
     assert violation is not None
-    assert violation.severity == invariants.Severity.WARNING
+    assert violation.severity == invariants.Severity.FAILURE
     assert "does not match its content rows" in violation.detail
     assert phantom == [pk + 9000]  # the substitution was real: search finds the phantom
 
