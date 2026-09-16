@@ -214,6 +214,23 @@ def base_text(root: Path, ref: str, rel: str) -> str | None:
     return _git(root, "show", f"{ref}:{rel}")
 
 
+def base_blob(root: Path, ref: str, rel: str) -> bytes | None:
+    """The file's bytes at the baseline, or ``None`` when it did not exist there.
+
+    Bytes rather than decoded text, because a reference record need not be Markdown: the hash
+    map a history rewrite writes is tab separated. Comparing a decoded baseline against an
+    encoded working file reported every such record as edited from the moment the baseline
+    carried it, byte-identical or not (KI-028).
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(root), "show", f"{ref}:{rel}"],
+        capture_output=True,
+        check=False,
+        timeout=60,
+    )
+    return proc.stdout if proc.returncode == 0 else None
+
+
 def _norm(line: str) -> str:
     """A line with its dated parentheticals removed and its spacing collapsed."""
     return " ".join(_without_dated_parentheticals(line).split())
@@ -295,13 +312,13 @@ def append_only_problems(root: Path, ref: str | None) -> list[str]:
         short = path.relative_to(root / DOCS).as_posix()
         if short.startswith(REFERENCE_EDITABLE):
             continue
-        old = base_text(root, ref, rel)
-        if old is None:
-            continue
-        new = path.read_text(encoding="utf-8") if path.suffix == ".md" else path.read_bytes().hex()
         if short in REFERENCE_APPEND_ONLY:
-            found += append_only_violations(old, new, rel)
-        elif old != new:
+            old = base_text(root, ref, rel)
+            if old is not None:
+                found += append_only_violations(old, path.read_text(encoding="utf-8"), rel)
+            continue
+        old_bytes = base_blob(root, ref, rel)
+        if old_bytes is not None and old_bytes != path.read_bytes():
             found.append(f"{rel}: a reference record was edited; records are added, never edited")
     return found
 

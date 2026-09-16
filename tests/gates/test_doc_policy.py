@@ -221,6 +221,34 @@ def test_positive_control_an_edited_reference_record_is_red(tmp_path: Path) -> N
     assert any("REGISTER.md:3: append-only document lost a line" in f for f in _problems(root))
 
 
+def test_a_reference_record_that_is_not_markdown_is_silent_until_it_really_changes(
+    tmp_path: Path,
+) -> None:
+    """KI-028. A record need not be Markdown: the hash map a history rewrite writes is tab
+    separated. The check read the baseline as text and the working file as hex, so a record
+    like that was reported edited from the moment the baseline carried it, byte-identical or
+    not. It cannot show on the branch that adds the record -- there the file is new at the
+    baseline and skipped -- only once the baseline has it, which is why running the gate on
+    the branch alone did not catch it.
+    """
+    root = _tree(tmp_path)
+    record = root / "docs" / "reference" / "hash-remap-2026-01-01.tsv"
+    record.write_text("# a rewrite\nold0000\tnew0000\ta subject\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "the map a rewrite wrote")
+    git(root, "branch", "-f", "main", "work")  # the baseline now carries the record
+
+    edited = "docs/reference/hash-remap-2026-01-01.tsv: a reference record was edited"
+    assert not [f for f in _problems(root) if edited in f], (
+        "an untouched record that is not Markdown must be silent"
+    )
+
+    record.write_text("# a rewrite\nold0000\tsomethingelse\ta subject\n", encoding="utf-8")
+    assert [f for f in _problems(root) if edited in f], (
+        "the positive control: a real edit to that same record must still be red"
+    )
+
+
 def test_positive_control_a_lagging_or_future_stamped_document_is_red(tmp_path: Path) -> None:
     root = _tree(tmp_path, status_milestone="M1b")
     found = _problems(root)
