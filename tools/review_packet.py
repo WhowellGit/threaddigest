@@ -64,6 +64,11 @@ BUNDLES: dict[str, tuple[str, ...]] = {
         "docs/recent/STATUS.md",
         "docs/TEST_STRATEGY.md",
         "docs/INDEX.md",
+        "docs/OVERVIEW.md",
+        "docs/INSIGHTMINER_HARNESS.md",
+        # the Reddit policy facts the compliance design rests on (ruled 2026-09-14: the next
+        # packet carries them; the review of 2026-09-16 found them missing)
+        "docs/reference/reddit-policy-facts-2026-09-14.md",
         "docs/runbook/RUNBOOK.md",
         "docs/runbook/KNOWN_ISSUES.md",
         "docs/runbook/GUARDS.md",
@@ -104,6 +109,10 @@ EXCLUDED_PREFIXES = (
     "docs/reference/reviews/2026-",
     "memory-snapshot/",
     "tests/fixtures/",
+    # recorded Reddit content, like the fixtures (decided 2026-09-16)
+    "tests/adapters/cassettes/",
+    # the query template is rendered into the packet; the raw templates are not content
+    "docs/reference/reviews/templates/",
     "docs/PLAN.html",
     # The identifier gate's own test spells out the banned identifiers as its positive controls
     # (split strings that defeat the scan, not a reader); the ledger row G35 describes it.
@@ -156,6 +165,24 @@ def git_bytes(root: Path, *args: str) -> bytes:
 def excluded(rel: str) -> bool:
     name = rel.rsplit("/", 1)[-1]
     return rel.startswith(EXCLUDED_PREFIXES) or name.startswith(".env")
+
+
+def uncovered_documents(tracked: list[str]) -> list[str]:
+    """Tracked documents under ``docs/`` that no bundle names and no exclusion covers.
+
+    The allowlist is one-directional on its own: a new living document can never fail the
+    packet gate by being absent. The plan-version-two deep review (2026-09-16) found the
+    Reddit policy facts, the harness page, and the overview missing from the packet against a
+    ruling that the next packet carries them; this is the other direction.
+    """
+    listed = [entry for members in BUNDLES.values() for entry in members]
+    return sorted(
+        rel
+        for rel in tracked
+        if rel.startswith("docs/")
+        and not excluded(rel)
+        and not any(rel == entry or rel.startswith(entry + "/") for entry in listed)
+    )
 
 
 def owner_identity(root: Path) -> list[tuple[str, str]]:

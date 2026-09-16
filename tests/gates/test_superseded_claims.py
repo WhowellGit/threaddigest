@@ -69,7 +69,15 @@ def violations(docs: Path) -> list[str]:
 
 #: Source and deploy files scanned the same way (widened 2026-09-15: the plan-version-two review
 #: found the retired daily schedule alive in a code comment, a constant, and a wrapper header).
-SOURCE_GLOBS = ("src/**/*.py", "deploy/**/*.sh", "deploy/**/*.plist", "deploy/**/*.md")
+SOURCE_GLOBS = (
+    "src/**/*.py",
+    "deploy/**/*.sh",
+    "deploy/**/*.plist",
+    "deploy/**/*.md",
+    # the review templates are living artifacts reviewed like code, and the brief is pasted to
+    # outside reviewers; the plan-v2 deep review (2026-09-16) found the daily schedule alive there
+    "docs/reference/reviews/templates/*.md",
+)
 
 
 def source_violations(root: Path) -> list[str]:

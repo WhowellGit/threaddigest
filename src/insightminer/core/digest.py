@@ -62,7 +62,7 @@ __all__ = [
 
 #: A source not fetched for this many runs is reported stale (PLAN.md, Resilience: "the
 #: freshness invariants say so in the digest when a source has not been fetched for two
-#: intervals").
+#: runs").
 STALE_AFTER_RUNS: Final = 2
 
 

@@ -159,18 +159,18 @@ and do not spend effort confirming absences the list above already states.
    "user agent".
 2. **Compliance on disk.** Where could deleted or removed content survive after a scrub: the
    search index's segments until an `optimize`, the write-ahead log after a checkpoint that
-   found a reader, backups made by copy or by `VACUUM INTO`, error columns, logs, raw JSON and
+   found a reader, backups made by the online backup API (`db/backup.py`), error columns, logs, raw JSON and
    rejects? Which transition in the content state machine (plan § Data model;
    `src/insightminer/core/deletion.py`) is wrong or missing? What does a run that dies
    mid-reconcile leave behind? Start here: `core/deletion.py`, the search-index triggers in
    `db/schema.sql`, `db/fts.py`, `db/backup.py`, `db/engine.py`, the error columns written by
-   `services/sweep.py`. Search for: "scrub", "tombstone", "raw_json", "VACUUM INTO",
+   `services/sweep.py`. Search for: "scrub", "tombstone", "raw_json", "online_backup",
    "last_error", "wal_checkpoint", "secure_delete".
 3. **SQLite as it actually behaves.** Write-ahead mode and checkpointing, pragmas set per
    connection, FTS5 external content over live-only views with triggers on the base tables
    (including what those triggers do on a routine upsert whose text has not changed),
    `AUTOINCREMENT` and the sequence table across an Alembic batch-mode copy, batch mode with
-   views, triggers, and FTS in one migration, the backup API against `VACUUM INTO`, integrity
+   views, triggers, and FTS in one migration, the backup API (chosen over the vacuum-into statement, which one test still runs as its own control), integrity
    checks after a migration: which of the plan's rules are wrong for the engine's documented
    behaviour, and which failure has no test? Start here: `db/engine.py`, `db/repo.py`,
    `db/migrate.py`, `db/migrations/`, the database learnings under `docs/learnings/`,
@@ -182,7 +182,7 @@ and do not spend effort confirming absences the list above already states.
    credentials revoked, a subreddit gone private for days, clock and daylight-saving changes,
    configuration drift between the YAML and the database. Which of these produce silence
    rather than a loud signal, what does the operator see after a failed night, and which
-   designed-but-unbuilt controls must precede the daily schedule? Start here: plan
+   designed-but-unbuilt controls must precede the twice-weekly schedule? Start here: plan
    § Deployment path and § Resilience to outages, `services/invariants.py`,
    `services/doctor.py`, `services/runs.py`, `deploy/launchd/`, `settings.py`. Search for:
    "FRESHNESS_WINDOW", "acknowledge", "partial", "retention", "log_path", "crashed".

@@ -12,7 +12,7 @@ notifications.
 
 Twice a week, Monday and Thursday, is the cadence (D-30, 2026-09-15): Wes reads on his own
 rhythm, the target subreddits produce far fewer than 1,000 posts between runs, so the listing
-cap is never in play, and the seven-digest reading week finishes in about seven weeks. A run
+cap is never in play, and the seven-digest reading week finishes in about three and a half weeks. A run
 that cannot reach Reddit exits `network`; the next scheduled run retries it, and the sweep is
 idempotent so a double-covered window costs nothing. The hourly `doctor` is the local
 staleness check (the external dead-man ping arrives at M1d, N-12): `--alert-if-stale 5d` is longer than the normal 4-day gap between a Thursday

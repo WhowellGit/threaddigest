@@ -144,7 +144,7 @@ code health, the document contract, the ratchet compare three ways, the hooks li
 audit, and finally the green stamp that names the tree it passed. Ratchets are one-way floors and
 ceilings written only by `tools/ratchet.py`; a loosening pauses for approval and lands a ledger
 row; a birth relaxation carries an expiry. Gates in `tests/gates/` each ship a positive control.
-Post-run invariants at runtime flip a run to `failed` rather than warn. **The honest limit:** the
+Post-run invariants at runtime close a run `failed` (a failure) or `partial` (a warning) rather than pass silently; the plan names the severity of each. **The honest limit:** the
 hooks parse command text and are mistake prevention for the agent, not a security boundary; the
 boundary against a deliberate bypass is pre-commit, CI once a remote exists, review, and branch
 protection (G23).

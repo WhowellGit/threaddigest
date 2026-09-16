@@ -234,7 +234,7 @@ class Subreddit(Base):
 
 
 class Search(Base):
-    """A saved Reddit-wide search run daily as a third source type (M3)."""
+    """A saved Reddit-wide search run on the schedule as a third source type (M3)."""
 
     __tablename__ = "searches"
     __table_args__ = (Index("ix_searches_workspace_pk", "workspace_pk"),)

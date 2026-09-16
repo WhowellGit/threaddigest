@@ -18,7 +18,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 |---|---|---|---|
 | Unit (`core/`) | normalize, deletion state table, paging/stop/gap, ladder, budget, theme rules incl. regex timeout, digest golden, UA | pytest, hypothesis with stated properties (NM-01) | ingest §B.9, B.12; DB §A1 |
 | Service / e2e against the fake | whole `run` and each stage through `CliRunner` with the scenario-builder fake (`add_post`, `delete`, `remove`, `vanish`, `fail_page`, `rate_limit_next`, …; unconsumed injections fail the test) and a temp DB | `FakeRedditGateway`, `FakeClock`, `FakeNotifier`, `tmp_path` | ingest §A, §B |
-| Adapter: cassette + `responses` + contract | happy paths from recorded cassettes (test subreddit only, `--record-mode=none`); failure paths with exact request counts; the same cases against fake and PRAW so the fake stays honest | pytest-recording, `responses`, one fixture schema | ingest §B.14, §C probes P-01…17 |
+| Adapter: cassette + `responses` + contract | happy paths from recorded cassettes (test subreddit only; pytest-recording's default record mode is `none`, so replay never records); failure paths with exact request counts; the same cases against fake and PRAW so the fake stays honest | pytest-recording, `responses`, one fixture schema | ingest §B.14, §C probes P-01…17 |
 | Migration with per-revision fixtures | `schema.sql` golden, models == DDL, single head, up/down; every prior revision's fixture DB upgrades clean with FTS (`_docsize`) == live, canaries checked | pytest-alembic, `tests/fixtures/db/<rev>.sqlite` + manifest, generated from pre-change code | DB §A1, §A8, §B, §C |
 | Gate positive controls | each CI gate/ratchet made red from a constructed bad state in `tmp_path`, asserting the tool's own message; config-borne gates proven by running pytest as CI runs it | `tests/gates/`, `@pytest.mark.gate("<ID>")` | enforcement §B; adversarial A3 split |
 | Workflow tests spanning stages and operator flows | one fake corpus through sweep → trees → revisit → reconcile → tag → digest → backup; setup → first sweep; theme edit → retag; backup → restore drill; pending migration → apply; export → import on a fresh data dir; end state, counters, delivered artifacts | pytest, fake, temp data dir | plan § Testing "Workflow"; UI §B checklist |
@@ -81,7 +81,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-47 | reprocess_from_raw_json_byte_identical | e2e | M1a | H | planned | no `reprocess` command exists yet; not built in tranche A |
 | DB-48 | rows_written_this_run_carry_current_normalizer_version | gate | M1a | H | shipped | adversarial A15 would fold it into DB-47; the plan did not adopt that; tests/services/test_invariants.py::test_rows_carry_current_normalizer_version_passes_when_all_rows_are_current, ::test_rows_carry_current_normalizer_version_flags_a_stale_row_written_this_run |
 | DB-49 | settings_fingerprint_changes_only_on_non_secret_change | e2e | M1d | M | planned | |
-| DB-50 | population_floors_fail_the_run_and_name_the_column | gate/e2e | M1a | H | shipped | structural floors only: 100% on live rows with `author_state=known` (A11, ingest D-13), not 95% over all rows; amber not `failed` for the first 60 days; tests/services/test_invariants.py::test_empty_population_with_writes_is_a_violation |
+| DB-50 | population_floors_fail_the_run_and_name_the_column | gate/e2e | M1a | H | shipped | structural floors only: 100% on live rows with `author_state=known` (A11, ingest D-13), not 95% over all rows; amber, not `failed`, by severity (the code carries no clock); tests/services/test_invariants.py::test_empty_population_with_writes_is_a_violation |
 | DB-51 | floors_scoped_by_normalizer_version_and_empty_population_fails | gate | M1a/M1c | H | shipped | tests/services/test_invariants.py::test_floor_is_scoped_by_normalizer_version, ::test_empty_population_with_writes_is_a_violation |
 | DB-52 | web_writer_map_enforced | gate/web | M2 | H | planned | |
 | DB-53 | authors_counters_match_count | gate | M1c | M | planned | |
@@ -133,7 +133,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | RC-06 | reconcile_cadence_invariant_and_tier_fallback | service+digest | M1c/M3 | M | changed | invariant is per tier: 60 h ≤ 30 d, 8 d to 1 y, 35 d beyond (replaces 48 h + 12 h grace) |
 | SC-01 | scrub_is_one_function_all_surfaces | service | M1c | H | changed | JSONL surface gone (sidecar cut 2026-09-13); canary in a title too; FTS5 persistent secure-delete (revision 0004) removes the term bytes as the scrub trigger runs, so `db.fts.optimize` is periodic maintenance, not the compliance step (KI-009, revised 2026-09-15) |
 | SC-02 | compliance_canary_end_to_end | e2e | M1c | H | changed | scans `data/**`; digest is a route (no file); asserts backup/export file ages (B1) |
-| FR-01 | per_source_freshness_degraded | e2e | M1a | H | shipped | `partial`/amber, not `failed`, for the first 60 days; also iterates disabled-by-error sources (B8); tests/services/test_invariants.py::test_freshness_skips_runs_that_swept_nothing, ::test_freshness_stands_down_on_a_terminal_run |
+| FR-01 | per_source_freshness_degraded | e2e | M1a | H | shipped | `partial`/amber, not `failed`, by severity (no clock); also iterates disabled-by-error sources (B8); tests/services/test_invariants.py::test_freshness_skips_runs_that_swept_nothing, ::test_freshness_stands_down_on_a_terminal_run |
 | FR-02 | freshness_anchor_uniform_staleness | e2e | M1a | H | cut | anchor cut (adversarial A8: sweep and anchor are the same call); `new_head()` port and `set_live_anchor` go with it; SW-07 zero-yield detection kept |
 | PA-01 | shape_parity_listing_tree_info_search | unit+contract | M1a | H | planned | may be deleted with the second shape (M1b decision) |
 | PA-02 | reprocess_golden_byte_identical | db/unit | M1a | H | planned | no `reprocess` command exists yet; not built in tranche A |
@@ -286,13 +286,13 @@ Note (2026-09-13): the five rows above (G34, G35, G36, G39, G40) are the guard-l
 | UI-54 | Sidebar and theme counts carry denominators, shared with digest | template | M2 | P1 | planned | |
 | UI-55 | Comment permalink page | route | M2 | P1 | planned | |
 
-Gaps the adversarial review named that have no spec ID yet (write them as tests when the stage lands): an **edited post** matrix row (B5; RC-02 covers the mechanism), the **deleted link post** probe and state row (B3; add to the probe plan as P-18), **megathread** handling for bot exclusion (B10), and a route test for **`Popen` failure** leaving an orphan `queued` row (B9; UI-26 covers the launcher-raises path).
+Gaps the adversarial review named that have no spec ID yet (write them as tests when the stage lands): an **edited post** matrix row (B5; RC-02 covers the mechanism), the **deleted link post** probe and state row (B3; P-18 in the probe-day checklist, runbook § 9), **megathread** handling for bot exclusion (B10), and a route test for **`Popen` failure** leaving an orphan `queued` row (B9; UI-26 covers the launcher-raises path).
 
 ## 4. What ships first
 
 **M0 shipped gate set** (plan, "M0 foundation tranche"; ledger rows in `runbook/GUARDS.md`): import-linter layering (G04, G05) · network block (G06) · schema snapshot (G15, DB-01) · models-vs-DDL (G16, DB-02, DB-03) · data-directory isolation in-process and across the subprocess seam (G19, DB-18, DB-19, CF-04) · pragma behavioral test (G31, DB-12) · upsert and PK stability (DB-20; GT-02 through `run` at M1a) · coverage and suppression ratchets with the three-way compare and loosening protocol (G11, G10, G08, G09, G13) · exception lint policy (G01) · `-W error` (G07) · pre-commit ruff and gitleaks (G29) · two hard-block hooks (G23, G24) · `make check` summary (G25). Positive controls, split per the adversarial review: post-run invariants through `run --gateway fake`; CI ratchets by a unit test of the compare function; external controls (branch protection, pre-commit, portability, hooks) by a dated "last seen red" line. If the two-day box overruns, G26, G35, G36 defer to M1.
 
-**M1a invariant set** (proven through `insightminer run --gateway fake` with a planted violation, GT-01/G30): compliance canary (SC-01, SC-02, DB-32) · counters-versus-deltas (DB-54) · structural population floors (DB-50, DB-51, NM-03a) · per-source freshness (FR-01). Only the first two flip a run to `failed` during the first 60 days; the others are `partial`/amber. Also wired at M1a without flipping status: PK stability (GT-02), FTS membership via `_docsize` (DB-26), normalizer-version stamping (DB-48), reconcile-age per tier (RC-06, from M1c).
+**M1a invariant set** (proven through `insightminer run --gateway fake` with a planted violation, GT-01/G30): compliance canary (SC-01, SC-02, DB-32) · counters-versus-deltas (DB-54) · structural population floors (DB-50, DB-51, NM-03a) · per-source freshness (FR-01). Severity decides: counters-versus-deltas and the no-other-running-rows check are failures; the floors and freshness are warnings, `partial`/amber, and no clock promotes them (the promotion question is pending Wes; plan § Silent-failure controls). Also wired at M1a without flipping status: PK stability (GT-02), FTS membership via `_docsize` (DB-26), normalizer-version stamping (DB-48), reconcile-age per tier (RC-06, from M1c).
 
 ## 5. Guard design rules (plan § Robustness; source `WHY_THE_GUARDS_EXIST.md`)
 
@@ -321,14 +321,14 @@ Enforcement and GitHub (enforcement §G, adversarial A2/E1/E8):
 8. G12: keep the assert-count floor under the loosening protocol while the collected-test floor is cut, as the plan's two statements imply?
 
 Compliance and data (DB §F, ingest §E, adversarial B1/D3/E18, plan open items 2–4):
-9. Confirm the compliance bounds as written: no backup older than 14 d, no export older than 7 d, per-tier reconcile ages 60 h / 8 d / 35 d, real purge latency 48–72 h for items under 30 days.
+9. Confirm the compliance bounds as re-derived under D-30: no backup older than 14 d (the sweep unbuilt until M1c, plan § Release), no export older than 7 d, per-tier reconcile ages 120 h / 8 d / 35 d (KI-026), and a purge window for items under 30 days of up to two scheduled gaps plus the run after (about seven to eight days at Monday/Thursday), because an `info()` absence needs two omissions before the scrub (`core/deletion.py`).
 10. Per-run JSONL sidecar: **cut, decided 2026-09-13.** JS-01/02 and DB-34/35 are cut; the JSONL clauses in DB-31, DB-54, SC-01, RL-07, GT-01 are dropped.
 11. Purge semantics for "stop and delete captured data": hard delete with a recorded purge run (recommended) or mark-and-hide? Decides DB-55.
-12. Scrub latency for items confirmed only by `info()` absence: accept up to ~4 days, or re-check first misses at the end of the same run (recommended)?
+12. Scrub latency for items confirmed only by `info()` absence: the two-omission rule makes it about seven to eight days at two runs a week; accept that, or re-check first misses at the end of the same run (recommended, which brings it down to one scheduled gap)?
 13. Unknown `removed_by_category` with a `[removed]` body: which removed state, and may `removed_by_reddit` return to live on an intact payload? (Every `removed_*` may return; only `deleted_by_author` is terminal.)
 14. Reprocess boundary: may `reprocess` change `next_check_at`/`check_stage`, or are they owned by the ladder only? (Ladder only.)
 15. Automated weekly restore drill via launchd into a temp dir, recorded in `backups`? (Yes.) Fixture DBs kept under 1 MB by design rather than exempting the path? (Yes.)
-16. Commercial-use stance for a coworker at the company that makes Premiere Pro (the research report calls product-decision insights a grey area).
+16. Commercial-use stance: settled on 2026-09-15 by D-32, all use is personal and non-commercial.
 
 Collector (ingest §E):
 17. Exit codes 0 ok / 1 failed / 3 partial / 4 rate-limited / 75 locked / 78 config / 130 cancelled, with `partial` a digest line rather than a notification? Does `--dry-run` write a `runs` row (adversarial D12 says no)?
@@ -342,8 +342,10 @@ UI and LAN (UI §E, adversarial B11):
 
 Fixtures and probes (ingest §E, DB §F, plan "Things only Wes can do"):
 23. Create the personal restricted test subreddit (account-age rules permitting); P-01, P-02, P-04–P-06, P-09–P-12 and every cassette depend on it. Is probing public examples acceptable for Reddit-removed posts (P-03) and account-deleted authors (P-13), given the saved payload is already `[removed]` or body-blanked?
-24. Fixture scrubbing on `probe --save-fixture`: automatic username replacement (recommended) or manual review before commit?
-25. Can the earlier project's issue register, database integrity reference, breakage-pattern catalogue, and update-semantics note be shared? They would settle purge semantics and the field-ownership sets from precedent.
+24. Fixture scrubbing on `probe --save-fixture`: automatic replacement on save of every author name and author id, as a pure function in `core/` with its own unit tests, plus a gate that scans `tests/fixtures/` for a `t2_` id or an author outside an allow-list of invented names (recommended; the fake's fixture-schema docstring, which says payloads are stored as returned, changes with it), or manual review before commit? Committed fixtures are permanent history, and the review of 2026-09-16 found three documents answering this three ways.
+25. Cassette directory: `tests/adapters/cassettes/`, excluded from the review packet by prefix like the fixtures, so recorded Reddit content never reaches an external reviewer, at the cost that the adapter suite is not runnable from a packet; decided on 2026-09-16 as the working default, say if you want the reverse.
+26. Live-suite escape: a conftest under the live suite's directory that keeps the three `INSIGHTMINER_REDDIT_*` variables the autouse fixture otherwise strips, an allowed-hosts rule for Reddit on the live invocation, and a make target (`test-live`) as the one home for that invocation (recommended; today a live test cannot pass even with credentials, for those two reasons).
+27. Can the earlier project's issue register, database integrity reference, breakage-pattern catalogue, and update-semantics note be shared? They would settle purge semantics and the field-ownership sets from precedent.
 
 Deferred to a milestone, not to Wes: fetch trees via `reddit.request()` and delete the second wire shape, the parity test, and the ownership table (decide at M1b after the probes); Docker CI matrix at M4; trailing-median alarms at M3.
 

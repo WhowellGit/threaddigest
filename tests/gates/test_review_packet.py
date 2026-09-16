@@ -260,3 +260,16 @@ def test_the_owners_identity_is_replaced_everywhere(repo: Path, tmp_path: Path) 
     tree_copy = (out / "tree" / "docs" / "runbook" / "RUNBOOK.md").read_text(encoding="utf-8")
     assert "Packet Owner" not in tree_copy
     assert "substitutions" in proc.stdout
+
+
+def test_every_tracked_document_is_in_a_bundle_or_excluded() -> None:
+    """The other direction of the allowlist (2026-09-16): a document under ``docs/`` that no
+    bundle names and no exclusion covers is a document the next packet silently omits."""
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    import review_packet as rp
+
+    tracked = rp.tracked_under(REPO_ROOT, "docs")
+    assert rp.uncovered_documents(tracked) == []
+    # Positive control: a new document nobody listed is reported; an excluded one is not.
+    planted = [*tracked, "docs/NEW_PAGE.md", "docs/reference/reviews/2026-01-01-a-record.md"]
+    assert rp.uncovered_documents(planted) == ["docs/NEW_PAGE.md"]
