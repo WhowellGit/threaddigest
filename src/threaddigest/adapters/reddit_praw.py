@@ -437,6 +437,12 @@ class _TreeBuilder:
         A stub holding more than ``MORE_CHUNK`` children is split and the remainder queued
         again, because ``morechildren`` reveals at most a hundred comments per request
         (KI-023). The real chunk size is confirmed on the probe day (P-20).
+
+        The split *divides* the stub's ``count`` and never relabels it (KI-043): the chunk
+        fetched now carries one hidden comment per id it holds, the remainder carries
+        everything the whole stub claimed beyond that, and the parts sum to the whole. Neither
+        part ever claims fewer hidden comments than it holds ids, which only bites on a stub
+        whose wire ``count`` is already smaller than its own child list.
         """
         if not self.pending:
             return None
@@ -445,8 +451,10 @@ class _TreeBuilder:
         if len(stub.children) <= MORE_CHUNK:
             return stub
         head, tail = stub.children[:MORE_CHUNK], stub.children[MORE_CHUNK:]
-        self.pending.append(MoreStub(stub.parent_fullname, len(tail), tail))
-        return MoreStub(stub.parent_fullname, len(head), head)
+        behind_tail = max(stub.count - len(head), len(tail))
+        behind_head = max(stub.count - behind_tail, len(head))
+        self.pending.append(MoreStub(stub.parent_fullname, behind_tail, tail))
+        return MoreStub(stub.parent_fullname, behind_head, head)
 
     def ordered(self) -> list[RawItem]:
         """Every comment in depth-first order, parents before children, each stamped ``depth``."""

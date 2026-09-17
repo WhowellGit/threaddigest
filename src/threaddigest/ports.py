@@ -100,8 +100,17 @@ class Page:
 class MoreStub:
     """A ``more`` node left unexpanded in a comment tree.
 
-    ``count == 0`` marks a "continue this thread" link (Reddit's depth limit), which still
-    costs one request to expand.
+    ``count`` is Reddit's own count of the comments hidden behind the node, not the length of
+    ``children``: the two differ whenever a hidden comment has replies of its own, and the UI
+    renders ``count`` as "N replies not captured". ``count == 0`` marks a "continue this
+    thread" link (Reddit's depth limit), which still costs one request to expand.
+
+    **Splitting.** A stub holding more ids than one request can reveal is split into several,
+    and a split divides ``count`` rather than relabelling it: the chunk fetched now carries one
+    hidden comment per id it holds, the remainder carries everything the whole stub claimed
+    beyond that, and the parts sum to the whole. Neither part ever claims fewer hidden comments
+    than it holds ids, which is the floor for a stub whose wire ``count`` was already smaller
+    than its own child list (KI-043).
     """
 
     parent_fullname: str

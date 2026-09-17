@@ -33,11 +33,13 @@ import requests
 import responses
 
 from threaddigest.adapters.clock import FakeClock
+from threaddigest.adapters.reddit_fake import FakeRedditGateway
 from threaddigest.adapters.reddit_praw import (
     MORE_CHUNK,
     CountingSession,
     PrawConfig,
     PrawGateway,
+    _TreeBuilder,
     translate,
 )
 from threaddigest.core.retry import Outcome, classify
@@ -1085,6 +1087,96 @@ def test_a_reply_only_the_second_copy_of_a_parent_carries_is_still_indexed(
     result = gateway.fetch_tree("p1", more_limit=1)
 
     assert [c["id"] for c in result.comments] == ["c1", "late", "c2"]
+
+
+def test_splitting_a_stub_divides_its_count_rather_than_relabelling_it() -> None:
+    """``MoreStub.count`` is Reddit's count of hidden comments, not the size of a chunk.
+
+    Panel finding C-6 (KI-043): a stub whose wire ``count`` was 400 across 150 child ids was
+    split into stubs carrying 100 and 50, so the adapter quietly replaced Reddit's number with
+    its own id count and the tree lost 250 hidden comments on the way. The UI renders this as
+    "N replies not captured", and the fake computes the true instance count, so the two
+    disagreed by construction and a contract test written against the fake asserted a number
+    the adapter could not produce.
+
+    Asserted on the builder rather than through ``fetch_tree`` because only one of the two
+    parts survives a fetch: the head is consumed by the expansion it was cut for.
+    """
+    children = [f"c{i}" for i in range(MORE_CHUNK + 50)]
+    builder = _TreeBuilder("t3_p1")
+    builder.add(_more_node("t3_p1", 400, children))
+
+    head = builder.take_next()
+
+    assert head is not None
+    assert len(head.children) == MORE_CHUNK
+    assert head.count == MORE_CHUNK
+    assert [stub.count for stub in builder.pending] == [300]
+    assert head.count + sum(stub.count for stub in builder.pending) == 400
+
+
+def test_a_stub_whose_count_undercounts_its_own_children_never_goes_negative() -> None:
+    """The one shape the rule cannot honour exactly, and what it does instead.
+
+    "The parts sum to the whole" needs a whole at least as large as the child list, which
+    Reddit's own data always is. A malformed stub claiming fewer hidden comments than it
+    carries ids gets the floor instead: neither part ever claims fewer than it holds.
+    """
+    children = [f"c{i}" for i in range(MORE_CHUNK + 50)]
+    builder = _TreeBuilder("t3_p1")
+    builder.add(_more_node("t3_p1", 10, children))
+
+    head = builder.take_next()
+
+    assert head is not None
+    assert head.count == MORE_CHUNK
+    assert [stub.count for stub in builder.pending] == [50]
+
+
+def test_the_remainder_of_a_split_stub_is_what_the_reader_is_told_is_missing(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The same rule where it is visible: the leftover stub is the one that reaches the UI."""
+    children = [f"c{i}" for i in range(MORE_CHUNK + 50)]
+    _token(http)
+    http.get(TREE_URL, json=_tree([_more_node("t3_p1", 400, children)]))
+    http.get(MORE_URL, json=_things([_comment(cid, "t3_p1") for cid in children[:MORE_CHUNK]]))
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [stub.count for stub in result.more] == [300]
+    assert len(result.comments) == MORE_CHUNK
+    assert result.requests_used == 2
+
+
+def test_both_gateways_agree_on_the_remainder_of_a_split_stub(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The contract row C-6 asks for, on the shape where the two can agree exactly.
+
+    The fake knows each hidden comment's subtree and the adapter knows only ids, so the two
+    can only produce the same number where every hidden comment is a leaf -- which is exactly
+    the shape that caught the defect, because there the wire ``count`` equals the id count and
+    the remainder is the whole minus the chunk on both sides.
+    """
+    children = [f"c{i}" for i in range(MORE_CHUNK + 50)]
+    _token(http)
+    http.get(TREE_URL, json=_tree([_more_node("t3_p1", len(children), children)]))
+    http.get(MORE_URL, json=_things([_comment(cid, "t3_p1") for cid in children[:MORE_CHUNK]]))
+    real = gateway.fetch_tree("p1", more_limit=1)
+
+    fake = FakeRedditGateway()
+    post = fake.add_post("premiere", title="one flat thread", created_utc=1_757_800_000.0)
+    hidden = [
+        fake.add_comment(post, body=f"c{i}", author="u", created_utc=1_757_800_000.0 + i)
+        for i in range(len(children))
+    ]
+    fake.add_more(post, None, len(hidden), hidden)
+    simulated = fake.fetch_tree(post, more_limit=1)
+
+    assert [stub.count for stub in real.more] == [stub.count for stub in simulated.more] == [50]
+    assert len(real.comments) == len(simulated.comments) == MORE_CHUNK
+    assert real.requests_used == simulated.requests_used == 2
 
 
 def test_a_continue_this_thread_stub_is_expanded_by_refetching_the_thread(

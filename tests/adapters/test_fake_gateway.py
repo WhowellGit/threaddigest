@@ -659,6 +659,32 @@ class TestTree:
         assert [cid for cid, _ in tree.delivered()].count(bare(c1)) == 2
         assert [cid for cid, _ in tree.visible()].count(bare(c1)) == 1
 
+    def test_a_split_stub_leaves_the_rest_of_the_count_behind(
+        self, fake: FakeRedditGateway
+    ) -> None:
+        """KI-043, panel finding C-6: the fake's half of the split rule, which already held.
+
+        The fake computes a replacement stub's count as the true number of instances still
+        hidden, so its parts have always summed to the whole; the real adapter relabelled
+        Reddit's count as the chunk size, and the two therefore disagreed by construction. This
+        pins the fake's side so the agreement cannot drift away again, on a tree where the
+        hidden comments have replies of their own and `count` is nothing like the id count.
+        """
+        post = fake.add_post("premiere", title="branching thread", created_utc=T)
+        roots = [
+            fake.add_comment(post, body=f"r{i}", author="u", created_utc=T + i) for i in range(60)
+        ]
+        for i, root in enumerate(roots):
+            fake.add_comment(post, parent=root, body=f"r{i}a", author="u", created_utc=T + 100 + i)
+        fake.add_more(post, None, 120, roots)  # 60 roots, 120 instances behind them
+
+        one = fake.fetch_tree(post, more_limit=1)
+
+        assert len(one.comments) == 100  # fifty roots and their replies
+        assert [m.count for m in one.more] == [20]  # ten roots and their replies, still hidden
+        assert len(one.comments) + sum(m.count for m in one.more) == 120
+        assert one.requests_used == 2
+
     def test_a_single_more_child_with_a_large_subtree_is_revealed_whole(
         self, fake: FakeRedditGateway
     ) -> None:

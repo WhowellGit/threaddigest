@@ -588,6 +588,27 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   captures (P-08, P-11, P-20) show how much a real batch overlaps, which decides whether the
   collector should also be told how many duplicates it was sent.
 
+## 2026-09-17 (splitting a `more` stub) — the parts sum to the whole
+
+- **A split divides a stub's hidden-comment count; it never relabels it as the chunk size
+  (KI-043).** `morechildren` reveals at most a hundred comments per request (KI-023), so a stub
+  holding more ids than that is cut into chunks — and the adapter gave each chunk the number of
+  ids it held, which is Reddit's number only when every hidden comment is a leaf. A stub claiming
+  400 hidden comments across 150 ids became 100 and 50. **The rule chosen, of the two the panel
+  offered:** the chunk fetched now carries one hidden comment per id it holds, and the remainder
+  carries everything the whole stub claimed beyond that (`count - len(head)`), so the parts sum
+  to the whole. The alternative — give the head the whole minus what the tail carries — puts the
+  large number on the chunk that is about to be fetched and emptied, and the number that reaches
+  a reader is the *remainder*'s, rendered as "N replies not captured"; the rule chosen is the one
+  that makes that sentence true. A floor keeps either part from claiming fewer hidden comments
+  than it holds ids, which only bites on a malformed stub whose wire `count` was already smaller
+  than its own child list, and there the sum is knowingly the larger of the two. **Where it is
+  written:** on `ports.MoreStub`, not in the adapter, because it is a promise both gateways make
+  and the fake's `sum(subtree_size(...))` already honoured it — the disagreement was
+  one-sided, and a rule kept in one implementation's docstring is how two implementations drift.
+  **Revisit when:** the probe day (P-20) shows what a real split stub's `count` says, which is
+  the first evidence this rule has ever had.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
