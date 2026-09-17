@@ -7,8 +7,9 @@ an ok branch tested is not a check*, so every function here answers one question
 one :class:`Check` rather than folding several into a verdict.
 
 A thirteenth, :func:`check_hooks_installed`, follows the same contract and is the last row
-:func:`run_checks` appends to every report, WARNING severity, so an uninstalled ``pre-commit``
-hook shows up in the operator report exactly where the other twelve do. ``make check`` also
+:func:`run_checks` appends to every report, WARNING severity, so a ``pre-commit`` hook that is
+uninstalled -- or installed and unable to run (KI-038) -- shows up in the operator report
+exactly where the other twelve do. ``make check`` also
 calls it directly (through ``tools/hooks_status.py``) for its own closing line; see its own
 section below for why it answers "no git repository" as an ok state on an installed wheel.
 
@@ -33,7 +34,9 @@ worth surfacing and a fresh install must not make ``doctor`` exit 1.
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -622,6 +625,11 @@ def check_no_stale_running_rows(conn: Connection, *, now: int, stale_after_secon
 # twelve above -- same contract, same shape -- and :func:`run_checks` appends it last, WARNING
 # severity, so the operator report carries it too. ``make check`` also calls it directly
 # through ``tools/hooks_status.py`` so its own closing line is derived, never narrated.
+#
+# What it answers is "do commits here run the gates?", which is why since KI-038 it reads the
+# interpreter the hook scripts were templated with and not only that the files exist: a file
+# that is present and unrunnable gates nothing, and reporting it installed is the narration
+# this check was built to replace.
 
 
 #: The file that marks the repository root when walking up from this package.
@@ -669,17 +677,47 @@ def _git_hooks_dir(root: Path) -> Path | None:
 #: The two git hook stages pre-commit installs here (``default_install_hook_types``).
 HOOK_STAGES = ("pre-commit", "pre-push")
 
+#: The line pre-commit templates into every hook it generates, naming the absolute interpreter
+#: of the environment the hooks were installed from. The value is ``shlex.quote``\ d, so a path
+#: holding a space arrives quoted.
+INSTALL_PYTHON_RE: Final = re.compile(r"^INSTALL_PYTHON=(.+)$", re.MULTILINE)
+
+
+def _hook_interpreter(body: str) -> Path | None:
+    """The interpreter a generated hook was templated with, or ``None`` when it names none.
+
+    ``None`` is not a verdict: a hand-written wrapper, or a future template, need not carry the
+    line, and a malformed one must never raise out of a diagnosis.
+    """
+    match = INSTALL_PYTHON_RE.search(body)
+    if match is None:
+        return None
+    try:
+        words = shlex.split(match.group(1))
+    except ValueError:
+        return None
+    return Path(words[0]) if words else None
+
 
 def check_hooks_installed(start: Path | None = None) -> Check:
-    """The checkout's ``pre-commit`` and ``pre-push`` hooks are installed, so the gates run.
+    """The checkout's ``pre-commit`` and ``pre-push`` hooks are installed **and can run**.
 
-    Three states, all of them real answers:
+    Four states, all of them real answers:
 
-    * **ok** -- ``<git dir>/hooks/pre-commit`` and ``<git dir>/hooks/pre-push`` both exist and
+    * **ok** -- ``<git dir>/hooks/pre-commit`` and ``<git dir>/hooks/pre-push`` both exist, both
       name pre-commit (the push hook runs ``make check``, since a remote is a backup and never
-      the gate; added 2026-09-14);
+      the gate; added 2026-09-14), and neither names an interpreter that cannot run;
     * **not ok** -- there is a git repository and either hook is missing or is something else
       (git's own ``pre-commit.sample`` is not installed: git never runs it);
+    * **not ok** -- a hook is there and names an ``INSTALL_PYTHON`` that is not an executable
+      file (KI-038, 2026-09-16). pre-commit templates the *absolute* interpreter of the
+      environment it was installed from into every hook, and the hooks are shared by every
+      worktree, so removing the worktree the hooks were installed from leaves them naming a
+      ``.venv/bin/python`` that is gone. The generated script then falls through to a bare
+      ``pre-commit`` on ``PATH`` and, finding none, exits 1: every commit is refused and no
+      gate runs. Even where that fallback exists it is a different environment from the one
+      the checkout pins, so a stale path is reported either way and ``make hooks`` is the
+      remedy for both;
     * **ok, "no git repository"** -- an installed wheel or a container has nothing to
       install hooks into. That is a healthy state, not a skipped check.
 
@@ -692,14 +730,26 @@ def check_hooks_installed(start: Path | None = None) -> Check:
     if hooks_dir is None:
         return Check(name=name, ok=True, detail="no git repository", severity=CheckSeverity.WARNING)
     hooks = [hooks_dir / stage for stage in HOOK_STAGES]
-    installed = all(
-        hook.is_file() and HOOK_MARKER in hook.read_text(encoding="utf-8", errors="replace")
+    bodies = [
+        hook.read_text(encoding="utf-8", errors="replace") if hook.is_file() else None
         for hook in hooks
-    )
+    ]
+    if not all(body is not None and HOOK_MARKER in body for body in bodies):
+        return Check(name=name, ok=False, detail="run make hooks", severity=CheckSeverity.WARNING)
+    for hook, body in zip(hooks, bodies, strict=True):
+        interpreter = _hook_interpreter(body or "")
+        if interpreter is None or (interpreter.is_file() and os.access(interpreter, os.X_OK)):
+            continue
+        return Check(
+            name=name,
+            ok=False,
+            detail=f"{hook.name} cannot run {interpreter}: run make hooks",
+            severity=CheckSeverity.WARNING,
+        )
     return Check(
         name=name,
-        ok=installed,
-        detail=f"{hooks[0]} and {hooks[1].name} run pre-commit" if installed else "run make hooks",
+        ok=True,
+        detail=f"{hooks[0]} and {hooks[1].name} run pre-commit",
         severity=CheckSeverity.WARNING,
     )
 

@@ -19,6 +19,7 @@ point the database at ``settings.data_dir / "threaddigest.db"`` -- the same file
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -1103,6 +1104,123 @@ def test_check_hooks_installed_is_ok_where_there_is_no_repository_root(tmp_path:
 
     assert check.ok is True
     assert check.detail == "no git repository"
+
+
+# --- hooks_installed: installed is not the same as able to run (KI-038) ------------------------
+#
+# Birth incident, 2026-09-16: a branch was built in a linked git worktree and the worktree was
+# removed afterwards. pre-commit templates the *absolute* interpreter of the environment it was
+# installed from into every hook it writes, and these hooks are shared by every worktree, so the
+# shared `pre-commit` and `pre-push` were left naming a `.venv/bin/python` that no longer
+# existed. The generated script falls through to a bare `pre-commit` on `PATH`, found none, and
+# exited 1, so not one commit in the checkout could run the gates -- while this check reported
+# them installed, because a file was there and it said "pre-commit" inside.
+
+
+def _templated_hook(interpreter: Path | str) -> str:
+    """A generated hook the way pre-commit writes it: the marker comment, then the templated
+    block whose ``INSTALL_PYTHON`` is the absolute interpreter, quoted as ``shlex.quote``
+    leaves it (so a path holding a space arrives quoted, as it does on a real machine).
+    """
+    return (
+        f"{PRE_COMMIT_HOOK}\n# start templated\n"
+        f"INSTALL_PYTHON={shlex.quote(str(interpreter))}\n"
+        "ARGS=(hook-impl --config=.pre-commit-config.yaml --hook-type=pre-commit)\n"
+        "# end templated\n"
+    )
+
+
+def _runnable_interpreter(tmp_path: Path) -> Path:
+    """A file that exists and carries the execute bit, standing in for `.venv/bin/python`."""
+    interpreter = tmp_path / "venv-python"
+    interpreter.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    interpreter.chmod(0o755)
+    return interpreter
+
+
+def test_check_hooks_installed_is_not_ok_when_the_hook_names_a_missing_interpreter(
+    tmp_path: Path,
+) -> None:
+    """The incident itself: both hooks are there and both name pre-commit, and neither can run,
+    because the interpreter they were templated with was removed with its worktree. The check
+    says so and names the remedy, rather than reporting the checkout gated.
+    """
+    gone = tmp_path / "removed-worktree" / ".venv" / "bin" / "python"
+    root = _checkout(tmp_path, git=True, hook=_templated_hook(gone))
+
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
+
+    assert check.ok is False
+    assert str(gone) in check.detail
+    assert "make hooks" in check.detail
+
+
+def test_check_hooks_installed_is_not_ok_when_the_interpreter_cannot_be_executed(
+    tmp_path: Path,
+) -> None:
+    """The other half of "can run": the path is there but carries no execute bit, so the
+    generated hook's own ``[ -x "$INSTALL_PYTHON" ]`` test fails exactly as it does for a path
+    that is gone. Existence alone is not the question.
+    """
+    interpreter = _runnable_interpreter(tmp_path)
+    interpreter.chmod(0o644)
+    root = _checkout(tmp_path, git=True, hook=_templated_hook(interpreter))
+
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
+
+    assert check.ok is False
+    assert str(interpreter) in check.detail
+    assert "make hooks" in check.detail
+
+
+def test_check_hooks_installed_is_ok_when_the_interpreter_is_runnable(tmp_path: Path) -> None:
+    """The pass case keeps its existing semantics and its existing wording: a templated hook
+    whose interpreter exists and is executable is installed, and the detail still names the
+    hook paths rather than the interpreter.
+    """
+    interpreter = _runnable_interpreter(tmp_path)
+    root = _checkout(tmp_path, git=True, hook=_templated_hook(interpreter))
+
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
+
+    assert check.ok is True
+    assert check.detail == f"{root / '.git' / 'hooks' / 'pre-commit'} and pre-push run pre-commit"
+
+
+def test_check_hooks_installed_reads_the_push_hooks_interpreter_too(tmp_path: Path) -> None:
+    """Both stages are asked, not only the first: the push hook is the one that runs the whole
+    `make check` before anything leaves the machine, and it is templated separately.
+    """
+    interpreter = _runnable_interpreter(tmp_path)
+    gone = tmp_path / "removed-worktree" / ".venv" / "bin" / "python"
+    root = _checkout(tmp_path, git=True, hook=_templated_hook(interpreter))
+    (root / ".git" / "hooks" / "pre-push").write_text(_templated_hook(gone), encoding="utf-8")
+
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
+
+    assert check.ok is False
+    assert "pre-push" in check.detail
+    assert str(gone) in check.detail
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["", "INSTALL_PYTHON=\n", "INSTALL_PYTHON='unbalanced\n"],
+    ids=["no_install_python_line", "empty_value", "unparsable_quoting"],
+)
+def test_check_hooks_installed_stays_ok_when_no_interpreter_can_be_read(
+    tmp_path: Path, line: str
+) -> None:
+    """A hook this check cannot read an interpreter out of is not evidence of a broken hook:
+    a hand-written wrapper, or a future pre-commit template, need not carry the line at all,
+    and the fallback path (`command -v pre-commit`) is a real way to run. The check answers
+    only the question it can answer, and a malformed line never raises out of a diagnosis.
+    """
+    root = _checkout(tmp_path, git=True, hook=f"{PRE_COMMIT_HOOK}{line}")
+
+    check = doctor.check_hooks_installed(root / "src" / "threaddigest" / "services")
+
+    assert check.ok is True
 
 
 # --- auth_ping: the one check that makes a request, and it makes exactly one -------------------

@@ -211,7 +211,7 @@ The system has until its next scheduled run to succeed, so it pauses, retries, a
 | Command | Purpose | State |
 |---|---|---|
 | `threaddigest run [--budget N] [--no-comments] [--dry-run] [--gateway fake]` | Steps 0–6 above; `--dry-run` fetches and writes nothing, not even a run row; `--no-comments` records a written reason on the run row (N-06) | built (posts; trees and later stages arrive with M1b–M1d) |
-| `threaddigest doctor [--no-network] [--alert-if-stale 5d] [--json]` | Every check in `services/doctor.py` by name: config valid, the data directory writable and outside the folders launchd cannot read, credentials present, SQLite new enough for secure-delete, DB present and at head, quick integrity check, the fingerprint warning, free disk, no stale running rows, last successful run age against a threshold that defaults to longer than the schedule's longest gap, at least one collectable source, lock not stale, git hooks installed. `--no-network` is the default and makes zero requests; `--network` adds the auth ping, which reads one subreddit and prints Reddit's rate-limit view at a cost of exactly two HTTP calls (token + about) | built |
+| `threaddigest doctor [--no-network] [--alert-if-stale 5d] [--json]` | Every check in `services/doctor.py` by name: config valid, the data directory writable and outside the folders launchd cannot read, credentials present, SQLite new enough for secure-delete, DB present and at head, quick integrity check, the fingerprint warning, free disk, no stale running rows, last successful run age against a threshold that defaults to longer than the schedule's longest gap, at least one collectable source, lock not stale, git hooks installed and able to run (KI-038: a hook naming an interpreter that is gone gates nothing). `--no-network` is the default and makes zero requests; `--network` adds the auth ping, which reads one subreddit and prints Reddit's rate-limit view at a cost of exactly two HTTP calls (token + about) | built |
 | `threaddigest db init/upgrade/current` · `db downgrade/backup/restore/vacuum/check/reprocess` | Schema and files; `upgrade` backs up before any migration it actually runs | first three built; the rest M1c–M2 |
 | `threaddigest config validate` · `config show/export/import` | DB-backed config with YAML round-trip | `validate` built |
 | `threaddigest fetch [--sub X]` · `comments [--post ID] [--budget N]` · `revisit` · `reconcile [--older-than 30d]` · `tag [--all]` · `search-run` | Individual stages | M1b–M3 |
@@ -424,7 +424,7 @@ The shipped set, each with a ledger row; the M0 menu that the adversarial review
 | "Tests pass" claimed on a subset | the pasted `make check` block is the authority; the collected-test floor (under the loosening protocol, N-09); the green stamp names the tree |
 | Over-abstraction | four layers only; no new abstraction without two concrete uses (N-20) |
 | Docs drift | the documentation gates above; the README quickstart executed by the portability job |
-| A hook present but never installed, or a script never registered | `doctor` and the hooks line of `make check`; the settings test requires every hook script to be registered |
+| A hook present but never installed, present but unable to run, or a script never registered | `doctor` and the hooks line of `make check`, which read each generated hook's own interpreter and not only its presence (KI-038); the settings test requires every hook script to be registered |
 
 ### Working agreement
 
