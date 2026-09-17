@@ -173,9 +173,10 @@ Every sub-agent call (the `Agent` tool or a workflow `agent()`) names its model;
 The main session carries planning, synthesis, decisions, and edits to the plan or enforcement
 surfaces. **Opus** for judgement-bearing work: reviewers, judges and critics, migrations,
 `core/deletion`, `services/scrub` (M1c), `db/repo`, under-specified services, red-gate
-debugging.
+debugging, and structural refactors (complexity reduction, module splits, boundary moves), which
+pin characterization tests first and get a fresh-context readability review of the diff.
 **Sonnet** for well-specified mechanical work: inventories, scans, codemods, tests written from a
-spec row, fixture scrubbing, residue sweeps. Unsure → the higher tier, with the reason in the
+spec row, fixture scrubbing, residue sweeps, renames and moves. Unsure → the higher tier, with the reason in the
 workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → "Agent model tiers". Every brief follows `docs/reference/AGENT_BRIEF.md`: purpose, the routing rows to read, the rules that bite, the files in scope, the output contract, and the model tier.
 
 ## Commands

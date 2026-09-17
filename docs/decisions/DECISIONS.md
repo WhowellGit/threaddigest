@@ -518,6 +518,25 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   first fetch. Recorded in the plan's Data model section, beside the content-state machine and the
   scrub rule they extend. **Revisit when:** the first derived table or the first non-Reddit
   adapter lands and needs its own gate.
+- **Structural refactors are Opus work (Wes, 2026-09-17).** The first code-health pass is due
+  before the birth relaxations in the code-health ratchet expire on 2026-09-27, over the nine
+  functions above the complexity ceilings, and Wes asked whether refactor briefs should go to the
+  higher tier. Ruled yes for any refactor that changes structure — reducing a function's
+  complexity, splitting a module, moving a boundary — because where to cut and what to name the
+  pieces is design, and a metric can be satisfied by three functions that each pass the ceiling
+  while the caller reads worse than the original, which no ratchet can see; the nine functions in
+  question are also the hardest in the tree (the collector, the sweep, the doctor, the
+  invariants), where a subtle behaviour change is a compliance bug. Refactors whose specification
+  fully determines the result (renames, moves, codemods) stay Sonnet work. Two conditions hold
+  whatever the tier: characterization tests are pinned first wherever direct tests are missing,
+  and a fresh-context review of the diff judges readability rather than the metric. Recorded in
+  the tier table (`docs/PLAN.md` § Review harness → "Agent model tiers"), the working agreement's
+  matching paragraph, and the tier memory in the private snapshot, in the same change; the
+  register row names the record. The cost argument against was weighed and found weak: a
+  refactor pass is a few hundred thousand tokens, and the tier rule already says "unsure, go
+  higher, with the reason noted"; here the reason is known in advance. **Revisit when:** a
+  refactor brief template exists that can carry the two conditions mechanically, or an Opus
+  verifier finds nothing to correct in three Sonnet structural refactors in a row.
 
 ## Retired claims (machine-read)
 
