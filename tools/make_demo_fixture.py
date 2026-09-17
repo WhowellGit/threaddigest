@@ -10,10 +10,18 @@ directory. The two callers share this module, so there is one definition of "the
 corpus" rather than one per consumer.
 
 Determinism is structural, not statistical: nothing here draws from ``random``, and the
-one seed the corpus has is :data:`BASE_UTC`. Every id, timestamp, author and body is a
-pure function of the constants below and of the order the builder calls run in, so two
-runs produce identical bytes -- which ``tests/tools/test_make_demo_fixture.py`` pins by
-running this script twice and comparing them.
+one seed the corpus has is its **base**, the instant premiere's first ordinary post was
+created. Every id, timestamp, author and body is a pure function of that base, of the
+offsets below, and of the order the builder calls run in, so two runs from the same base
+produce identical bytes -- which ``tests/tools/test_make_demo_fixture.py`` pins by running
+this script twice with ``--base`` and comparing them.
+
+The base defaults to **midnight UTC of the day the corpus is generated** rather than to a
+fixed instant, because the digest's window is seven days measured back from the run that
+collected the corpus (``services.report.WINDOW_DAYS``): a corpus anchored at a fixed day falls
+out of that window as soon as the week turns, and ``make run && make serve`` then opens a
+digest with nothing in it. ``--base YYYY-MM-DD`` pins the anchor for anyone who wants the
+same bytes twice on different days.
 
 The corpus, in the order it is built (ids are allocated in that order by the fake):
 
@@ -32,13 +40,15 @@ aivideo       30 ordinary posts, no special content
 
 Usage::
 
-    uv run python tools/make_demo_fixture.py <path>     # `make fixture` is this line
+    uv run python tools/make_demo_fixture.py <path>                 # `make fixture` is this line
+    uv run python tools/make_demo_fixture.py <path> --base 2025-09-12   # a pinned anchor
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Final, NamedTuple
 
@@ -61,16 +71,30 @@ class Source(NamedTuple):
     #: Ordinary post ``i`` is written by ``f"{author_prefix}{i % authors}"``.
     authors: int
     author_prefix: str
-    #: ``created_utc`` of ordinary post 0; each later post is :data:`POST_INTERVAL` on.
-    first_post_utc: int
+    #: Seconds after the corpus base at which ordinary post 0 was created; each later post is
+    #: :data:`POST_INTERVAL` on. An offset rather than a wall-clock instant, because the base
+    #: moves with the day the corpus is generated and only the offsets are the scenario.
+    first_post_offset: int
 
-
-#: Wall clock anchor: 2025-09-12T18:40:00Z, the same instant ``tests/conftest.py`` calls
-#: ``BASE``. Every timestamp in the corpus is this number plus a documented offset.
-BASE_UTC: Final = 1_757_700_000
 
 #: Seconds between consecutive posts of one source.
 POST_INTERVAL: Final = 60
+
+
+def day_start_utc(day: date) -> int:
+    """Midnight UTC of ``day``, in epoch seconds: the shape every base has."""
+    return int(datetime.combine(day, time.min, tzinfo=UTC).timestamp())
+
+
+def default_base_utc() -> int:
+    """The corpus base when ``--base`` is not given: midnight UTC of the current day.
+
+    UTC rather than the display timezone, because ``created_utc`` is Reddit's clock and the
+    digest's window is measured in it; midnight rather than the current second, so two runs
+    of the same day still produce identical bytes.
+    """
+    return day_start_utc(datetime.now(tz=UTC).date())
+
 
 #: The six seeded sources, in ``config/seed.yaml``'s order (D-37). Three carry the
 #: hand-tuned content described above (the sticky/poll/theme block, the crosspost, the
@@ -78,12 +102,12 @@ POST_INTERVAL: Final = 60
 #: carry only a plain block of ordinary posts, appended after the original three so
 #: their ids and bytes are unchanged.
 SOURCES: Final = (
-    Source("premiere", "t5_10001", 120_000, "premiere post", 98, 9, "pu", BASE_UTC),
-    Source("PremierePro", "t5_10004", 90_000, "premiere pro post", 25, 6, "pp", 1_758_300_000),
-    Source("editors", "t5_10003", 15_000, "editors post", 39, 5, "eu", 1_758_100_100),
-    Source("VideoEditing", "t5_10002", 80_000, "video editing post", 99, 11, "vu", 1_757_900_000),
-    Source("AfterEffects", "t5_10005", 40_000, "after effects post", 20, 4, "ae", 1_758_500_000),
-    Source("aivideo", "t5_10006", 60_000, "ai video post", 30, 7, "av", 1_758_700_000),
+    Source("premiere", "t5_10001", 120_000, "premiere post", 98, 9, "pu", 0),
+    Source("PremierePro", "t5_10004", 90_000, "premiere pro post", 25, 6, "pp", 600_000),
+    Source("editors", "t5_10003", 15_000, "editors post", 39, 5, "eu", 400_100),
+    Source("VideoEditing", "t5_10002", 80_000, "video editing post", 99, 11, "vu", 200_000),
+    Source("AfterEffects", "t5_10005", 40_000, "after effects post", 20, 4, "ae", 800_000),
+    Source("aivideo", "t5_10006", 60_000, "ai video post", 30, 7, "av", 1_000_000),
 )
 
 #: The three original sources, which carry the hand-tuned content above; every other
@@ -95,7 +119,7 @@ _SPECIAL_SOURCES: Final = frozenset({"premiere", "videoediting", "editors"})
 STICKY_TITLE: Final = "Read before posting: rules and FAQ"
 STICKY_BODY: Final = "Please read the sidebar before posting."
 STICKY_AUTHOR: Final = "mod_alex"
-STICKY_UTC: Final = BASE_UTC - 3600
+STICKY_OFFSET: Final = -3600
 
 #: A poll: a link post whose ``post_hint`` is neither ``link`` nor ``self``. It is written
 #: between ordinary posts 89 and 90 and shares post 90's timestamp, so the listing also
@@ -110,8 +134,8 @@ POLL_URL: Final = "https://www.reddit.com/poll/abc123"
 THEMED_TITLE: Final = "My export keeps crashing on 4K H.264 footage"
 THEMED_BODY: Final = "Anyone else seeing this since the update?"
 THEMED_AUTHOR: Final = "pu5"
-THEMED_UTC: Final = BASE_UTC + 99 * POST_INTERVAL
-CROSSPOST_UTC: Final = BASE_UTC + 100 * POST_INTERVAL
+THEMED_OFFSET: Final = 99 * POST_INTERVAL
+CROSSPOST_OFFSET: Final = 100 * POST_INTERVAL
 
 #: The author-deleted post: ``[deleted]`` author and text, ``removed_by_category`` set by
 #: the fake's own ``delete()``. It is the reason ``_visible_post_count`` in
@@ -119,7 +143,7 @@ CROSSPOST_UTC: Final = BASE_UTC + 100 * POST_INTERVAL
 DELETED_TITLE: Final = "[post since deleted by author]"
 DELETED_AUTHOR: Final = "eu0"
 DELETED_BODY: Final = "my render settings are wrong, what do you use?"
-DELETED_UTC: Final = 1_758_100_000
+DELETED_OFFSET: Final = 400_000
 
 #: Comments per post: **none**. The tranche-A sweep collects posts only (nothing in
 #: ``services/sweep.py`` calls ``fetch_tree``), so a comment tree here would be corpus no
@@ -129,29 +153,29 @@ DELETED_UTC: Final = 1_758_100_000
 COMMENTS_PER_POST: Final = 0
 
 
-def _add_ordinary_post(fake: FakeRedditGateway, source: Source, index: int) -> str:
+def _add_ordinary_post(fake: FakeRedditGateway, source: Source, index: int, *, base: int) -> str:
     return fake.add_post(
         source.name,
         title=f"{source.title_prefix} {index}",
         selftext=f"body {index}",
         author=f"{source.author_prefix}{index % source.authors}",
-        created_utc=source.first_post_utc + index * POST_INTERVAL,
+        created_utc=base + source.first_post_offset + index * POST_INTERVAL,
     )
 
 
-def _add_ordinary_posts(fake: FakeRedditGateway, source: Source) -> None:
+def _add_ordinary_posts(fake: FakeRedditGateway, source: Source, *, base: int) -> None:
     for index in range(source.posts):
-        _add_ordinary_post(fake, source, index)
+        _add_ordinary_post(fake, source, index, base=base)
 
 
-def _add_premiere(fake: FakeRedditGateway, source: Source) -> str:
+def _add_premiere(fake: FakeRedditGateway, source: Source, *, base: int) -> str:
     """premiere's block; returns the fullname of the themed post VideoEditing crossposts."""
     fake.add_post(
         source.name,
         title=STICKY_TITLE,
         selftext=STICKY_BODY,
         author=STICKY_AUTHOR,
-        created_utc=STICKY_UTC,
+        created_utc=base + STICKY_OFFSET,
         stickied=True,
     )
     for index in range(source.posts):
@@ -160,22 +184,22 @@ def _add_premiere(fake: FakeRedditGateway, source: Source) -> str:
                 source.name,
                 title=POLL_TITLE,
                 author=POLL_AUTHOR,
-                created_utc=source.first_post_utc + POLL_INDEX * POST_INTERVAL,
+                created_utc=base + source.first_post_offset + POLL_INDEX * POST_INTERVAL,
                 is_self=False,
                 url=POLL_URL,
                 post_hint="poll",
             )
-        _add_ordinary_post(fake, source, index)
+        _add_ordinary_post(fake, source, index, base=base)
     return fake.add_post(
         source.name,
         title=THEMED_TITLE,
         selftext=THEMED_BODY,
         author=THEMED_AUTHOR,
-        created_utc=THEMED_UTC,
+        created_utc=base + THEMED_OFFSET,
     )
 
 
-def _add_deleted_post(fake: FakeRedditGateway, source: Source) -> None:
+def _add_deleted_post(fake: FakeRedditGateway, source: Source, *, base: int) -> None:
     """A post written, then deleted by its author -- the fake's own state transition, so
     the corpus carries exactly the wire shape a deleted post has (``[deleted]`` author and
     selftext, no ``author_fullname``, ``removed_by_category``) rather than a hand-guessed
@@ -186,13 +210,17 @@ def _add_deleted_post(fake: FakeRedditGateway, source: Source) -> None:
         title=DELETED_TITLE,
         selftext=DELETED_BODY,
         author=DELETED_AUTHOR,
-        created_utc=DELETED_UTC,
+        created_utc=base + DELETED_OFFSET,
     )
     fake.delete(fullname)
 
 
-def build_gateway() -> FakeRedditGateway:
+def build_gateway(*, base: int) -> FakeRedditGateway:
     """The corpus as a live :class:`FakeRedditGateway`, built in id-allocation order.
+
+    ``base`` is the instant premiere's first ordinary post was created; every other
+    timestamp is it plus one of the offsets above, so moving the base moves the whole
+    corpus and changes nothing else about the scenario.
 
     Looked up by name rather than unpacked positionally, because D-37 put the three
     special sources at positions 0, 2 and 3 of :data:`SOURCES` (``config/seed.yaml``'s
@@ -206,14 +234,14 @@ def build_gateway() -> FakeRedditGateway:
     premiere = by_name["premiere"]
     video_editing = by_name["videoediting"]
     editors = by_name["editors"]
-    themed = _add_premiere(fake, premiere)
-    fake.add_crosspost(video_editing.name, themed, created_utc=CROSSPOST_UTC)
-    _add_ordinary_posts(fake, video_editing)
-    _add_deleted_post(fake, editors)
-    _add_ordinary_posts(fake, editors)
+    themed = _add_premiere(fake, premiere, base=base)
+    fake.add_crosspost(video_editing.name, themed, created_utc=base + CROSSPOST_OFFSET)
+    _add_ordinary_posts(fake, video_editing, base=base)
+    _add_deleted_post(fake, editors, base=base)
+    _add_ordinary_posts(fake, editors, base=base)
     for source in SOURCES:
         if source.name.lower() not in _SPECIAL_SOURCES:
-            _add_ordinary_posts(fake, source)
+            _add_ordinary_posts(fake, source, base=base)
     return fake
 
 
@@ -245,10 +273,14 @@ def check_corpus(data: dict[str, object]) -> None:
         raise ValueError(msg)
 
 
-def build_demo_fixture(path: Path) -> Path:
-    """Write the corpus to ``path`` (creating its directory) and return the path."""
+def build_demo_fixture(path: Path, *, base: int | None = None) -> Path:
+    """Write the corpus to ``path`` (creating its directory) and return the path.
+
+    ``base`` defaults to :func:`default_base_utc`, so a caller that does not care -- the
+    pytest session fixture, ``make fixture`` -- gets a corpus anchored on today.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    build_gateway().to_fixture(path)
+    build_gateway(base=default_base_utc() if base is None else base).to_fixture(path)
     check_corpus(json.loads(path.read_text(encoding="utf-8")))
     return path
 
@@ -258,7 +290,17 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("path", type=Path, help="where to write the corpus, e.g. data/demo.json")
-    written = build_demo_fixture(parser.parse_args().path)
+    parser.add_argument(
+        "--base",
+        type=date.fromisoformat,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="anchor the corpus at midnight UTC of this day instead of today, for byte-stable "
+        "output across days",
+    )
+    args = parser.parse_args()
+    base = None if args.base is None else day_start_utc(args.base)
+    written = build_demo_fixture(args.path, base=base)
     print(f"wrote {written}: {EXPECTED_POSTS} posts across {len(SOURCES)} subreddits")
 
 
