@@ -54,6 +54,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the two hash-resolving gates and the register gate read history
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.14"
@@ -62,7 +64,10 @@ jobs:
       - name: Sync (re-resolves the lock for 3.14; not committed)
         run: uv sync --all-groups --python 3.14
       - name: pytest
-        run: uv run pytest -p no:cacheprovider
+        # Same selection the Makefile makes off Darwin: the launchd tests need plutil, which
+        # ships only with macOS, and they fail rather than skip so a broken plist cannot pass
+        # unnoticed. Deselecting by marker is how the other Linux jobs avoid them.
+        run: uv run pytest -p no:cacheprovider -m "not live and not macos"
       - name: mypy
         run: uv run mypy src
 
