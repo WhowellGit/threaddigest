@@ -16,6 +16,7 @@ those preconditions are reachable by a test instead of being shadowed by the gua
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -28,6 +29,20 @@ from threaddigest.db import migrate as db_migrate
 from threaddigest.db.engine import db_path_for, engine_for
 
 FIXTURE_0001 = Path(__file__).resolve().parents[1] / "fixtures" / "db" / "0001.sqlite"
+
+#: Environment for a help-text invocation: NO_COLOR and TERM=dumb are what typer's rich
+#: integration and click both honour to turn colour off regardless of what the runner
+#: thinks its terminal can do (KI-037); FORCE_COLOR is cleared so an ambient one (CI, or a
+#: developer's shell) cannot override the other two.
+_NO_COLOR_ENV = {"NO_COLOR": "1", "TERM": "dumb", "FORCE_COLOR": None}
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    """Belt and braces on top of ``_NO_COLOR_ENV``: drop any colour escape that still made
+    it into help text before a test asserts on the text's content (KI-037)."""
+    return _ANSI_ESCAPE.sub("", text)
 
 
 def _run_pks(data_dir: Path) -> list[int]:
@@ -93,8 +108,14 @@ def test_serve_refuses_to_start_a_server_under_pytest(
 
 
 def test_serve_takes_a_port_and_no_host(cli_runner: CliRunner) -> None:
-    """The plan's command line is ``serve [--port 8765]``: binding elsewhere is a decision."""
-    help_text = cli_runner.invoke(cli.app, ["serve", "--help"]).output
+    """The plan's command line is ``serve [--port 8765]``: binding elsewhere is a decision.
+
+    Invoked with colour off (KI-037): rich's help renderer can interleave ``--port`` with
+    ANSI escapes on a runner it believes is a terminal, which breaks a plain substring
+    check without changing what the help text says.
+    """
+    result = cli_runner.invoke(cli.app, ["serve", "--help"], env=_NO_COLOR_ENV)
+    help_text = _strip_ansi(result.output)
     assert "--port" in help_text
     assert "--host" not in help_text
     assert cli.SERVE_HOST == "127.0.0.1"
