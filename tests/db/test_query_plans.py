@@ -118,6 +118,18 @@ def _plan(conn: Any, cap: _StatementCapture) -> str:
 def test_due_posts_uses_next_check_at_index(
     engine: Engine, subreddit_pk: int, now: int, capture: _StatementCapture
 ) -> None:
+    """The due read is a range from the index plus a sort, and both halves are asserted.
+
+    The queue is ordered ``created_utc DESC`` (newest discussion first, plan § Collector
+    algorithm step 2), which is not the column the ``next_check_at <= now`` range is served
+    from, so SQLite sorts the range in a temporary b-tree. That sort is the accepted cost of
+    the order the plan asks for -- at the few thousand posts this store holds it is nothing,
+    and paying for a second index to remove it would be paying for the wrong thing -- so it
+    is asserted rather than tolerated: a plan that stopped using the index *or* one that
+    silently grew a second sort is a change this test must show. Before 2026-09-17 the read
+    ordered by ``next_check_at``, which needed no sort and drained the queue oldest first
+    (KI-041).
+    """
     with engine.begin() as conn:
         upsert_posts(conn, [_write("due1", subreddit_pk, now)], path=IngestPath.SUBREDDIT_NEW)
 
@@ -125,6 +137,7 @@ def test_due_posts_uses_next_check_at_index(
         due_posts(conn, now=now + 999_999, limit=10)
         plan = _plan(conn, capture)
     assert "ix_posts_next_check_at" in plan
+    assert "USE TEMP B-TREE FOR ORDER BY" in plan
 
 
 def test_window_query_uses_subreddit_created_index(

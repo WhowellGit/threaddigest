@@ -7,20 +7,24 @@ cannot be written, and so every function here is valid only against a database *
 (see :func:`finish_run` and :func:`insert_backup`).
 
 Collector upserts are generated from ``db/ownership.py`` through one generator,
-:func:`_upsert_for`, so the declaration governs the SQL for all three tables rather than
-describing one of them (design-round5 §4.2). The repo returns plain dataclasses, never ORM
-instances, so ``services/`` never holds a session.
+:func:`_upsert_for`, so the declaration governs the SQL for every table it names rather than
+describing one of them (design-round5 §4.2). The two writes that are not upserts --
+:func:`recount_authors` and :func:`stamp_tree_on_post` -- are named by the ownership row
+whose columns they move, so no write reaches a collector table unannounced. The repo returns
+plain dataclasses, never ORM instances, so ``services/`` never holds a session.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, Final
 
 from sqlalchemy import (
+    Column,
+    ColumnElement,
     Connection,
     RowMapping,
     Select,
@@ -35,17 +39,21 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from threaddigest.core.deletion import AuthorState, ContentState, Observation, decide
 from threaddigest.core.digest import PostItem, rank_posts
-from threaddigest.core.models import PostRow, Reject
+from threaddigest.core.models import CommentRow, PostRow, Reject
 from threaddigest.core.paging import KnownPost
-from threaddigest.db.ownership import OWNERSHIP, IngestPath
+from threaddigest.db.ownership import OWNERSHIP, IngestPath, Ownership
 from threaddigest.db.schema import Base
 
 __all__ = [
     "FRESHNESS_STATUSES",
     "AuthorWrite",
     "BackupInsert",
+    "CommentWrite",
+    "MoreWrite",
     "PostWrite",
+    "PriorComment",
     "PriorPost",
     "RunDisplay",
     "RunInsert",
@@ -53,12 +61,14 @@ __all__ = [
     "SnapshotWrite",
     "SubredditRow",
     "SweepProgress",
+    "TreeStamp",
     "UpsertOutcome",
     "advance_watermark",
     "all_sources_for_freshness",
     "author_values",
     "backups_of_kind",
     "clear_subreddit_error",
+    "comment_values",
     "default_workspace_pk",
     "delete_backups",
     "due_posts",
@@ -85,6 +95,7 @@ __all__ = [
     "recount_authors",
     "record_run_settings",
     "record_subreddit_failure",
+    "replace_comment_more",
     "rows_below_normalizer_version",
     "run_display",
     "run_for_window",
@@ -96,10 +107,13 @@ __all__ = [
     "source_outcomes",
     "stale_candidates",
     "stamp_complete_poll",
+    "stamp_tree_on_post",
     "subreddit_names",
     "table_counts",
+    "tree_stamp_values",
     "unknown_enum_occurrences",
     "upsert_authors",
+    "upsert_comments",
     "upsert_posts",
     "upsert_run_subreddit",
     "workspaces",
@@ -120,6 +134,9 @@ REDDIT_WEB_HOST: Final = "https://www.reddit.com"
 #: is registered in ``core.models.KNOWN_VALUES`` but is a column of ``subreddits``, which
 #: tranche A never writes, so naming it here would be invalid SQL (design-round5 §13.1).
 UNKNOWN_ENUM_FIELDS: Final[tuple[str, ...]] = ("post_hint", "removed_by_category")
+
+#: Ids per ``IN (...)`` list in the reads over one comment tree. See :func:`_chunked`.
+IN_CLAUSE_CHUNK: Final = 500
 
 #: Run statuses that count as "this run swept something" for the freshness window
 #: (design-round5 §14.2). Declared here because :func:`recent_sweeping_runs` is the query
@@ -175,6 +192,60 @@ class PostWrite:
     author_state: str
     misses: int
     raw_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class PriorComment:
+    """The prior comment row's columns the tree upsert needs before deciding what to write."""
+
+    first_seen_at: int
+    content_state: str
+    author_state: str
+    misses: int
+
+
+@dataclass(frozen=True, slots=True)
+class CommentWrite:
+    """A normalized comment plus the two things ``CommentRow`` does not carry.
+
+    ``post_pk`` because the row keys its post by ``reddit_id`` and the column is a pk, and
+    ``raw_json`` because the raw store is the caller's serialization of the wire item.
+    """
+
+    row: CommentRow
+    post_pk: int
+    raw_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class MoreWrite:
+    """One ``more`` stub a tree fetch left unexpanded, keyed the way the port reports it.
+
+    ``parent_fullname`` is a ``t1_`` comment or the post's own ``t3_``;
+    :func:`replace_comment_more` resolves it to a pk among that post's comments and stores
+    NULL when it is the post itself or a comment behind another stub.
+    """
+
+    parent_fullname: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class TreeStamp:
+    """What one tree attempt leaves on its post: the coverage it achieved and the ladder.
+
+    ``fetched_at`` is None for a post whose tree was never fetched (a skip), which is what
+    keeps ``comments_complete`` an honest claim about a tree that was actually read.
+    """
+
+    fetched_at: int | None
+    captured: int
+    complete: bool
+    more_skipped: bool
+    more_skipped_count: int
+    more_skipped_reason: str | None
+    next_check_at: int
+    check_stage: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,29 +372,51 @@ def _table(name: str) -> Table:
     return Base.metadata.tables[name]
 
 
+def _set_fragment(own: Ownership, table: Table, stmt: Insert, name: str) -> Any:
+    """One column's ``DO UPDATE SET`` right-hand side, in the shape its declaration names.
+
+    Three shapes, and a column is in at most one class (the declaration's rules 1 and 7):
+    plain ``excluded.col``; ``max(table.col, excluded.col)`` for a monotonic column; and, for
+    a terminal-guard column, the stored value whenever the stored row is already
+    ``deleted_by_author`` -- the state ``core.deletion.decide`` treats as terminal, and which
+    the statement therefore refuses to write content over whatever the caller passes.
+    """
+    if name in own.monotonic_columns:
+        return func.max(table.c[name], stmt.excluded[name])
+    if name in own.terminal_guard_columns:
+        terminal = table.c.content_state == ContentState.DELETED_BY_AUTHOR.value
+        return case((terminal, table.c[name]), else_=stmt.excluded[name])
+    return stmt.excluded[name]
+
+
 @cache
 def _upsert_for(table: str, path: IngestPath) -> Insert:
     """The ONE statement generator. Everything DB-21 asserts is a property of this function.
 
     The emitted statement is a pure function of ``OWNERSHIP[(table, path)]``: the ``SET``
-    clause of ``update_columns`` and ``monotonic_columns``, the ``ON CONFLICT`` target of
-    ``conflict_columns``, and ``DO NOTHING`` of an empty ``update_columns``. Cached because
-    a page compiles it once and executes it as an executemany over <= 100 rows.
+    clause of ``update_columns``, ``monotonic_columns`` and ``terminal_guard_columns``, the
+    ``ON CONFLICT`` target of ``conflict_columns``, and ``DO NOTHING`` of an empty
+    ``update_columns``. Cached because a page compiles it once and executes it as an
+    executemany over its rows.
+
+    An update-only row has no statement here at all and asking for one raises: the path
+    never inserts, and a ``DO NOTHING`` emitted for it would read like a write path that
+    happens to do nothing rather than like a declaration that this generator is not its
+    writer.
     """
     own = OWNERSHIP[(table, path)]
+    if not own.upserts:
+        msg = (
+            f"{table}/{path.value} never inserts: {sorted(own.derived_columns)} "
+            "are written by the statement its ownership row names"
+        )
+        raise ValueError(msg)
     t = _table(table)
     stmt = sqlite_insert(t)
     index_elements = [t.c[name] for name in own.conflict_columns]
     if not own.update_columns:
         return stmt.on_conflict_do_nothing(index_elements=index_elements)
-    set_ = {
-        name: (
-            func.max(t.c[name], stmt.excluded[name])
-            if name in own.monotonic_columns
-            else stmt.excluded[name]
-        )
-        for name in sorted(own.update_columns)
-    }
+    set_ = {name: _set_fragment(own, t, stmt, name) for name in sorted(own.update_columns)}
     return stmt.on_conflict_do_update(index_elements=index_elements, set_=set_)
 
 
@@ -523,19 +616,24 @@ def insert_item_snapshots(conn: Connection, snapshots: Sequence[SnapshotWrite]) 
     return len(snapshots)
 
 
-def upsert_authors(conn: Connection, authors: Sequence[AuthorWrite]) -> None:
+def upsert_authors(
+    conn: Connection, authors: Sequence[AuthorWrite], *, path: IngestPath = IngestPath.SUBREDDIT_NEW
+) -> None:
     """Write author identity only: ``name`` moves, ``last_seen_at`` is monotonic.
 
     ``first_seen_at`` is insert-only and ``post_count`` / ``comment_count`` are the
     ``derived_columns`` :func:`recount_authors` owns -- this statement never touches them.
+
+    ``path`` selects the ownership row that governs the write. The statement it emits is the
+    same for every path, because ``authors`` has no ``source`` column and nothing about an
+    identity differs between a post's author and a comment's; the parameter is the
+    declaration's rather than SQLite's, so that the row governing a write is the row of the
+    path making it. It defaults to the sweep's, which is the only caller until the tree stage.
     """
     collapsed: dict[str, AuthorWrite] = {a.author_fullname: a for a in authors}
     if not collapsed:
         return
-    conn.execute(
-        _upsert_for("authors", IngestPath.SUBREDDIT_NEW),
-        [author_values(a) for a in collapsed.values()],
-    )
+    conn.execute(_upsert_for("authors", path), [author_values(a) for a in collapsed.values()])
 
 
 def recount_authors(conn: Connection, author_fullnames: Sequence[str]) -> None:
@@ -570,6 +668,253 @@ def recount_authors(conn: Connection, author_fullnames: Sequence[str]) -> None:
         .where(authors.c.author_fullname.in_(wanted))
         .values(post_count=post_count, comment_count=comment_count)
     )
+
+
+# --- comment trees (M1b; design memo § C.5, § C.7) ------------------------------------------
+
+
+def comment_values(write: CommentWrite, prior: PriorComment | None, *, now: int) -> dict[str, Any]:
+    """The one mapping from ``CommentRow`` + context to ``comments`` columns.
+
+    The deletion state is decided **here** rather than by the caller, which is where the
+    sweep decides a post's (``services/sweep.py::_post_write``). The prior row it needs is
+    the same row :func:`upsert_comments` reads to classify new against updated, so deciding
+    here reads a tree once; asking a service to decide would read every prior comment of a
+    four-thousand-row tree a second time for nothing. The rules applied are identical --
+    ``core.deletion.decide`` against the prior state -- and the statement's terminal guard
+    holds the stored content whatever this mapping returns, so the two cannot disagree.
+
+    ``parent_comment_pk`` is emitted NULL and resolved afterwards (DB-24).
+    ``parent_fullname`` is NOT NULL and falls back to the post's own fullname: a comment
+    whose wire carried no ``parent_id`` hangs off the post, which is also how a NULL
+    ``parent_comment_pk`` renders. Every NOT NULL column whose ``CommentRow`` field is
+    optional is coalesced to the column's server default, ``scrubbed_at`` is never emitted,
+    and the key set equals ``OWNERSHIP[("comments", COMMENTS)].insert_columns``.
+    """
+    row = write.row
+    prior_state = ContentState.LIVE if prior is None else ContentState(prior.content_state)
+    prior_author = AuthorState.KNOWN if prior is None else AuthorState(prior.author_state)
+    observation = Observation(
+        body=row.body,
+        author=row.author,
+        author_fullname_present=row.author_fullname is not None,
+        # A comment carries no `removed_by_category`, and `is_link_post` is the predicate that
+        # exists because a deleted link post has an empty body; neither applies here.
+        removed_by_category=None,
+        is_link_post=False,
+        returned_by_info=None,
+    )
+    decision = decide(prior_state, prior_author, observation, 0 if prior is None else prior.misses)
+    return {
+        "reddit_id": row.reddit_id,
+        "fullname": row.fullname,
+        "post_pk": write.post_pk,
+        "parent_fullname": row.parent_fullname or f"t3_{row.post_reddit_id}",
+        "parent_comment_pk": None,
+        "author": row.author,
+        "author_fullname": row.author_fullname,
+        "author_is_bot": bool(row.author_is_bot),
+        "body": row.body,
+        "body_html": row.body_html,
+        "created_utc": row.created_utc,
+        "edited_utc": row.edited_utc,
+        "score": 0 if row.score is None else row.score,
+        "depth": 0 if row.depth is None else row.depth,
+        "permalink": row.permalink,
+        "is_submitter": bool(row.is_submitter),
+        "stickied": bool(row.stickied),
+        "distinguished": row.distinguished,
+        "content_state": decision.content_state.value,
+        "author_state": decision.author_state.value,
+        "misses": decision.misses,
+        "first_seen_at": now if prior is None else prior.first_seen_at,
+        "last_fetched_at": now,
+        "source": row.source,
+        "normalizer_version": row.normalizer_version,
+        "raw_json": write.raw_json,
+    }
+
+
+def tree_stamp_values(stamp: TreeStamp) -> dict[str, Any]:
+    """The one mapping from :class:`TreeStamp` to the ``posts`` columns the tree stage owns.
+
+    Separate from the statement so the key set can be asserted against
+    ``OWNERSHIP[("posts", COMMENTS)].derived_columns``, which is the only check an
+    update-only row can be given in place of rule 4's value half.
+    """
+    return {
+        "comments_fetched_at": stamp.fetched_at,
+        "comments_captured": stamp.captured,
+        "comments_complete": stamp.complete,
+        "more_skipped": stamp.more_skipped,
+        "more_skipped_count": stamp.more_skipped_count,
+        "more_skipped_reason": stamp.more_skipped_reason,
+        "next_check_at": stamp.next_check_at,
+        "check_stage": stamp.check_stage,
+    }
+
+
+def _chunked(values: Sequence[str]) -> Iterator[Sequence[str]]:
+    """``values`` in slices small enough for an ``IN (...)`` list.
+
+    A tree at the per-post expansion cap can carry thousands of comments and every id in an
+    ``IN`` list is one bound parameter; SQLite's compiled ceiling is 32,766 on current
+    builds and 999 on older ones, and a read that works on this Mac and fails on a machine
+    with an older library is the kind of limit that is discovered in production.
+    """
+    for start in range(0, len(values), IN_CLAUSE_CHUNK):
+        yield values[start : start + IN_CLAUSE_CHUNK]
+
+
+def _comment_pks_by(
+    conn: Connection, column: Column[Any], values: Sequence[str], *, post_pk: int | None = None
+) -> dict[str, int]:
+    """``{value: pk}`` for the comments whose ``column`` is one of ``values``, chunked."""
+    comments = _table("comments")
+    found: dict[str, int] = {}
+    for chunk in _chunked(list(dict.fromkeys(values))):
+        where: list[ColumnElement[bool]] = [column.in_(chunk)]
+        if post_pk is not None:
+            where.append(comments.c.post_pk == post_pk)
+        rows = conn.execute(select(column, comments.c.pk).where(*where)).all()
+        found |= {str(value): int(pk) for value, pk in rows}
+    return found
+
+
+def _prior_comments(conn: Connection, reddit_ids: Sequence[str]) -> dict[str, PriorComment]:
+    """The stored state of the batch's comments, for the classification and the decision."""
+    comments = _table("comments")
+    found: dict[str, PriorComment] = {}
+    for chunk in _chunked(reddit_ids):
+        rows = conn.execute(
+            select(
+                comments.c.reddit_id,
+                comments.c.first_seen_at,
+                comments.c.content_state,
+                comments.c.author_state,
+                comments.c.misses,
+            ).where(comments.c.reddit_id.in_(chunk))
+        ).all()
+        found |= {
+            str(reddit_id): PriorComment(
+                first_seen_at=int(first_seen_at),
+                content_state=str(content_state),
+                author_state=str(author_state),
+                misses=int(misses),
+            )
+            for reddit_id, first_seen_at, content_state, author_state, misses in rows
+        }
+    return found
+
+
+def _resolve_parents(conn: Connection, *, post_pk: int) -> None:
+    """One UPDATE per post: the pk of the comment whose ``fullname`` a row names as its parent.
+
+    Restricted to rows that are still NULL, so a parent an earlier fetch resolved is never
+    recomputed, and left NULL when the parent is the post itself or sits behind an unexpanded
+    ``more`` stub. ``parent_comment_pk`` carries no foreign key precisely so that it can: a
+    tree arrives with holes in it, and a comment whose parent we do not hold is stored at the
+    depth Reddit gave it rather than rejected or reparented (DB-24).
+    """
+    comments = _table("comments")
+    parent = comments.alias("parent")
+    conn.execute(
+        update(comments)
+        .where(comments.c.post_pk == post_pk, comments.c.parent_comment_pk.is_(None))
+        .values(
+            parent_comment_pk=(
+                select(parent.c.pk)
+                .where(
+                    parent.c.post_pk == post_pk,
+                    parent.c.fullname == comments.c.parent_fullname,
+                )
+                .scalar_subquery()
+            )
+        )
+    )
+
+
+def upsert_comments(conn: Connection, writes: Sequence[CommentWrite], *, now: int) -> UpsertOutcome:
+    """Upsert one tree's comments, resolve their parents, and report new, updated and the pks.
+
+    Four statements inside the caller's transaction -- read the prior rows, upsert, read the
+    pks back, resolve parents -- which is :func:`upsert_posts`' classify-upsert-read-back
+    with the parent pass DB-24 needs on the end. Classification is a ``SELECT`` for
+    :func:`upsert_posts`' reasons, and it is the same read the deletion decision needs, so a
+    tree's prior rows are read once.
+
+    Duplicate ``reddit_id``s inside one batch are collapsed before execution, last write
+    wins, which is what makes ``new + updated == len(distinct ids)`` hold. The upsert is one
+    executemany: a tree at the expansion cap is thousands of rows and several megabytes of
+    ``raw_json``, and a statement per row would be a transaction held open for all of them.
+    """
+    collapsed: dict[str, CommentWrite] = {write.row.reddit_id: write for write in writes}
+    if not collapsed:
+        return UpsertOutcome(new_ids=(), updated_ids=(), pks={})
+    ids = list(collapsed)
+    priors = _prior_comments(conn, ids)
+    conn.execute(
+        _upsert_for("comments", IngestPath.COMMENTS),
+        [
+            comment_values(write, priors.get(reddit_id), now=now)
+            for reddit_id, write in collapsed.items()
+        ],
+    )
+    pks = _comment_pks_by(conn, _table("comments").c.reddit_id, ids)
+    for post_pk in dict.fromkeys(write.post_pk for write in collapsed.values()):
+        _resolve_parents(conn, post_pk=post_pk)
+    return UpsertOutcome(
+        new_ids=tuple(i for i in ids if i not in priors),
+        updated_ids=tuple(i for i in ids if i in priors),
+        pks=pks,
+    )
+
+
+def replace_comment_more(conn: Connection, *, post_pk: int, stubs: Sequence[MoreWrite]) -> int:
+    """Replace one post's ``comment_more`` rows with the stubs this fetch left; returns how many.
+
+    Wholesale rather than merged, inside the tree's transaction, because a stub is not
+    resumable: the children a skipped stub names are not addressable in a later run, so what
+    one fetch left is the whole truth about that post's uncaptured replies and a merge would
+    accumulate stubs that no longer exist (design memo § C.5). ``parent_comment_pk`` is NULL
+    when the stub hangs off the post itself or off a comment we do not hold.
+    """
+    more = _table("comment_more")
+    conn.execute(delete(more).where(more.c.post_pk == post_pk))
+    if not stubs:
+        return 0
+    parents = _comment_pks_by(
+        conn,
+        _table("comments").c.fullname,
+        [stub.parent_fullname for stub in stubs],
+        post_pk=post_pk,
+    )
+    conn.execute(
+        insert(more),
+        [
+            {
+                "post_pk": post_pk,
+                "parent_comment_pk": parents.get(stub.parent_fullname),
+                "count": stub.count,
+            }
+            for stub in stubs
+        ],
+    )
+    return len(stubs)
+
+
+def stamp_tree_on_post(conn: Connection, *, post_pk: int, stamp: TreeStamp) -> None:
+    """Record one tree attempt's outcome on its post, and touch nothing else.
+
+    The eight columns ``OWNERSHIP[("posts", IngestPath.COMMENTS)].derived_columns`` names,
+    written by pk. The two the tree stage is in a position to corrupt are ``first_seen_at``
+    and ``subreddit_pk``: it holds a post it did not discover, and the refreshed post a tree
+    fetch returns carries neither honestly. It takes one value object rather than eight
+    keyword arguments so that a ninth column is a change to a named type, reviewed against
+    the declaration, rather than another argument at a call site.
+    """
+    posts = _table("posts")
+    conn.execute(update(posts).where(posts.c.pk == post_pk).values(**tree_stamp_values(stamp)))
 
 
 def insert_rejects(conn: Connection, *, run_pk: int, rejects: Sequence[Reject], now: int) -> int:
@@ -1102,16 +1447,24 @@ def known_posts_in_window(
 
 
 def due_posts(conn: Connection, *, now: int, limit: int) -> list[tuple[int, str]]:
-    """``(pk, reddit_id)`` for the posts the revisit ladder makes due, most overdue first.
+    """``(pk, reddit_id)`` for the posts the revisit ladder makes due, newest discussion first.
 
-    The ``ORDER BY next_check_at`` is load-bearing as well as useful: it is what makes
-    SQLite serve the read from ``ix_posts_next_check_at`` (DB-08). M1b is the consumer.
+    ``next_check_at <= now`` is the range, which SQLite serves from
+    ``ix_posts_next_check_at``; ``created_utc DESC`` is the order, which it sorts on top of
+    that range in a temporary b-tree. DB-08 asserts both halves.
+
+    The two are deliberately different columns. Ordering by ``next_check_at`` needs no sort,
+    which is why it was shipped, but during the first backfill every post sits at stage 0, so
+    ``next_check_at`` is ``created_utc`` plus a day for all of them and ordering by it drains
+    the queue oldest-thread-first -- the reverse of what a backfill is for (plan § Collector
+    algorithm step 2; KI-041). At the few thousand posts this store holds the sort costs
+    nothing, so it is paid rather than bought off with a second index and a migration.
     """
     posts = _table("posts")
     rows = conn.execute(
         select(posts.c.pk, posts.c.reddit_id)
         .where(posts.c.next_check_at <= now)
-        .order_by(posts.c.next_check_at)
+        .order_by(posts.c.created_utc.desc())
         .limit(limit)
     ).all()
     return [(int(pk), str(reddit_id)) for pk, reddit_id in rows]

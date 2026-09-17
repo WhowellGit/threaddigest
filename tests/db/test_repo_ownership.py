@@ -1,9 +1,17 @@
 """DB-21: the field-ownership declaration and the one upsert generator it drives agree.
 
-design-round5.md §4.1-§4.3. Parametrized over **all three** ``OWNERSHIP`` rows (posts,
-authors, post_sources) for the structural rules; ``test_recount_authors_touches_only_the_
-derived_columns`` and ``test_scrubbed_at_is_never_written_in_tranche_a`` check the one row
-each rule is actually about (§4.3 rules 8 and 9).
+design-round5.md §4.1-§4.3. Parametrized over **every** ``OWNERSHIP`` row for the two
+structural rules that hold whatever statement a path uses, and over the rows that actually
+upsert for the rules about emitted SQL; ``test_recount_authors_touches_only_the_derived_
+columns`` and ``test_scrubbed_at_is_never_written_in_tranche_a`` check the one row each rule
+is actually about (§4.3 rules 8 and 9).
+
+M1b added a third shape the declaration has to carry. ``("posts", COMMENTS)`` is
+*update-only*: the tree stage never inserts a post, it stamps coverage and ladder columns on
+a row the sweep inserted, so the rules that ask what an ``INSERT`` names have no premise on
+it. Rather than let it pass those rules vacuously it declares ``upserts=False``, which is
+its own assertion here (``test_an_update_only_row_declares_no_statement_of_its_own``) and
+makes ``_upsert_for`` refuse to build a statement for it at all.
 
 Round 4's declaration failed these same checks: ``authors``' emitted SET was
 ``{last_seen_at, name}`` against a declared ``{name, last_seen_at, post_count,
@@ -19,21 +27,33 @@ import pytest
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 
-from threaddigest.core.models import PostRow
+from threaddigest.core.models import CommentRow, PostRow
 from threaddigest.db.ownership import OWNERSHIP, IngestPath
 from threaddigest.db.repo import (
     AuthorWrite,
+    CommentWrite,
     PostWrite,
+    TreeStamp,
     _upsert_for,
     author_values,
+    comment_values,
     post_source_values,
     post_values,
     recount_authors,
+    tree_stamp_values,
 )
 from threaddigest.db.schema import Base
 
+
+def _ids(rows: list[Any]) -> list[str]:
+    return [f"{own.table}/{own.path.value}" for own in rows]
+
+
 OWNERSHIP_ROWS = list(OWNERSHIP.values())
-OWNERSHIP_IDS = [f"{own.table}/{own.path.value}" for own in OWNERSHIP_ROWS]
+OWNERSHIP_IDS = _ids(OWNERSHIP_ROWS)
+UPSERTING_ROWS = [own for own in OWNERSHIP_ROWS if own.upserts]
+UPSERTING_IDS = _ids(UPSERTING_ROWS)
+UPDATE_ONLY_ROWS = [own for own in OWNERSHIP_ROWS if not own.upserts]
 
 
 def _split_top_level(text: str, sep: str) -> list[str]:
@@ -81,6 +101,12 @@ def own(request: pytest.FixtureRequest) -> Any:
     return request.param
 
 
+@pytest.fixture(params=UPSERTING_ROWS, ids=UPSERTING_IDS)
+def upserting(request: pytest.FixtureRequest) -> Any:
+    """The rows whose path reaches its table through ``_upsert_for``; §4.3's SQL rules."""
+    return request.param
+
+
 def test_ownership_covers_every_column(own: Any) -> None:
     """§4.3 rule 3: update | derived | never_update covers every column of the table."""
     table = Base.metadata.tables[own.table]
@@ -95,43 +121,43 @@ def test_update_derived_and_never_update_are_disjoint(own: Any) -> None:
     assert own.derived_columns.isdisjoint(own.never_update)
 
 
-def test_emitted_statement_matches_ownership(own: Any) -> None:
+def test_emitted_statement_matches_ownership(upserting: Any) -> None:
     """§4.3 rule 6: the compiled SQL says exactly what the declaration says."""
-    sql = _compile(own)
-    if not own.update_columns:
+    sql = _compile(upserting)
+    if not upserting.update_columns:
         assert " DO UPDATE SET " not in sql
         assert "DO NOTHING" in sql
     else:
-        assert _set_clause_columns(sql) == set(own.update_columns)
-    assert _conflict_target(sql) == tuple(own.conflict_columns)
+        assert _set_clause_columns(sql) == set(upserting.update_columns)
+    assert _conflict_target(sql) == tuple(upserting.conflict_columns)
 
 
-def test_conflict_columns_match_a_real_unique_constraint(own: Any) -> None:
+def test_conflict_columns_match_a_real_unique_constraint(upserting: Any) -> None:
     """§4.3 rule 2: the ON CONFLICT target names a real UNIQUE constraint of the table."""
-    table = Base.metadata.tables[own.table]
+    table = Base.metadata.tables[upserting.table]
     unique_col_sets = {
         frozenset(c.name for c in constraint.columns)
         for constraint in table.constraints
         if isinstance(constraint, UniqueConstraint)
     }
-    assert frozenset(own.conflict_columns) in unique_col_sets
+    assert frozenset(upserting.conflict_columns) in unique_col_sets
 
 
-def test_not_null_columns_are_inserted_and_pk_is_not(own: Any) -> None:
+def test_not_null_columns_are_inserted_and_pk_is_not(upserting: Any) -> None:
     """§4.3 rule 4 (as restated in round 5) and rule 5."""
-    table = Base.metadata.tables[own.table]
+    table = Base.metadata.tables[upserting.table]
     for column in table.columns:
         if column.primary_key:
             continue
         if not column.nullable and column.server_default is None:
-            assert column.name in own.insert_columns, (
-                f"{own.table}.{column.name} is NOT NULL with no server default "
+            assert column.name in upserting.insert_columns, (
+                f"{upserting.table}.{column.name} is NOT NULL with no server default "
                 "and must be in insert_columns"
             )
-    assert "pk" not in own.insert_columns
+    assert "pk" not in upserting.insert_columns
 
 
-def test_monotonic_columns_are_emitted_as_max(own: Any) -> None:
+def test_monotonic_columns_are_emitted_as_max(upserting: Any) -> None:
     """§4.3 rule 7, asserted both ways so no row is exempt.
 
     A declared monotonic column's SET fragment must read ``max(<table>.<col>, ...)``, and
@@ -139,14 +165,79 @@ def test_monotonic_columns_are_emitted_as_max(own: Any) -> None:
     declare no monotonic column honest: skipping them would leave them asserting nothing
     (and the skip ratchet is at zero).
     """
-    sql = _compile(own)
-    for name in own.monotonic_columns:
-        assert f"max({own.table}.{name}" in sql
-    assert sql.count("max(") == len(own.monotonic_columns), (
+    sql = _compile(upserting)
+    for name in upserting.monotonic_columns:
+        assert f"max({upserting.table}.{name}" in sql
+    assert sql.count("max(") == len(upserting.monotonic_columns), (
         "only declared monotonic columns may be emitted as max(...)"
     )
-    for name in set(own.update_columns) - set(own.monotonic_columns):
-        assert f"max({own.table}.{name}" not in sql
+    for name in set(upserting.update_columns) - set(upserting.monotonic_columns):
+        assert f"max({upserting.table}.{name}" not in sql
+
+
+def test_terminal_guard_columns_are_emitted_as_a_case_on_the_terminal_state(
+    upserting: Any,
+) -> None:
+    """§4.3 rule 7's sibling, added for M1b, asserted both ways for the same reason.
+
+    A declared guarded column's SET fragment must read ``CASE WHEN <table>.content_state =
+    ... THEN <table>.<col> ELSE excluded.<col> END``, and no other column in the statement
+    may be written as a CASE. The negative half is what keeps the rows that guard nothing
+    honest, and the count is what stops a guard being added to the SQL without being
+    declared here.
+    """
+    sql = _compile(upserting)
+    for name in upserting.terminal_guard_columns:
+        assert f"THEN {upserting.table}.{name} ELSE excluded.{name} END" in sql
+    assert sql.count("CASE WHEN") == len(upserting.terminal_guard_columns), (
+        "only declared terminal-guard columns may be emitted as a CASE"
+    )
+    for name in set(upserting.update_columns) - set(upserting.terminal_guard_columns):
+        assert f"THEN {upserting.table}.{name} " not in sql
+
+
+def test_an_update_only_row_declares_no_statement_of_its_own() -> None:
+    """A path that never inserts declares nothing for ``_upsert_for`` to build.
+
+    Rules 2, 4, 5, 6 and 7 are about an emitted ``INSERT ... ON CONFLICT``; an update-only
+    row would pass most of them by having nothing to check, which is the vacuous pass this
+    project treats as a red. So it asserts the opposite shape instead -- no insert, no
+    update, no conflict target, at least one column written by a named statement -- and that
+    asking the generator for a statement raises rather than quietly emitting a ``DO NOTHING``
+    that would look like a write path.
+    """
+    assert UPDATE_ONLY_ROWS, "no update-only row in the declaration; this test asserts nothing"
+    for own in UPDATE_ONLY_ROWS:
+        assert own.insert_columns == frozenset()
+        assert own.update_columns == frozenset()
+        assert own.conflict_columns == ()
+        assert own.monotonic_columns == frozenset()
+        assert own.terminal_guard_columns == frozenset()
+        assert own.derived_columns, f"{own.table}/{own.path.value} writes nothing at all"
+        with pytest.raises(ValueError, match="never inserts"):
+            _upsert_for(own.table, own.path)
+
+
+def test_ownership_covers_every_comments_column() -> None:
+    """§4.3 rule 3 for the M1b table by name, beside the parametrized rule.
+
+    ``comments`` is the table this milestone adds a write path to, and the rule that matters
+    most on it is the one a new column silently escapes: every column falls in exactly one
+    of update / derived / never_update. Named rather than left to the parametrized rule so
+    that a declaration for ``comments`` deleted, renamed, or never written is a failure
+    here, not a smaller parametrization nobody counts.
+    """
+    own = OWNERSHIP[("comments", IngestPath.COMMENTS)]
+    table = Base.metadata.tables["comments"]
+    assert own.update_columns | own.derived_columns | own.never_update == {
+        c.name for c in table.columns
+    }
+    assert own.derived_columns == frozenset({"parent_comment_pk"})
+    assert {"pk", "reddit_id", "post_pk", "parent_fullname", "created_utc", "first_seen_at"} <= (
+        own.never_update
+    )
+    assert "scrubbed_at" in own.never_update
+    assert "scrubbed_at" not in own.insert_columns
 
 
 def _post_write() -> PostWrite:
@@ -206,27 +297,99 @@ def _post_write() -> PostWrite:
     )
 
 
+def _comment_write() -> CommentWrite:
+    """One fully-populated ``CommentWrite``, built field by field, for the same reason."""
+    row = CommentRow(
+        reddit_id="c1abc",
+        fullname="t1_c1abc",
+        post_reddit_id="abc123",
+        parent_fullname="t3_abc123",
+        author="helpful",
+        author_fullname="t2_helper",
+        author_is_bot=False,
+        body="try the GPU renderer",
+        body_html="<p>try the GPU renderer</p>",
+        created_utc=1_800_000_100,
+        edited_utc=None,
+        score=4,
+        depth=0,
+        permalink="/r/premiere/comments/abc123/_/c1abc/",
+        is_submitter=False,
+        stickied=False,
+        distinguished=None,
+        source=IngestPath.COMMENTS.value,
+    )
+    return CommentWrite(row=row, post_pk=1, raw_json="{}")
+
+
 VALUE_BUILDERS = [
-    ("posts", lambda: post_values(_post_write())),
-    ("authors", lambda: author_values(AuthorWrite(author_fullname="t2_a", name="a", seen_at=1))),
+    ("posts", IngestPath.SUBREDDIT_NEW, lambda: post_values(_post_write())),
+    (
+        "authors",
+        IngestPath.SUBREDDIT_NEW,
+        lambda: author_values(AuthorWrite(author_fullname="t2_a", name="a", seen_at=1)),
+    ),
     (
         "post_sources",
+        IngestPath.SUBREDDIT_NEW,
         lambda: post_source_values(post_pk=1, source_type="subreddit", source_pk=1, now=1),
     ),
+    ("comments", IngestPath.COMMENTS, lambda: comment_values(_comment_write(), None, now=1)),
+    (
+        "authors",
+        IngestPath.COMMENTS,
+        lambda: author_values(AuthorWrite(author_fullname="t2_a", name="a", seen_at=1)),
+    ),
 ]
+BUILDER_IDS = [f"{table}/{path.value}" for table, path, _ in VALUE_BUILDERS]
 
 
-@pytest.mark.parametrize("table,build", VALUE_BUILDERS, ids=[case[0] for case in VALUE_BUILDERS])
-def test_value_builder_emits_exactly_the_declared_insert_columns(table: str, build: Any) -> None:
+@pytest.mark.parametrize("table,path,build", VALUE_BUILDERS, ids=BUILDER_IDS)
+def test_value_builder_emits_exactly_the_declared_insert_columns(
+    table: str, path: IngestPath, build: Any
+) -> None:
     """§4.3 rule 4, the *value* half (panel P2-13).
 
     Every other rule here is about the emitted SQL; nothing compared the dictionaries the
-    three builders actually hand to it against ``insert_columns``. A column added to the
+    builders actually hand to it against ``insert_columns``. A column added to the
     declaration but not to the builder (or the reverse) therefore passed silently until an
-    ``INSERT`` hit a NOT NULL at runtime. Asserted for all three rows: set equality, so a
-    drift in either direction is red.
+    ``INSERT`` hit a NOT NULL at runtime. Asserted for every upserting row: set equality, so
+    a drift in either direction is red.
     """
-    assert set(build()) == set(OWNERSHIP[(table, IngestPath.SUBREDDIT_NEW)].insert_columns)
+    assert set(build()) == set(OWNERSHIP[(table, path)].insert_columns)
+
+
+def test_every_upserting_ownership_row_has_a_value_builder() -> None:
+    """The rule above is only worth its parametrization if nothing can sit outside it.
+
+    A new ingest path that declares ``insert_columns`` and no builder here would leave rule
+    4's value half unasserted for exactly the statement nobody has run yet, which is the one
+    that needs it.
+    """
+    declared = {(own.table, own.path) for own in UPSERTING_ROWS}
+    assert {(table, path) for table, path, _ in VALUE_BUILDERS} == declared
+
+
+def test_the_tree_stamp_writes_exactly_the_columns_its_row_declares() -> None:
+    """Rule 4's value half, in the only form an update-only row can be given it.
+
+    ``("posts", COMMENTS)`` emits no ``INSERT`` for the SQL rules to read, so what keeps its
+    declaration honest is the mapping its named statement writes: a column added to
+    ``derived_columns`` and not to ``repo.tree_stamp_values`` (or the reverse) would leave
+    the declaration describing a write nobody makes.
+    """
+    stamp = TreeStamp(
+        fetched_at=1_800_000_000,
+        captured=12,
+        complete=False,
+        more_skipped=True,
+        more_skipped_count=2,
+        more_skipped_reason="budget",
+        next_check_at=1_800_086_400,
+        check_stage=1,
+    )
+    own = OWNERSHIP[("posts", IngestPath.COMMENTS)]
+    assert set(tree_stamp_values(stamp)) == set(own.derived_columns)
 
 
 def test_recount_authors_touches_only_the_derived_columns(

@@ -9,11 +9,17 @@ which of the updated ones are monotonic (``max(table.col, excluded.col)`` rather
 The declaration is not documentation. ``db/repo.py`` builds every collector upsert from it
 through one generator (``_upsert_for``), and ``tests/db/test_repo_ownership.py`` asserts the
 *emitted SQL* against the declaration on every row -- the ``DO UPDATE SET`` column set, the
-``DO NOTHING`` branch, the ``ON CONFLICT`` target and the ``max(...)`` fragments -- so a
-statement and its declaration cannot drift apart (design-round5 §4.1-§4.3).
+``DO NOTHING`` branch, the ``ON CONFLICT`` target, the ``max(...)`` fragments and the
+terminal-state ``CASE`` guards -- so a statement and its declaration cannot drift apart
+(design-round5 §4.1-§4.3).
 
-Only the M1a ingest path is populated. M1b/M1c/M3 rows land with their stage, so the
-assertions grow with the code and never ahead of it.
+A row is one of two shapes. Most *upsert*: an ``INSERT ... ON CONFLICT`` this file's
+declaration generates in full. One is *update-only* (``upserts=False``): the path never
+inserts, it moves named columns on a row another path inserted, and it declares no insert,
+no update and no conflict target -- ``("posts", COMMENTS)``, the tree stamp, is the first.
+
+The M1a sweep and the M1b comment trees are populated. M1c/M3 rows land with their stage, so
+the assertions grow with the code and never ahead of it.
 """
 
 from __future__ import annotations
@@ -54,13 +60,27 @@ class Ownership:
     #: Columns in ON CONFLICT DO UPDATE SET. EMPTY means the statement is DO NOTHING.
     update_columns: frozenset[str]
     #: Columns this path writes through a DECLARED separate statement, never through the
-    #: upsert's SET clause. The docstring names the function; today only recount_authors.
+    #: upsert's SET clause. The comment above each row's entry names the function:
+    #: recount_authors, the parent resolution inside upsert_comments, stamp_tree_on_post.
     derived_columns: frozenset[str]
     #: This path must never move these after the insert.
     never_update: frozenset[str]
     #: Columns whose SET clause is ``max(<table>.col, excluded.col)`` rather than
     #: ``excluded.col``, so a late or out-of-order write cannot move them backwards.
     monotonic_columns: frozenset[str] = frozenset()
+    #: Columns whose SET clause is guarded by the stored row's own terminal deletion state:
+    #: ``CASE WHEN <table>.content_state = 'deleted_by_author' THEN <table>.col ELSE
+    #: excluded.col END``. That state is terminal in ``core.deletion.decide`` (rule 1), so
+    #: the content of a row in it is terminal with it. The guard sits in the statement rather
+    #: than in the values a caller builds because the state is what M1c's scrub acts on: a
+    #: re-fetch that wrote a body back over a scrubbed row would undo a deletion the store
+    #: had already honoured (DB-22).
+    terminal_guard_columns: frozenset[str] = frozenset()
+    #: False for a path that never inserts. Such a path only UPDATEs rows another path
+    #: inserted, through the named statement its ``derived_columns`` comment points at, so it
+    #: declares no insert, no update and no conflict target, and ``repo._upsert_for`` refuses
+    #: to build a statement for it rather than emitting a meaningless ``DO NOTHING``.
+    upserts: bool = True
 
 
 #: Every column of ``posts`` except ``pk`` (AUTOINCREMENT, rule 5) and ``scrubbed_at``
@@ -84,7 +104,61 @@ _POSTS_INSERT_COLUMNS: Final = frozenset({
 })  # fmt: skip
 
 
-#: Keyed by (table, path). Only the M1a path is populated.
+#: Every column of ``comments`` except ``pk`` and ``scrubbed_at``, for the same two reasons
+#: ``_POSTS_INSERT_COLUMNS`` gives, and written out literally for the same one.
+#: ``parent_comment_pk`` is here as well as in ``derived_columns``: the insert emits it as
+#: NULL so every row of an executemany carries the same keys, and the one UPDATE that
+#: resolves parents is what ever puts a value in it (DB-24).
+_COMMENTS_INSERT_COLUMNS: Final = frozenset({
+    "reddit_id", "fullname", "post_pk", "parent_fullname", "parent_comment_pk",
+    "author", "author_fullname", "author_is_bot", "body", "body_html",
+    "created_utc", "edited_utc", "score", "depth", "permalink",
+    "is_submitter", "stickied", "distinguished",
+    "content_state", "author_state", "misses",
+    "first_seen_at", "last_fetched_at",
+    "source", "normalizer_version", "raw_json",
+})  # fmt: skip
+
+
+#: Every column of ``posts`` the comment path must never move: the whole table except the
+#: eight coverage and ladder columns ``repo.stamp_tree_on_post`` owns. Literal rather than
+#: derived from the metadata for ``_POSTS_INSERT_COLUMNS``' reason: a column added without a
+#: decision must fail rule 3 rather than be swept into "never touched" unread.
+_POSTS_NOT_THE_TREES: Final = frozenset({
+    "pk", "reddit_id", "fullname", "subreddit_pk", "subreddit_id", "author",
+    "author_fullname", "author_flair_text", "author_is_bot", "title", "selftext",
+    "selftext_html", "url", "domain", "permalink", "created_utc", "edited_utc",
+    "score", "upvote_ratio", "num_comments", "link_flair_text", "over_18", "spoiler",
+    "is_self", "is_video", "is_gallery", "post_hint", "locked", "stickied", "archived",
+    "distinguished", "crosspost_parent", "num_crossposts", "removed_by_category",
+    "content_state", "author_state", "misses", "scrubbed_at", "first_seen_at",
+    "last_fetched_at", "source", "normalizer_version", "raw_json",
+})  # fmt: skip
+
+
+def _authors_row(path: IngestPath) -> Ownership:
+    """The ``authors`` row, which is the same declaration for every ingest path.
+
+    ``authors`` has no ``source`` column and nothing about identity differs between a post's
+    author and a comment's, so the sweep and the tree stage write it identically. Built here
+    rather than written twice because two copies of one declaration drift, and because the
+    thing that must differ between the two rows -- the path -- is then the only thing that
+    does. ``post_count`` / ``comment_count`` are :func:`repo.recount_authors`' columns on
+    both paths, one UPDATE per page over the touched fullnames (§5.2).
+    """
+    return Ownership(
+        table="authors",
+        path=path,
+        conflict_columns=("author_fullname",),
+        insert_columns=frozenset({"author_fullname", "name", "first_seen_at", "last_seen_at"}),
+        update_columns=frozenset({"name", "last_seen_at"}),
+        derived_columns=frozenset({"post_count", "comment_count"}),
+        never_update=frozenset({"pk", "author_fullname", "first_seen_at"}),
+        monotonic_columns=frozenset({"last_seen_at"}),
+    )
+
+
+#: Keyed by (table, path). M1a's sweep and M1b's comment trees are populated.
 OWNERSHIP: Final[Mapping[tuple[str, IngestPath], Ownership]] = MappingProxyType({
     ("posts", IngestPath.SUBREDDIT_NEW): Ownership(
         table="posts",
@@ -115,17 +189,8 @@ OWNERSHIP: Final[Mapping[tuple[str, IngestPath], Ownership]] = MappingProxyType(
             "scrubbed_at", "crosspost_parent",
         }),
     ),
-    ("authors", IngestPath.SUBREDDIT_NEW): Ownership(
-        table="authors",
-        path=IngestPath.SUBREDDIT_NEW,
-        conflict_columns=("author_fullname",),
-        insert_columns=frozenset({"author_fullname", "name", "first_seen_at", "last_seen_at"}),
-        update_columns=frozenset({"name", "last_seen_at"}),
-        #: repo.recount_authors, one UPDATE per page over the touched fullnames (§5.2).
-        derived_columns=frozenset({"post_count", "comment_count"}),
-        never_update=frozenset({"pk", "author_fullname", "first_seen_at"}),
-        monotonic_columns=frozenset({"last_seen_at"}),
-    ),
+    ("authors", IngestPath.SUBREDDIT_NEW): _authors_row(IngestPath.SUBREDDIT_NEW),
+    ("authors", IngestPath.COMMENTS): _authors_row(IngestPath.COMMENTS),
     ("post_sources", IngestPath.SUBREDDIT_NEW): Ownership(
         table="post_sources",
         path=IngestPath.SUBREDDIT_NEW,
@@ -134,5 +199,53 @@ OWNERSHIP: Final[Mapping[tuple[str, IngestPath], Ownership]] = MappingProxyType(
         update_columns=frozenset(),  # => INSERT ... ON CONFLICT ... DO NOTHING
         derived_columns=frozenset(),
         never_update=frozenset({"pk", "post_pk", "source_type", "source_pk", "first_seen_at"}),
+    ),
+    ("comments", IngestPath.COMMENTS): Ownership(
+        table="comments",
+        path=IngestPath.COMMENTS,
+        conflict_columns=("reddit_id",),
+        insert_columns=_COMMENTS_INSERT_COLUMNS,
+        update_columns=frozenset({
+            # what the tree re-read of an existing comment observed
+            "body", "body_html", "author", "author_fullname", "author_is_bot", "permalink",
+            "edited_utc", "score", "depth", "is_submitter", "stickied", "distinguished",
+            # state computed by core.deletion.decide against the prior row
+            "content_state", "author_state", "misses",
+            # provenance of this write
+            "last_fetched_at", "source", "normalizer_version", "raw_json",
+        }),
+        #: repo.upsert_comments' second statement, one UPDATE per post resolving parents by
+        #: fullname among that post's own comments; a parent behind a stub stays NULL (DB-24).
+        derived_columns=frozenset({"parent_comment_pk"}),
+        never_update=frozenset({
+            # identity and tree position, fixed when the comment was first seen
+            "pk", "reddit_id", "fullname", "post_pk", "parent_fullname", "created_utc",
+            "first_seen_at",
+            # M1c's scrub owns it; no tranche writes it from an ingest path
+            "scrubbed_at",
+        }),
+        #: A deleted comment's content never moves again, whatever a later tree returns.
+        terminal_guard_columns=frozenset({
+            "body", "body_html", "author", "author_fullname", "permalink",
+            "content_state", "raw_json",
+        }),
+    ),
+    ("posts", IngestPath.COMMENTS): Ownership(
+        table="posts",
+        path=IngestPath.COMMENTS,
+        #: Update-only: the tree stage never inserts a post, it stamps one the sweep
+        #: inserted, so there is no INSERT and no ON CONFLICT target to declare.
+        upserts=False,
+        conflict_columns=(),
+        insert_columns=frozenset(),
+        update_columns=frozenset(),
+        #: repo.stamp_tree_on_post, one UPDATE per tree inside that tree's transaction: the
+        #: coverage the fetch achieved and the ladder rung it advanced to.
+        derived_columns=frozenset({
+            "comments_fetched_at", "comments_captured", "comments_complete",
+            "more_skipped", "more_skipped_count", "more_skipped_reason",
+            "next_check_at", "check_stage",
+        }),
+        never_update=_POSTS_NOT_THE_TREES,
     ),
 })  # fmt: skip
