@@ -392,6 +392,72 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 
 - **D-37, the source list supersedes D-01 (2026-09-16).** The initial sources are r/premiere, r/PremierePro, r/editors, r/VideoEditing, r/AfterEffects, r/aivideo, plus a private test subreddit whose name is set when Wes creates it. Chosen by Wes on 2026-09-16 for the ticket reply above (18466524), whose named communities are this six, not D-01's five: the tool's own configuration had not caught up to the list already given to Reddit, and this entry brings it into line. **DaVinci Resolve is dropped** as off-focus (r/DavinciResolve was one of D-01's five); the set is Premiere-centred instead. r/aivideo is the busiest of the six and can be disabled later without telling Reddit, because the approval Reddit grants is for the declared use, not for the exact list. `config/seed.yaml` carries the six, enabled, in this order; the private test subreddit is not seeded until it exists and is named. **Revisit when:** the digest shows Premiere discussion concentrated elsewhere, or a saved search (M3) discovers a subreddit with sustained volume (D-01's own trigger, carried forward).
 
+## 2026-09-16 (the web slice) — the first web slice pulled forward from M2
+
+- **D-38, the operator's first pages land before M1b (2026-09-16).** Wes said he had seen nothing
+  he could open, and then set the constraint: "no rush, sequence everything the right way". The main session read that as delegating the sequencing, and its recommendation was to pull the smallest honest slice of the
+  operator interface out of M2 and build it now, rather than either rushing the rest of the UI
+  forward or waiting for M1d. **What moves earlier:** the `serve` command bound to 127.0.0.1 on
+  port 8765; a Runs page and a run detail page, read from the same service functions the CLI uses,
+  showing each run's status, trigger, duration, counters with their denominators, its per-source
+  outcomes, and for an amber run the warning that made it `partial`; the digest route
+  `/reports/{date}`, assembled from the database by a new service function that the `report`
+  command will call unchanged at M1d; one stylesheet. **What does not move:** Run now, Cancel and
+  the live panel, which need the process-runner port, a queued row, the 409 rule, polling and the
+  curation migration's cancel stamp; the feed, subreddit, theme, post, search, author and settings
+  pages; the export, system, backups, maintenance and setup pages; `/healthz`; the same-origin
+  middleware and the optional password, because the slice has no state-changing request and a
+  loopback bind with the Host check is its whole perimeter; and HTMX itself, which stays unvendored
+  until the first fragment route needs it. The operator-complete gate is untouched and still lands
+  at M2, so D-28 is not weakened: the CLI remains the way to act, and the UI becomes the way to
+  see. **Why now:** three of the next four milestones (M1b comment trees, M1c reconcile and scrub,
+  M1d themes and the digest) produce exactly what these two pages display, so every one of them
+  becomes legible the day it lands instead of at the end; the launchd wrapper has linked a failed
+  run's notification to `http://127.0.0.1:8765/runs` since the cadence change, and that link went
+  nowhere; and the digest route is the only compliant way to read a digest at all, since a
+  persisted digest file could quote a title deleted the next day (§ 2, row "Digests"). **Why not
+  more:** every further page is either a write surface, which brings the perimeter and the gate
+  with it, or a browsing page whose data does not exist yet. **Honest about what it shows:** with
+  Reddit access still refused and comment trees unbuilt, the only corpus is the generated demo
+  fixture, a post's distinct-author count is zero, and the theme, untagged and rising sections are
+  empty with their denominators saying so. The pages are correct and thin by construction, and the
+  "show the denominator" rule is what makes that readable rather than misleading.
+  **Revisit when:** the slice's pages prove to need a write control before M2 (then that control
+  arrives with the same-origin middleware and a row on the operator-complete gate, not on its own),
+  or M1b and M1d land and the digest page still reads as a skeleton, which is the signal that the
+  ranking's inputs, not the page, are what to look at.
+
+- **The plan's routes table never carried the digest route.** `docs/PLAN.md` § Collector algorithm
+  step 6 and § 2 of this log both name `/reports/{date}`, and the § Web UI routes table lists every
+  other page without it. A design gap rather than a drift, found while planning the slice and
+  closed in the same change by adding the row. **Lesson, same class as drift finding 24:** a route
+  named in two prose sections and absent from the one table a builder reads is invisible until
+  someone builds from the table. **Revisit when:** never; the row exists.
+
+- **The layers contract now reads `web : cli`, and a second contract keeps the rule it used to
+  carry.** `threaddigest serve` constructs the ASGI application and hands it to uvicorn, so the
+  composition root imports `web`; written with `|`, the layers line banned that import too, and
+  the only way to write `serve` under it would have been to hide the dependency behind an
+  application string uvicorn imports by name. A dependency the gate cannot see is worse than one
+  it allows. The rule the plan actually states -- `web` never imports `cli`, because the CLI
+  mirrors the UI and never the reverse (D-28) -- is now its own `forbidden` contract,
+  `web-never-imports-cli`, which is where a reader looks for it and where a violation is named in
+  one line. **Revisit when:** a second composition root appears, or `web` is ever found importing
+  `cli`, which the forbidden contract makes a red gate rather than a discussion.
+
+- **Two things a run row cannot say, and what would let it (follow-ups).** The digest states both
+  rather than hiding them, which is the honest shape but not the end state. (a) A run stores only
+  the **fingerprint** of its settings, never the settings, so a changed fingerprint cannot be
+  resolved into the keys that changed and `RunSummary.settings_changes` is always empty; closing it
+  means a column holding the resolved non-secret settings (or their per-key digests), which is a
+  schema change and therefore rides with **M2's curation migration**. (b) A warning raised through
+  `RunContext.warn` survives only as a **count**: `violations_json` names the invariant verdicts and
+  nothing names the rest, so the digest reports each one as its own unnamed problem to keep the
+  total honest. Closing it means a warnings column mirroring the violations one, which rides with
+  the next schema change the comment stage brings (**M1b**). Both are recorded here rather than as
+  page wording, because the page is not where the gap is. **Revisit when:** either migration is
+  written; neither is worth a migration of its own.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
@@ -445,3 +511,4 @@ Read by `tools/doc_policy.py` and `tests/gates/test_doc_policy.py` (G55): a fact
 | F-06 | the harness page's path | text | `docs/THREADDIGEST_HARNESS.md` | `CLAUDE.md`, `docs/PLAN.md`, `docs/OVERVIEW.md`, `docs/recent/STATUS.md` |
 | F-07 | the reconcile bound for the freshest tier (KI-026) | yaml:config/settings.yaml:reconcile.tier_max_age_hours.under_30d | `120` | (none: a number has one home) |
 | F-08 | the revisit ladder rungs (a code twin lives in `core.milestones`; the M1c wiring joins them, KI-024 class) | yaml:config/settings.yaml:revisit_ladder_days | `[1, 3, 7, 30, 365]` | `docs/PLAN.md` |
+| F-09 | the local UI address | file:deploy/launchd/run.sh | `127.0.0.1:8765` | `docs/PLAN.md`, `docs/runbook/RUNBOOK.md` |
