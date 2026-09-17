@@ -503,6 +503,22 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   **Revisit when:** the oldest database `db upgrade` must accept stops being revision 0001, which
   is the moment the control's fixture changes.
 
+## 2026-09-17 (source principles) — two design statements for a later source
+
+- **D-40, two design principles for a later source (Wes, 2026-09-17).** Wes asked what to settle
+  early for sources beyond Reddit (other platforms, feeds, video comments) and for filtering
+  tooling, before either is built. Two principles go into the plan as design statements, not
+  working-agreement rules — a rule names its enforcer, and the enforcer for the first can exist
+  only once derived data does: (1) derived data dies with its source — a tag, a score, a summary,
+  an embedding, or any other text or vector produced from an item's content keeps a link to that
+  item and is scrubbed with it under the same content-state rules; (2) retention is a per-source
+  setting, not a system property — the archive-until-deleted retention already in the plan holds
+  for Reddit, a later source states its own retention and deletion rules in its adapter's section,
+  and a source whose stored data carries a clock ships with a scheduled purge built before its
+  first fetch. Recorded in the plan's Data model section, beside the content-state machine and the
+  scrub rule they extend. **Revisit when:** the first derived table or the first non-Reddit
+  adapter lands and needs its own gate.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
