@@ -20,6 +20,7 @@ from threaddigest import cli
 from threaddigest.adapters.reddit_fake import FakeRedditGateway
 from threaddigest.core import fixture_scrub
 from threaddigest.core.retry import ExitCode
+from threaddigest.ports import AuthFailed, GatewayError
 from threaddigest.services import probe
 
 #: A fixed epoch second (the fake has no clock in these tests, so add_post needs one).
@@ -233,4 +234,49 @@ def test_cli_gateway_praw_is_refused_under_pytest_with_no_file_written(
         cli.app, ["probe", "--gateway", "praw", "about", "r/premiere", "--save-fixture", "never"]
     )
     assert result.exit_code == int(ExitCode.CONFIG)
+    assert not (isolated_data_dir / "probe").exists()
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        GatewayError("this gateway is read-only; build it from a client id and secret alone"),
+        AuthFailed("credentials rejected: missing required attribute"),
+    ],
+    ids=["GatewayError", "AuthFailed"],
+)
+def test_cli_probe_exits_78_when_the_gateway_cannot_be_built(
+    cli_runner: CliRunner,
+    isolated_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refusal: GatewayError,
+) -> None:
+    """KI-029: a gateway this build cannot construct exits 78, it does not raise a traceback.
+
+    ``probe_main`` caught only ``cli.ConfigError`` around the factory call, so a
+    ``ports.GatewayError`` raised while the client is being constructed -- credentials PRAW
+    refuses to build from, a client that came back read-write, an injected client without its
+    counting session -- escaped as a traceback out of the one command whose whole job is to
+    report what Reddit answers. ``doctor --network`` translates the same error at its own seam
+    (``cli._doctor_gateway``); this is that translation for ``probe``.
+
+    Both shapes the adapter actually raises are driven: the base error it raises itself and the
+    subclass ``translate`` returns. The refusal is planted on the ``GATEWAY_FACTORY`` seam, so
+    nothing here builds a client or opens a socket, and ``PYTEST_CURRENT_TEST`` is removed only
+    so ``_guard_gateway`` lets a non-fake gateway past -- the factory never runs for real.
+    """
+
+    def _refuse(spec: object) -> object:
+        raise refusal
+
+    monkeypatch.setattr(cli, "GATEWAY_FACTORY", _refuse)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    result = cli_runner.invoke(
+        cli.app, ["probe", "--gateway", "praw", "about", "r/premiere", "--save-fixture", "never"]
+    )
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == int(ExitCode.CONFIG)
+    assert "cannot build the praw gateway for the probe" in result.output
     assert not (isolated_data_dir / "probe").exists()

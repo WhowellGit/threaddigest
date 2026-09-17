@@ -827,6 +827,23 @@ _SAVE_FIXTURE_HELP: Final = "Save the scrubbed capture under <data_dir>/probe/<n
 _BLANK_BODIES_HELP: Final = "Blank selftext/body/selftext_html/body_html before saving."
 
 
+def _probe_gateway(kind: str, fixture: Path | None, settings: Settings) -> RedditGateway:
+    """The gateway ``probe`` speaks through, with a construction failure named, not raised.
+
+    A gateway this build cannot construct -- credentials PRAW refuses to build a client from, a
+    client that came back read-write, an injected client without its counting session -- is the
+    case :class:`ConfigError` already names, so the port's error is translated here rather than
+    escaping as a traceback out of the one command whose job is to report what Reddit answers
+    (KI-029). ``doctor --network`` translates the same error at its own seam
+    (:func:`_doctor_gateway`), and this keeps the two paths the same shape.
+    """
+    try:
+        return GATEWAY_FACTORY(GatewaySpec(kind=kind, fixture=fixture, settings=settings))
+    except GatewayError as exc:
+        msg = f"cannot build the {kind} gateway for the probe: {exc}"
+        raise ConfigError(msg) from exc
+
+
 @probe_app.callback()
 def probe_main(
     gateway: str = typer.Option("praw", "--gateway", help="praw | fake."),
@@ -840,9 +857,7 @@ def probe_main(
     try:
         settings = _settings()
         _guard_gateway(gateway, settings)
-        reddit_gateway = GATEWAY_FACTORY(
-            GatewaySpec(kind=gateway, fixture=fixture, settings=settings)
-        )
+        reddit_gateway = _probe_gateway(gateway, fixture, settings)
     except ConfigError as exc:
         _echo_error(str(exc))
         raise typer.Exit(code=ExitCode.CONFIG) from exc
