@@ -16,12 +16,15 @@ offsets below, and of the order the builder calls run in, so two runs from the s
 produce identical bytes -- which ``tests/tools/test_make_demo_fixture.py`` pins by running
 this script twice with ``--base`` and comparing them.
 
-The base defaults to **midnight UTC of the day the corpus is generated** rather than to a
-fixed instant, because the digest's window is seven days measured back from the run that
-collected the corpus (``services.report.WINDOW_DAYS``): a corpus anchored at a fixed day falls
-out of that window as soon as the week turns, and ``make run && make serve`` then opens a
-digest with nothing in it. ``--base YYYY-MM-DD`` pins the anchor for anyone who wants the
-same bytes twice on different days.
+The base defaults to **midnight UTC of the current day, minus the corpus's own span**, so the
+corpus's *newest* post lands on today rather than its oldest. Anchoring the start (the
+original design) let most of the corpus drift into the future -- every source after the
+first was created after "today" -- which is not a shape a real Reddit post has and let the
+digest's seven-day window (``services.report.WINDOW_DAYS``) hold the entire corpus regardless
+of how old a source's offset said it was. Anchoring the end keeps every ``created_utc`` in the
+past and lets the window do its job: the newest sources sit inside it, the oldest sit outside
+it. ``--base YYYY-MM-DD`` pins the corpus's *start* at that day's midnight, as the anchor
+always has, for anyone who wants the same bytes twice on different days.
 
 The corpus, in the order it is built (ids are allocated in that order by the fake):
 
@@ -87,13 +90,22 @@ def day_start_utc(day: date) -> int:
 
 
 def default_base_utc() -> int:
-    """The corpus base when ``--base`` is not given: midnight UTC of the current day.
+    """The corpus base when ``--base`` is not given: midnight UTC of the current day, minus
+    the corpus's own span, so the corpus's *newest* post -- not its oldest -- lands on today.
 
     UTC rather than the display timezone, because ``created_utc`` is Reddit's clock and the
     digest's window is measured in it; midnight rather than the current second, so two runs
     of the same day still produce identical bytes.
+
+    Midnight minus the span, not ``datetime.now()`` minus the span: midnight of the current
+    day is, by construction, never later than the instant this function runs, so the newest
+    timestamp it produces (midnight, since base + span == midnight) is strictly earlier than
+    "now" at every point past the first instant of the day -- which every real invocation is.
+    ``datetime.now()`` minus the span would put the newest post at the exact instant this
+    function was called, which is *not yet in the past* at that instant and would only become
+    so by the accident of however much wall-clock time the rest of the run happens to spend.
     """
-    return day_start_utc(datetime.now(tz=UTC).date())
+    return day_start_utc(datetime.now(tz=UTC).date()) - _corpus_span_seconds()
 
 
 #: The six seeded sources, in ``config/seed.yaml``'s order (D-37). Three carry the
@@ -144,6 +156,25 @@ DELETED_TITLE: Final = "[post since deleted by author]"
 DELETED_AUTHOR: Final = "eu0"
 DELETED_BODY: Final = "my render settings are wrong, what do you use?"
 DELETED_OFFSET: Final = 400_000
+
+
+def _corpus_span_seconds() -> int:
+    """The largest offset (seconds after ``base``) any post in :func:`build_gateway` carries
+    -- currently aivideo's last ordinary post, about 11.6 days out.
+
+    Computed from :data:`SOURCES` and the special offsets above rather than hand-picked, so a
+    change to either moves the span -- and therefore :func:`default_base_utc` -- with it
+    instead of leaving a number here to silently drift out of sync with what the generator
+    actually emits.
+    """
+    candidates = [THEMED_OFFSET, CROSSPOST_OFFSET, DELETED_OFFSET]
+    candidates += [
+        source.first_post_offset + (source.posts - 1) * POST_INTERVAL
+        for source in SOURCES
+        if source.posts
+    ]
+    return max(candidates)
+
 
 #: Comments per post: **none**. The tranche-A sweep collects posts only (nothing in
 #: ``services/sweep.py`` calls ``fetch_tree``), so a comment tree here would be corpus no

@@ -4,8 +4,9 @@ the properties the committed file used to carry by existing.
 A corpus in git is inspectable and stable by definition; a generated one is neither unless
 something says so. These tests say it: the script produces identical bytes on two runs of the
 same day (run as a script, through the same command line ``make fixture`` uses, not through an
-import that could hide state), its sources are exactly ``config/seed.yaml``'s, its anchor is
-the day it was generated on, and its own corpus check is not a no-op.
+import that could hide state), its sources are exactly ``config/seed.yaml``'s, its newest post
+is dated the day it was generated and no post is dated in the future, and its own corpus check
+is not a no-op.
 """
 
 from __future__ import annotations
@@ -21,9 +22,7 @@ import yaml
 from tools.make_demo_fixture import (
     EXPECTED_POSTS,
     SOURCES,
-    STICKY_OFFSET,
     check_corpus,
-    day_start_utc,
 )
 
 from threaddigest.services.report import WINDOW_DAYS
@@ -73,25 +72,32 @@ def test_two_runs_produce_identical_bytes(tmp_path: Path) -> None:
     assert len(first) > 100_000, "the corpus is suspiciously small for ~240 posts"
 
 
-def test_the_default_anchor_puts_the_corpus_inside_the_digests_window(tmp_path: Path) -> None:
-    """The anchor is the current UTC day, so ``make run && make serve`` opens a digest that
-    has something in it.
+def test_the_default_anchor_ends_today_and_dates_no_post_in_the_future(tmp_path: Path) -> None:
+    """The default anchor is the corpus's *end*, not its start: the newest generated post
+    lands on today and nothing is dated after now, so the digest's window -- seven days back
+    from the run that collected it (``services.report.WINDOW_DAYS``) -- means what it says.
 
-    The defect this closes: the anchor was a fixed instant in 2025, so every generated post was
-    a year old, and the digest's window -- ``services.report.WINDOW_DAYS`` days back from the
-    run that collected it -- held nothing at all. Both halves are asserted: the corpus sits
-    inside that window (the symptom), and its oldest post is the sticky at its documented
-    offset from today's midnight (the anchor itself), so a corpus that drifted into the window
-    by some other route would not pass.
+    The defect this closes: the anchor used to be the corpus's *start* (midnight UTC of the
+    day it was generated), so every source after the first drifted into the future -- a shape
+    no real Reddit post has -- and the window held the entire corpus regardless of how old a
+    source's offset said it was. Anchoring the end instead is asserted two ways: no timestamp
+    exceeds "now", and the newest is within a day of it (both would fail against the old
+    start-anchor, which put most of the corpus days to weeks into the future). The window
+    itself is asserted too: the newest post (the largest offset, aivideo) falls inside it and
+    the oldest (premiere's sticky, offset 0) falls outside it, so a corpus that happened to
+    land in the window by some other route would not pass.
     """
-    now = datetime.now(tz=UTC)
+    now_ts = int(datetime.now(tz=UTC).timestamp())
     data = json.loads(_generate(tmp_path / "default.json").decode("utf-8"))
     created = [int(post["created_utc"]) for post in data["posts"]]
     assert len(created) == EXPECTED_POSTS
 
-    window_start = int(now.timestamp()) - WINDOW_DAYS * 86_400
-    assert min(created) >= window_start
-    assert min(created) == day_start_utc(now.date()) + STICKY_OFFSET
+    assert max(created) <= now_ts, "a generated post is dated in the future"
+    assert now_ts - max(created) < 86_400, "the newest post is not within a day of now"
+
+    window_start = now_ts - WINDOW_DAYS * 86_400
+    assert max(created) >= window_start, "the newest post fell outside the digest window"
+    assert min(created) < window_start, "the oldest post did not fall outside the digest window"
 
 
 def test_the_generated_sources_are_exactly_the_seeded_subreddits() -> None:
