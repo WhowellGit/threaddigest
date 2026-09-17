@@ -180,5 +180,5 @@ workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → 
 
 ## Commands
 
-`make setup` · `make check` · `make test` · `make run` · `make schema` · `make ratchet-bump` ·
+`make setup` · `make check` · `make test` · `make run` · `make serve` · `make schema` · `make ratchet-bump` ·
 `make ratchet-loosen KEY=… REASON="…"`

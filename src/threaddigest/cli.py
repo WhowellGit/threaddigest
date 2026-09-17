@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import typer
+import uvicorn
 import yaml
 from pydantic import ValidationError
 from sqlalchemy import Engine
@@ -62,6 +63,7 @@ from threaddigest.settings import (
     settings_fingerprint,
     user_agent,
 )
+from threaddigest.web.app import create_app
 
 __all__ = [
     "GATEWAY_FACTORY",
@@ -635,6 +637,70 @@ def _doctor_report(
         )
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
+
+
+# --- serve (plan § Web UI; the first web slice) ------------------------------------------------
+
+
+#: The UI's address, and the one the launchd wrapper's failure notification already links to
+#: (``deploy/launchd/run.sh``). There is no ``--host``: the plan's command line is
+#: ``serve [--port 8765]``, and binding anywhere but loopback is a decision (D-20, the LAN at
+#: M4), not a flag.
+SERVE_HOST: Final = "127.0.0.1"
+
+_SERVE_UNDER_PYTEST = (
+    "refusing to start a web server under pytest; the suite drives the application in-process "
+    "through Starlette's TestClient, which opens no socket"
+)
+
+
+def _refuse_a_server_under_pytest() -> None:
+    """The last precondition, deliberately last.
+
+    Checked after the database preconditions rather than first: from the top this guard
+    would shadow them, and the tests that prove a missing or behind-head database is refused
+    could never reach them (they run under pytest by definition). What the guard buys is that
+    no test ever opens a socket, and it buys that just as completely from the line before
+    ``uvicorn.run``.
+    """
+    if _under_pytest():
+        raise ConfigError(_SERVE_UNDER_PYTEST)
+
+
+def _serve_preconditions() -> Settings:
+    """Settings, a database that exists, and a schema at head -- every refusal a 78.
+
+    ``run`` refuses the same two database preconditions with the same words, because an
+    operator who has just been told by ``run`` that the database is missing must not be told
+    something different by ``serve``. Maintenance-only mode (serve ``/system`` so a pending
+    migration can be applied from the page) is deliberately not built here: ``/system``
+    arrives at M2, and a maintenance mode with nowhere to go is the UI panel's § D finding 1
+    in reverse.
+    """
+    settings = _settings()
+    db_path = db_path_for(settings.data_dir)
+    if not db_path.is_file():
+        raise ConfigError(migrate_service.database_missing_message(db_path))
+    engine = engine_for(db_path, read_only=True)
+    try:
+        _require_head(engine)
+    finally:
+        engine.dispose()
+    return settings
+
+
+@app.command()
+def serve(
+    port: int = typer.Option(8765, "--port", min=1, max=65535, help="TCP port on 127.0.0.1."),
+) -> None:
+    """Serve the web UI on 127.0.0.1 (the run history and one run; the rest at M2)."""
+    try:
+        settings = _serve_preconditions()
+        _refuse_a_server_under_pytest()
+    except ConfigError as exc:
+        _echo_error(str(exc))
+        raise typer.Exit(code=ExitCode.CONFIG) from exc
+    uvicorn.run(create_app(settings=settings), host=SERVE_HOST, port=port)
 
 
 # --- db (§10.3) --------------------------------------------------------------------------------

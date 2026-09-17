@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_count.html" import counted %}
+{% block content %}
+{% if not runs %}
+  <p class="empty">
+    No runs are recorded yet. The collector writes the first row; until then this page is
+    empty rather than wrong.
+  </p>
+{% else %}
+  <table class="runs">
+    <caption>Every run this database has recorded, newest first.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Run</th>
+        <th scope="col">Status</th>
+        <th scope="col">Trigger</th>
+        <th scope="col">Started</th>
+        <th scope="col">Took</th>
+        <th scope="col">Requests</th>
+        <th scope="col">Warnings</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for view in runs %}
+      <tr class="run verdict-{{ view.verdict }}" data-run="{{ view.line.run.pk }}" data-verdict="{{ view.verdict }}">
+        <th scope="row"><a href="{{ url_for('run_page', run_id=view.line.run.pk).path }}">#{{ view.line.run.pk }}</a></th>
+        <td><span class="pill pill-{{ view.verdict }}">{{ view.line.run.status }}</span> {{ view.line.run.kind }}</td>
+        <td>{{ view.line.run.trigger }}</td>
+        <td>
+          {% if view.line.run.started_at is none %}
+            not started
+          {% else %}
+            {{ view.line.run.started_at | when(zone) }}
+          {% endif %}
+        </td>
+        <td>
+          {% if view.line.duration_seconds is none %}
+            unfinished
+          {% else %}
+            {{ view.line.duration_seconds | duration }}
+          {% endif %}
+        </td>
+        <td>{{ counted(view.requests) }}</td>
+        <td>{{ counted(view.warnings) }}</td>
+      </tr>
+      {% if view.problems %}
+      <tr class="reasons verdict-{{ view.verdict }}">
+        <td colspan="7">
+          <ul class="problems">
+            {% for problem in view.problems %}
+            <li><span class="where">{{ problem.where }}</span> {{ problem.message }}</li>
+            {% endfor %}
+          </ul>
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if next_url %}
+    <p class="pager"><a href="{{ next_url }}" rel="next">Older runs</a></p>
+  {% endif %}
+{% endif %}
+{% endblock %}

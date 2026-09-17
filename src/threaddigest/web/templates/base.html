@@ -1,0 +1,29 @@
+{# The one page shell. Every page fills `heading` and `content`; `nav` names the section so
+   the current link can say so, and `zone` is the display timezone every `when` filter reads.
+   Links are written as `url_for(...).path` -- the path, not the absolute URL -- so a reader
+   who opened the server as `localhost` is not bounced to `127.0.0.1` by following one. #}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ heading }} · Thread Digest</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/app.css').path }}">
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <span class="brand">Thread Digest</span>
+      <nav aria-label="Sections">
+        <a href="{{ url_for('runs_page').path }}"{% if nav == 'runs' %} aria-current="page"{% endif %}>Runs</a>
+      </nav>
+    </header>
+    <main id="main">
+      <h1>{{ heading }}</h1>
+      {% block content %}{% endblock %}
+    </main>
+    <footer>
+      <p>Times are shown in {{ zone }}. This page reads the database and never writes to it.</p>
+    </footer>
+  </body>
+</html>

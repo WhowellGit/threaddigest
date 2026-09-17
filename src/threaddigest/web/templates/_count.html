@@ -1,0 +1,7 @@
+{# One count, printed through the `count` filter and nowhere else: the formatting lives in
+   `core.digest.Count.__str__`, which the digest prints too, so a page and the digest of the
+   same run cannot word one number two ways. The filter refuses anything that is not a
+   `Count`, which is what keeps a bare number off these pages. #}
+{% macro counted(value) -%}
+<span class="count">{{ value | count }}</span>
+{%- endmacro %}

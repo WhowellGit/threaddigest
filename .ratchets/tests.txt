@@ -1,2 +1,2 @@
-asserts=3599
-collected=1229
+asserts=3691
+collected=1271

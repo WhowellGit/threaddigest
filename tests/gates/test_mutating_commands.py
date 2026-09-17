@@ -39,6 +39,12 @@ EXPECTED_COMMAND_TREE = {
     "db upgrade",
     "db current",
     "config validate",
+    # `serve` is neither mutating nor exercisable here: it writes nothing and takes no lock,
+    # but its happy path opens a socket, so it has no row in either list below. Its
+    # preconditions -- a database that exists and is at head -- are proven in
+    # `tests/e2e/test_serve_command.py` (spec row CF-12), and it is one of the four commands
+    # the operator-complete gate excludes by name at M2 (UI-50).
+    "serve",
     "probe about",
     "probe listing",
     "probe tree",

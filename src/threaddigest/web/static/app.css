@@ -1,0 +1,145 @@
+/* One hand-written stylesheet, tokens first (UI design review § 9). Not a classless
+   framework: those are tuned for airy documents, and old-reddit density fights every
+   default. Light and dark come from `prefers-color-scheme`; the cookie override arrives with
+   the appearance page at M2, which is why the tokens are declared once on :root and
+   overridden as a block rather than sprinkled through the rules. */
+
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f6f7f8;
+  --fg: #1a1a1b;
+  --muted: #7c7c7c;
+  --link: #336699;
+  --visited: #551a8b;
+  --border: #d8d8d8;
+  --ok: #2c6e2f;
+  --warn: #8a6100;
+  --err: #a0242c;
+  --busy: #1f5f8b;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1b;
+    --bg-alt: #242526;
+    --fg: #d7dadc;
+    --muted: #9a9c9e;
+    --link: #4fbcff;
+    --visited: #b78ae0;
+    --border: #3a3b3c;
+    --ok: #6fbf73;
+    --warn: #e0b34d;
+    --err: #ef6b74;
+    --busy: #7fc4f0;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.35 var(--font);
+}
+
+a { color: var(--link); }
+a:visited { color: var(--visited); }
+a:focus-visible, .skip:focus { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* The skip link is first in the DOM and only visible once focused. */
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: 8px;
+  top: 8px;
+  z-index: 2;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 6px 12px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 700; }
+header nav a { margin-right: 12px; text-decoration: none; }
+header nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+
+main { padding: 12px; }
+h1 { font-size: 16px; margin: 0 0 10px; }
+h2 { font-size: 14px; margin: 18px 0 6px; }
+
+footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+footer p { margin: 0; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 10px;
+}
+caption {
+  text-align: left;
+  color: var(--muted);
+  padding-bottom: 4px;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+thead th { color: var(--muted); font-weight: 400; }
+tbody tr:hover { background: var(--bg-alt); }
+.counters th { width: 12em; }
+.counters, .sources { max-width: 70em; }
+
+.pill {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pill-ok { color: var(--ok); }
+.pill-warn { color: var(--warn); }
+.pill-error { color: var(--err); }
+.pill-busy { color: var(--busy); }
+.pill-muted { color: var(--muted); }
+
+.count { font-variant-numeric: tabular-nums; }
+
+.problems { margin: 2px 0; padding-left: 16px; }
+.problems li { margin: 1px 0; }
+.where {
+  font-family: var(--mono);
+  color: var(--muted);
+  margin-right: 6px;
+}
+tr.reasons td { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.verdict-warn .where { color: var(--warn); }
+.verdict-error .where { color: var(--err); }
+
+p.verdict { margin: 0 0 10px; }
+.empty { color: var(--muted); }
+.pager a { font-weight: 700; }
+.back { margin-top: 16px; }
+
+@media (max-width: 900px) {
+  .counters th { width: auto; }
+}

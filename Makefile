@@ -16,7 +16,7 @@ RATCHET := $(UV) run python tools/ratchet.py
 CODE_HEALTH := $(BUILD_DIR)/code_health.json
 DOC_POLICY := $(BUILD_DIR)/doc_policy.json
 
-.PHONY: help setup hooks check test test-live run fixture schema ratchet-bump ratchet-loosen plan-html \
+.PHONY: help setup hooks check test test-live run serve fixture schema ratchet-bump ratchet-loosen plan-html \
         memory-check memory-export code-health
 
 help:
@@ -26,6 +26,7 @@ help:
 	@echo "make test             uv run pytest"
 	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
 	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
+	@echo "make serve            web UI on http://127.0.0.1:8765 against the same .build/run-data"
 	@echo "make schema           regenerate src/threaddigest/db/schema.sql from the migrations"
 	@echo "make code-health      measure code health into .build/code_health.json (check does this first)"
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
@@ -140,6 +141,11 @@ fixture:
 run: fixture | $(BUILD_DIR)
 	THREADDIGEST_DATA_DIR=$(RUN_DATA_DIR) $(UV) run threaddigest db init
 	THREADDIGEST_DATA_DIR=$(RUN_DATA_DIR) $(UV) run threaddigest run --gateway fake --fixture $(RUN_FIXTURE)
+
+# The same scratch data directory `run` fills, for the same reason: `make run && make serve`
+# opens a populated page, and neither target can touch the real `data/`. Ctrl-C stops it.
+serve: | $(BUILD_DIR)
+	THREADDIGEST_DATA_DIR=$(RUN_DATA_DIR) $(UV) run threaddigest serve
 
 plan-html: ## render docs/PLAN.md to docs/PLAN.html for browser review
 	$(UV) run python tools/render_plan.py

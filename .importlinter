@@ -9,9 +9,19 @@ include_external_packages = True
 name = Layers: web | cli > services > db | adapters > ports > core
 type = layers
 # Modules on one line separated by "|" are independent of each other (db never imports
-# adapters and vice versa).
+# adapters and vice versa); separated by ":" they share a layer and may import each other,
+# with the direction that matters spelled out by its own contract.
+#
+# `web : cli` is deliberate and one-directional in effect. `cli` is the process's composition
+# root, and `threaddigest serve` is the command that constructs the ASGI application and hands
+# it to uvicorn, so `cli` imports `web`. The rule the plan states -- "`web` never imports
+# `cli`: the CLI mirrors the UI, never the reverse" (D-28) -- is enforced below by the
+# `web-never-imports-cli` forbidden contract, which is where a reader looks for it. Written
+# with "|", this line also banned the composition root's own import, which no document asks
+# for, and `serve` could only have been written by hiding the dependency behind an app string
+# uvicorn imports by name -- a dependency the gate cannot see is worse than one it allows.
 layers =
-    threaddigest.web | threaddigest.cli
+    threaddigest.web : threaddigest.cli
     threaddigest.services
     threaddigest.db | threaddigest.adapters
     threaddigest.ports

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "_count.html" import counted %}
+{% block content %}
+<p class="verdict verdict-{{ view.verdict }}" data-verdict="{{ view.verdict }}">
+  <span class="pill pill-{{ view.verdict }}">{{ view.line.run.status }}</span>
+  {{ view.line.run.kind }}, triggered by {{ view.line.run.trigger }}{% if view.line.run.started_at is not none %},
+  started {{ view.line.run.started_at | when(zone) }}{% endif %}{% if view.line.duration_seconds is not none %},
+  took {{ view.line.duration_seconds | duration }}{% endif %}.
+  {% if not view.line.invariants_ran %}
+    The post-run invariants left no verdict on this row, so nothing here says they passed.
+  {% endif %}
+</p>
+
+{% if view.problems %}
+<section class="problems-section" aria-labelledby="problems-heading">
+  <h2 id="problems-heading">Why this run is not green</h2>
+  <ul class="problems">
+    {% for problem in view.problems %}
+    <li><span class="where">{{ problem.where }}</span> {{ problem.message }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section aria-labelledby="counters-heading">
+  <h2 id="counters-heading">What this run counted</h2>
+  <table class="counters">
+    <caption>A share prints the population it came out of; a total is a total.</caption>
+    <tbody>
+      {% for label, value in shares %}
+      <tr class="share" data-measure="{{ label }}">
+        <th scope="row">{{ label }}</th>
+        <td>{{ counted(value) }}</td>
+      </tr>
+      {% endfor %}
+      {% for label, total in totals %}
+      <tr class="total" data-measure="{{ label }}">
+        <th scope="row">{{ label }}</th>
+        <td>{{ total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section aria-labelledby="sources-heading">
+  <h2 id="sources-heading">Sources this run swept</h2>
+  {% if not sources %}
+    <p class="empty">This run wrote no per-source row: it swept nothing.</p>
+  {% else %}
+  <table class="sources">
+    <thead>
+      <tr>
+        <th scope="col">Source</th>
+        <th scope="col">Pages</th>
+        <th scope="col">New</th>
+        <th scope="col">Updated</th>
+        <th scope="col">Stopped because</th>
+        <th scope="col">Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for source in sources %}
+      <tr class="source" data-source="{{ source.name }}">
+        <th scope="row">r/{{ source.name }}</th>
+        <td>{{ source.pages }}</td>
+        <td>{{ counted(source.new) }}</td>
+        <td>{{ counted(source.updated) }}</td>
+        <td>{{ source.stop_reason if source.stop_reason else 'not recorded' }}</td>
+        <td>{{ source.error if source.error else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<p class="back"><a href="{{ url_for('runs_page').path }}">Back to the run history</a></p>
+{% endblock %}
