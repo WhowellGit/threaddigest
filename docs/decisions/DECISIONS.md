@@ -324,6 +324,36 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   ping — and removing the `no_network` guard from `run_checks` left the test green. A proof that
   has stopped discriminating is worse than no proof, because it reads as one.
 
+## 2026-09-16 (the push rule) — an agent pushes `main` when Wes says so
+
+- **D-36, the push rule changes on Wes's ruling (2026-09-16).** In Wes's words: "if I tell you to
+  push to main, you should push to main". `tools/hooks/no_bypass_git.sh` refused every push whose
+  destination was `main`, in any spelling, and the working agreement said "never push to `main`".
+  Both were written on 2026-09-14, when the repository had no remote at all and the only thing
+  such a push could mean was a mistake. **Why the refusal no longer earns its place:** the
+  pre-push stage installed by `make hooks` runs the whole `make check` before anything leaves
+  the machine (`.pre-commit-config.yaml`, the `make-check` hook at the `pre-push` stage), so a
+  push is not a bypass of the gate — it is the gate, run once more, on the tree being sent. A
+  remote is a backup and never the gate (the 2026-09-14 remote entry above), and refusing the
+  backup does not make the gate stronger. **What the hook allows now:** a plain `git push` of
+  `main`, by refspec in any spelling or with no refspec while the branch is `main`. **What it
+  still refuses**, each with a message naming the part of the rule it fails: `--no-verify`
+  (which would skip the very check that makes a push safe), `--all` and `--mirror` (they carry
+  every branch, not the one push that was asked for), and every form that would rewrite or
+  remove `main` on the remote — `--force`, `-f` and any short cluster holding it,
+  `--force-with-lease`, a `+main` refspec, `--delete`, and an empty source (`:main`). A force
+  push is the one push the pre-push check cannot make safe, because what it destroys is history
+  the remote already holds, which no local check can see. **Mirrors swept in the same commit:**
+  the working agreement's rules table and its landing step, `docs/runbook/GUARDS.md` G23 and its
+  external-controls row, `docs/THREADDIGEST_HARNESS.md`. **Proven by:**
+  `tests/gates/test_hooks.py::test_a_plain_push_to_main_is_allowed_and_every_other_form_is_not`,
+  which pairs the four allowed spellings with ten refusals and asserts each refusal's reason, and
+  the rows in that file's `GIT_ROWS`; both halves were watched go red against a hook with the
+  force branch, and then the `--no-verify` branch, disabled. **Revisit when:** branch protection
+  on the remote refuses a push that `main` would otherwise accept, or a push reaches the remote
+  that the pre-push check did not cover (a second remote, a push made outside an agent session),
+  at which point the rule needs the remote's own protection behind it and not only this hook.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

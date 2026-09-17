@@ -45,8 +45,8 @@ starting cold can believe what they read.
   approval; an agent cannot dismiss a warning. When a floor must be loosened, the loosening pauses
   for approval and is recorded with its reason.
 - **The forbidden is refused, not discouraged.** Hooks in the path of every tool call refuse a
-  bypass of the commit gate, a push to the main branch, a merge of an unchecked tree, and any hand
-  edit of the enforcement files. They fail closed on their own errors and protect their own
+  bypass of the commit gate, a force push to the main branch, a merge of an unchecked tree, and any
+  hand edit of the enforcement files. They fail closed on their own errors and protect their own
   registration. Their honest limit is stated in the ledger: they stop mistakes, not a determined
   bypass, and the boundary against that is pre-commit, review, and, once a remote exists, CI.
 - **Every guard has been seen to go red.** A gate ships with a positive control that constructs the

@@ -8,8 +8,14 @@
 # Blocked:
 #   git commit|merge ... --no-verify (or any unambiguous prefix) or -n / a short cluster with n
 #   git push ... --no-verify
-#   git push to main: refspec whose destination is main, --all/--mirror, or no refspec while
-#     the current branch (of the tool call's cwd) is main
+#   git push --all / --mirror (they carry every branch, not the one push that was asked for)
+#   a push that would rewrite or remove main: --force / -f / --force-with-lease / a short
+#     cluster holding f, a `+main` refspec, --delete or an empty source (`:main`), where the
+#     push targets main -- by refspec, or with no refspec while the current branch (of the tool
+#     call's cwd) is main. A PLAIN push to main is allowed (Wes's ruling, 2026-09-16: "if I tell
+#     you to push to main, you should push to main"): the pre-push stage runs the whole
+#     `make check` before any push leaves the machine, so a plain push is not a bypass of
+#     anything, and the rule that refused it was written when the repository had no remote.
 #   git -c core.hooksPath=... / git config core.hooksPath ...
 #   SKIP=... or PRE_COMMIT_ALLOW_NO_CONFIG=... assignments in front of a command (or exported)
 #   pre-commit uninstall
@@ -62,6 +68,9 @@ ENV_BYPASS = re.compile(
     r"|GIT_DIR|GIT_COMMON_DIR|GIT_WORK_TREE)="
 )
 SHORT_CLUSTER_WITH_N = re.compile(r"^-[A-Za-z]*n[A-Za-z]*$")
+# `git push -f`, and every cluster holding it (`-fu`, `-qf`). The long spellings are matched by
+# prefix instead, so --force, --force-with-lease and --force-with-lease=<ref> are all one row.
+SHORT_CLUSTER_WITH_F = re.compile(r"^-[A-Za-z]*f[A-Za-z]*$")
 WRAPPERS = {"command", "exec", "time", "nice", "nohup", "sudo", "env", "export", "builtin"}
 # Indirection (KI-020): a shell that runs a string, eval, xargs, and the command word given as
 # a variable are judged by what they resolve to; an interpreter or unknown command whose text
@@ -310,8 +319,24 @@ def check_commit_or_merge(sub, rest):
         j += 1
 
 
+def _force_flag(tok):
+    """The token when it is a force-push flag in any spelling, else None."""
+    if tok.startswith("--force"):  # --force, --force-with-lease[=ref], --force-if-includes
+        return tok
+    if not tok.startswith("--") and SHORT_CLUSTER_WITH_F.match(tok):
+        return tok
+    return None
+
+
 def check_push(rest, cwd):
+    """Wes's ruling, 2026-09-16: a plain push to main is the agent's to make, because the
+    pre-push stage runs the whole `make check` before anything leaves the machine, so the push
+    is not a bypass of the gate -- it is the gate. What stays refused is everything that is not
+    that plain push: --no-verify (which would skip that very check), --all/--mirror, and any
+    form that rewrites or removes main on the remote."""
     positionals = []
+    forced = None
+    deleting = False
     j = 0
     while j < len(rest):
         tok = rest[j]
@@ -319,6 +344,9 @@ def check_push(rest, cwd):
             block("git push --no-verify skips the pre-push gate")
         if tok in ("--all", "--mirror"):
             block("git push %s includes main; push one branch" % tok)
+        if tok in ("-d", "--delete"):
+            deleting = True
+        forced = _force_flag(tok) or forced
         if tok == "--":
             positionals.extend(rest[j + 1:])
             break
@@ -331,15 +359,26 @@ def check_push(rest, cwd):
         positionals.append(tok)
         j += 1
     refspecs = positionals[1:]
+    targets_main = not refspecs and effective_branch(cwd) == "main"
     for spec in refspecs:
-        dst = spec.split(":", 1)[1] if ":" in spec else spec
+        source, colon, dst = spec.partition(":")
+        if not colon:
+            dst = spec
+        plus = spec.startswith("+") or dst.startswith("+")
         dst = dst.lstrip("+")
         if dst.startswith("refs/heads/"):
             dst = dst[len("refs/heads/"):]
-        if dst == "main":
-            block("direct push to main (%s); open a PR instead" % spec)
-    if not refspecs and effective_branch(cwd) == "main":
-        block("git push from branch main pushes main directly; open a PR instead")
+        if dst != "main":
+            continue
+        targets_main = True
+        if plus:
+            block("git push %s force-updates main; a force push to main is not the ruling" % spec)
+        if colon and not source.lstrip("+"):
+            block("git push %s deletes main on the remote" % spec)
+    if targets_main and deleting:
+        block("git push --delete would remove main on the remote")
+    if targets_main and forced is not None:
+        block("git push %s rewrites main on the remote; a force push to main is not the ruling" % forced)
 
 
 def check_git(toks, cwd):

@@ -42,7 +42,7 @@ that only goes down.
 | Rule | Enforced by |
 |---|---|
 | Never weaken, skip, or delete a test to make a change pass | PR body "Tests changed" table (one reason per file); skip/xfail ratchet, each needing `reason="#issue …"`; assert-count, collected-test, and coverage floors in `.ratchets/`; `xfail_strict` |
-| Never `git commit --no-verify`; never push to `main`; never merge into `main` a tree `make check` has not stamped green | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; the stamp `tools/check_stamp.py` writes as the last step of `make check`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; the CI workflow in `.github/workflows/ci.yml`, which runs once a GitHub remote exists (none yet, MB) |
+| Never `git commit --no-verify`; an agent pushes `main` only when Wes says so, and the pre-push check is the gate; force pushes to `main`, never; never merge into `main` a tree `make check` has not stamped green | hard-block PreToolUse hook `tools/hooks/no_bypass_git.sh` (fails closed), proven by `tests/gates/test_hooks.py`; the pre-push `make check` stage in `.pre-commit-config.yaml`; the stamp `tools/check_stamp.py` writes as the last step of `make check`; pre-commit `no-commit-to-branch` in `.pre-commit-config.yaml`; the CI workflow in `.github/workflows/ci.yml`, which runs on the GitHub remote from the first push (none yet) |
 | Never catch a broad exception without recording it on the run row | ruff `E722`, `BLE001`, `S110`, `S112`, `B904`, `TRY*`; a run with any warning is `partial`, never `ok` |
 | Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | `tests/gates/test_known_issues_cite_collected_tests.py` (a row's node id must name a test that exists); that a fix has a row at all is review of the PR body; the `harden` skill is the checklist |
 | Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/threaddigest/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema`; the committed fixtures are upgraded by `tests/db/test_alembic.py`; that a new revision adds its own fixture is review |
@@ -110,7 +110,8 @@ that only goes down.
    `GUARDS.md` row).
 5. Land with `git merge --ff-only` into `main` once the gate is green: stage everything, run
    `make check`, which stamps the tree it passed on, commit, then merge; the hook refuses any
-   tree without that stamp (a merge commit on `main` is refused); never push to `main` directly once a remote exists; a push runs `make check` through the
+   tree without that stamp (a merge commit on `main` is refused); push `main` to `origin` when Wes
+   asks for it and not otherwise, never force-push it; a push runs `make check` through the
    pre-push hook, because a remote is a backup and never the gate. A change on a review-required
    surface (migrations, scrub, deletion, the upsert repository, gates, hooks, this file; the ratchet files left the list on 2026-09-14, being gated already by
    their writer tool, the hook, and the three-way compare)

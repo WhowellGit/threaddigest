@@ -85,6 +85,12 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("git push origin feature", 0),
     ("git push -u origin HEAD:feature", 0),
     ("git push --force-with-lease origin feature", 0),
+    # Wes's ruling, 2026-09-16: a plain push to main is the agent's to make. The pre-push stage
+    # runs the whole `make check` before anything leaves the machine, so the push is not a
+    # bypass of the gate; the rule that refused it was written when there was no remote.
+    ("git push origin main", 0),
+    ("git push origin HEAD:refs/heads/main", 0),
+    ("git push origin feature:refs/heads/main", 0),
     ("git -c color.ui=false status", 0),
     ("git config user.name wes", 0),
     ("pre-commit install", 0),
@@ -101,10 +107,15 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("git merge --no-verify feature", 2),
     ("git merge -n feature", 2),
     ("git push --no-verify origin feature", 2),
-    ("git push origin main", 2),
+    ("git push --no-verify origin main", 2),
+    # What the ruling does not allow: anything that rewrites or removes main on the remote.
     ("git push -f origin HEAD:main", 2),
-    ("git push origin feature:refs/heads/main", 2),
+    ("git push --force origin main", 2),
+    ("git push --force-with-lease origin main", 2),
+    ("git push -fu origin main", 2),
     ("git push origin +main", 2),
+    ("git push origin :main", 2),
+    ("git push -d origin main", 2),
     ("git push --delete origin main", 2),
     ("git push --all origin", 2),
     ("git -c core.hooksPath=/dev/null commit -m 'msg'", 2),
@@ -120,9 +131,9 @@ GIT_ROWS: list[tuple[str, int]] = [
     ("ls | git commit -n -F -", 2),
     # KI-020 (external round one, 2026-09-14): indirection is resolved or refused
     ('g=git; "$g" commit --no-verify -m unchecked', 2),
-    ('g=git; "$g" push origin HEAD:main', 2),
+    ('g=git; "$g" push --force origin HEAD:main', 2),
     ('bash -c "git commit --no-verify -m unchecked"', 2),
-    ("sh -c 'git push origin HEAD:main'", 2),
+    ("sh -c 'git push --force origin HEAD:main'", 2),
     ('eval "git commit --no-verify -m unchecked"', 2),
     ("echo x | xargs git commit --no-verify -m", 2),
     (
@@ -160,18 +171,18 @@ GIT_ROWS: list[tuple[str, int]] = [
     # past a check nor inflate an argument count (the tokenizer strips it)
     ("git commit --no-verify -m x  # oops", 2),
     ("git commit -m ok  # fine", 0),
-    ("git push origin HEAD:main  # sneaky", 2),
+    ("git push --force origin HEAD:main  # sneaky", 2),
     # a shell redirection is not a command argument: it must not inflate a count or hide a
     # bypass (the harness appends `2>&1 | tail` to many calls)
     ("git commit -m ok 2>&1 | tail -1", 0),
     ("git commit --no-verify -m x 2>&1 | tail -1", 2),
-    ("git push origin HEAD:main 2>&1", 2),
+    ("git push --force origin HEAD:main 2>&1", 2),
     ("git commit -m ok > /tmp/out.log", 0),
     # a backslash-newline line continuation is joined by the shell before it runs; a git word,
     # flag or refspec split across one must not hide from the hook (external round one panel)
     ("git commit -m x \\\n--no-verify", 2),
     ("git \\\ncommit --no-verify -m x", 2),
-    ("git push origin \\\nHEAD:main", 2),
+    ("git push --force origin \\\nHEAD:main", 2),
     ("git \\\ncommit -m ok", 0),  # a benign command split across a continuation still parses
     # a hooksPath override in the separated --config-env form, not only -c
     ("git --config-env core.hooksPath=GHP commit -m x", 2),
@@ -190,10 +201,17 @@ def test_no_bypass_git_decides_bash_commands(project: Path, command: str, expect
 @pytest.mark.parametrize(
     ("command", "branch", "expected"),
     [
-        ("git push", "main", 2),
-        ("git push origin", "main", 2),
+        # A bare push carries the current branch, so the branch decides whether it targets
+        # main. Since Wes's ruling of 2026-09-16 the plain form is allowed there; the force
+        # form is what the branch read still has to catch.
+        ("git push", "main", 0),
+        ("git push origin", "main", 0),
+        ("git push --force", "main", 2),
+        ("git push --force-with-lease", "main", 2),
+        ("git push -f origin", "main", 2),
         ("git push", "feat/x", 0),
         ("git push origin", "feat/x", 0),
+        ("git push --force origin", "feat/x", 0),
     ],
 )
 def test_no_bypass_git_reads_the_current_branch_for_bare_pushes(
@@ -202,6 +220,44 @@ def test_no_bypass_git_reads_the_current_branch_for_bare_pushes(
     make_repo_on_branch(project, branch)
     proc = run_hook(NO_BYPASS, bash_payload(command, project), project)
     assert proc.returncode == expected, proc.stderr
+
+
+PUSH_TO_MAIN_REFUSED: list[tuple[str, str]] = [
+    ("git push --no-verify origin main", "pre-push"),
+    ("git push --force origin main", "force push to main"),
+    ("git push --force-with-lease origin main", "force push to main"),
+    ("git push -f origin HEAD:main", "force push to main"),
+    ("git push -fu origin main", "force push to main"),
+    ("git push origin +main", "force push to main"),
+    ("git push --delete origin main", "remove main"),
+    ("git push -d origin main", "remove main"),
+    ("git push origin :main", "deletes main"),
+    ("git push --all origin", "push one branch"),
+]
+
+
+def test_a_plain_push_to_main_is_allowed_and_every_other_form_is_not(project: Path) -> None:
+    """Wes's ruling, 2026-09-16: "if I tell you to push to main, you should push to main".
+
+    The pre-push stage runs the whole ``make check`` before anything leaves the machine, so a
+    plain push to main is not a bypass of the gate -- it *is* the gate; the rule that refused it
+    was written when the repository had no remote (D-36 in the decisions log). What the ruling
+    does not cover is still refused, and each refusal below says which part of the rule it
+    fails, so a message rewritten into something vaguer fails here too.
+    """
+    make_repo_on_branch(project, "main")
+    for command in (
+        "git push",
+        "git push origin",
+        "git push origin main",
+        "git push origin HEAD:refs/heads/main",
+    ):
+        allowed = run_hook(NO_BYPASS, bash_payload(command, project), project)
+        assert allowed.returncode == 0, (command, allowed.stderr)
+    for command, reason in PUSH_TO_MAIN_REFUSED:
+        refused = run_hook(NO_BYPASS, bash_payload(command, project), project)
+        assert refused.returncode == 2, (command, refused.stderr)
+        assert reason in refused.stderr, (command, refused.stderr)
 
 
 def test_no_bypass_git_allows_bare_push_when_branch_is_unknown(project: Path) -> None:
@@ -779,7 +835,7 @@ def test_a_branch_switch_earlier_in_the_command_counts(project: Path) -> None:
         "git switch main && git merge --ff-only feature",
         "git checkout main && git merge feature",
         "git checkout main && git pull",
-        "git switch main && git push",
+        "git switch main && git push --force",
     ):
         proc = run_hook(NO_BYPASS, bash_payload(command, project), project)
         assert proc.returncode == 2, (command, proc.stderr)
