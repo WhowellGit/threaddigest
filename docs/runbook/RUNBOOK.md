@@ -44,7 +44,7 @@ Recurring human duties are held to three: read the digest, acknowledge alerts in
 1. Failing test first → implement → `make check` green locally (ruff, mypy strict, import-linter, pytest with `--block-network` and `-W error`, schema snapshot, pytest-alembic, ratchet compare).
 2. Commit on a branch (pre-commit: ruff format+lint, `dmypy` whole tree, gitleaks, large-file check, `no-commit-to-branch main`). Never `--no-verify`.
 3. Open the PR with the template: `## Tests changed` (file, reason per changed `tests/**` file), the pasted `make check` block, ratchet table, `## Independent review` for deletion/scrub/migration/`repo.py` changes.
-4. CI required check today: `check` (the workflow also has `py314`, `portability`, `actionlint`). Planned for M1: `ratchets`, `ratchet-loosen-approval` (runs only on a loosening; Wes clicks approve after reading the `GUARDS.md` ledger row), `pr-body`. CI has not executed yet: the repo has no remote. Merge when green.
+4. CI required check today: `check` (the workflow also has `py314`, `portability`, `actionlint`). Planned for M1: `ratchets`, `ratchet-loosen-approval` (runs only on a loosening; Wes clicks approve after reading the `GUARDS.md` ledger row), `pr-body`. CI has not executed yet: a GitHub remote exists, but nothing has been pushed to it. Merge when green.
 5. **(M1d+)** `make deploy` on the Mac: `git pull`, `uv sync --frozen`, `threaddigest db upgrade` (backs up first, § 4), restart `serve`; then `threaddigest doctor`.
 6. Post-deploy: the next scheduled run's status on `/runs`; the weekly `audit` issue lists every enforcement-surface change for Wes to read.
 7. Roll back: previous git tag + `db restore` of the pre-migration backup (§ 5). Never auto-downgrade.

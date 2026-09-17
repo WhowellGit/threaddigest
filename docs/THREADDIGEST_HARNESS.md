@@ -48,7 +48,8 @@ starting cold can believe what they read.
   bypass of the commit gate, a force push to the main branch, a merge of an unchecked tree, and any
   hand edit of the enforcement files. They fail closed on their own errors and protect their own
   registration. Their honest limit is stated in the ledger: they stop mistakes, not a determined
-  bypass, and the boundary against that is pre-commit, review, and, once a remote exists, CI.
+  bypass, and the boundary against that is pre-commit, the pre-push check, review, and CI on the
+  GitHub remote, which is a backup and never the gate.
 - **Every guard has been seen to go red.** A gate ships with a positive control that constructs the
   bad state and asserts the gate catches it. A guard that has never failed is treated as a
   hypothesis and says so in its ledger row.
@@ -135,7 +136,7 @@ for imported identifiers. The procedure for landing a changed fact everywhere it
 receives a tree the full check just passed.*
 
 Three PreToolUse hooks in the project settings, in the path of every tool call: no bypass of the
-commit gate, no push to `main`, and no merge into `main` of a tree the check has not stamped green;
+commit gate, no force push to `main`, and no merge into `main` of a tree the check has not stamped green;
 no hand edit of the enforcement surfaces (the ratchet files, the hook scripts, the hook settings);
 and a read-before-touch check that logs first and blocks only once its ledger shows it is right.
 Pre-commit on every commit (format, lint, types on the whole tree, secret scan, size, no commits on
@@ -147,7 +148,7 @@ ceilings written only by `tools/ratchet.py`; a loosening pauses for approval and
 row; a birth relaxation carries an expiry. Gates in `tests/gates/` each ship a positive control.
 Post-run invariants at runtime close a run `failed` (a failure) or `partial` (a warning) rather than pass silently; the plan names the severity of each. **The honest limit:** the
 hooks parse command text and are mistake prevention for the agent, not a security boundary; the
-boundary against a deliberate bypass is pre-commit, CI once a remote exists, review, and branch
+boundary against a deliberate bypass is pre-commit, CI on the GitHub remote, review, and branch
 protection (G23).
 
 ### Agent discipline
