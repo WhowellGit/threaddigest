@@ -52,6 +52,11 @@ def test_dump_has_head_and_data_dictionary(engine: Engine) -> None:
     # §10.4: runs.violations_json is the new column; the two are ships-in-the-same-commit
     # facts, so this one assertion covers both halves of the migration.
     assert "-- runs.violations_json: " in rendered
+    # Revision 0005's two columns, for the same reason: SQLite drops a column comment, so
+    # this generated block is the only place the data dictionary lives, and a migration that
+    # added the columns without their comments would pass every other assertion here.
+    assert "-- runs.settings_json: " in rendered
+    assert "-- runs.warnings_json: " in rendered
     # §6.5 / §19.13: the CAP-stop fix changes what the column means -- "last sweep", not
     # "last complete sweep" -- and the comment change rides in the same commit as 0002
     # even though it produces no DDL diff (SQLite drops column comments; schema.sql's

@@ -15,11 +15,28 @@ from sqlalchemy import Connection, Engine, text
 
 from threaddigest.db.engine import checkpoint_truncate
 from threaddigest.db.fts import fts_membership_count, integrity_check, optimize, rebuild
-from threaddigest.db.migrate import downgrade_one
+from threaddigest.db.migrate import current_revision, downgrade_one
 
 PostInserter = Callable[..., int]
 
 CANARY = "zxqcanaryword"
+
+
+def _downgrade_to(engine: Engine, revision: str) -> None:
+    """Step back one revision at a time until the database is at ``revision``.
+
+    The target is **named**, never counted from head: a control that took two steps back
+    from head meant revision 0002 while 0004 was head and revision 0003 once 0005 was, and
+    the revision it lands on is the whole point of a control that must go red. A revision
+    that cannot be reached raises rather than looping.
+    """
+    seen: set[str] = set()
+    while (current := current_revision(engine)) != revision:
+        if current is None or current in seen:
+            msg = f"cannot reach revision {revision}: stopped at {current}"
+            raise AssertionError(msg)
+        seen.add(current)
+        downgrade_one(engine)
 
 
 def _matches(conn: Connection, table: str, term: str) -> int:
@@ -275,8 +292,7 @@ def test_positive_control_the_unconditional_trigger_rewrote_the_index(
     """The same statements against revision 0002's triggers grow the index: the test above
     can go red."""
     pk = insert_post("p1", title=f"about {CANARY}", selftext="a body")
-    downgrade_one(engine)  # 0004 -> 0003
-    downgrade_one(engine)  # 0003 -> 0002: the triggers without the WHEN clause
+    _downgrade_to(engine, "0002")  # revision 0002's triggers: no WHEN clause
     with engine.connect() as conn:
         before = _index_bytes(conn, "posts_fts")
     for _ in range(3):

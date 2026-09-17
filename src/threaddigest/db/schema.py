@@ -834,6 +834,13 @@ class Run(Base):
     settings_fingerprint: Mapped[str | None] = mapped_column(
         Text, comment="Hash of the resolved non-secret settings."
     )
+    settings_json: Mapped[str | None] = mapped_column(
+        Text,
+        comment=(
+            "Resolved non-secret settings as JSON, the bytes settings_fingerprint hashes; "
+            "NULL on a row written before 0005."
+        ),
+    )
     error: Mapped[str | None] = mapped_column(Text, comment="Terminal error message, if any.")
     log_path: Mapped[str | None] = mapped_column(Text, comment="Path of the run's log file.")
     purge_counts_json: Mapped[str | None] = mapped_column(
@@ -841,6 +848,13 @@ class Run(Base):
     )
     violations_json: Mapped[str | None] = mapped_column(
         Text, comment="Invariant violations as JSON; NULL when they did not run."
+    )
+    warnings_json: Mapped[str | None] = mapped_column(
+        Text,
+        comment=(
+            "Warnings recorded by RunContext.warn as JSON [{name, detail}]; NULL when none "
+            "were recorded, which is not the same as []."
+        ),
     )
 
 

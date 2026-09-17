@@ -236,6 +236,101 @@ def test_downgrade_rewrites_network_rows_to_failed(tmp_path: Path) -> None:
         engine.dispose()
 
 
+# --- revision 0005: runs.settings_json and runs.warnings_json ------------------------------
+
+
+_0005_COLUMNS = ("settings_json", "warnings_json")
+
+
+def _run_columns(engine: Engine) -> dict[str, bool]:
+    """``runs``' column names mapped to "is nullable", read from SQLite itself."""
+    with engine.connect() as conn:
+        return {
+            str(row[1]): not bool(row[3])
+            for row in conn.execute(text("PRAGMA table_info(runs)")).all()
+        }
+
+
+def test_upgrade_to_0005_adds_both_columns_nullable_and_keeps_every_row(tmp_path: Path) -> None:
+    """The two columns arrive nullable and no row or child is touched on the way.
+
+    Nullable is the whole design of the readers: a row written before this revision carries
+    NULL in both, and NULL is what makes "not recorded" distinguishable from "nothing
+    changed" and from "no warning". The children are asserted because ``runs`` has two
+    ``ON DELETE CASCADE`` dependants and an ``add_column`` that ever became a batch recreate
+    would take them with it (the positive control above shows that shape).
+    """
+    engine = engine_for(tmp_path / "upgrade_0005.db")
+    try:
+        migrate_to_head(engine)
+        run_pk, rs_pk, rr_pk = _seed_run_with_children(engine)
+
+        columns = _run_columns(engine)
+        for column in _0005_COLUMNS:
+            assert column in columns, f"revision 0005 did not add runs.{column}"
+            assert columns[column], f"runs.{column} must be nullable"
+
+        with engine.connect() as conn:
+            assert conn.execute(
+                text("SELECT settings_json, warnings_json FROM runs WHERE pk = :pk"),
+                {"pk": run_pk},
+            ).one() == (None, None), "a row written by an older run reads NULL in both"
+            assert (_table_count(conn, "run_subreddits"), _table_count(conn, "raw_rejects")) == (
+                1,
+                1,
+            )
+            assert conn.execute(text("SELECT pk FROM run_subreddits")).scalar_one() == rs_pk
+            assert conn.execute(text("SELECT pk FROM raw_rejects")).scalar_one() == rr_pk
+            assert conn.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_from_0005_drops_both_columns_and_keeps_every_row(tmp_path: Path) -> None:
+    """DB-46's shape for this revision: the downgrade drops both columns, keeps every ``runs``
+    row and both cascade children, and re-upgrading brings the columns back empty -- the
+    settings and the warning names are gone, which the revision's docstring states.
+    """
+    engine = engine_for(tmp_path / "downgrade_0005.db")
+    try:
+        migrate_to_head(engine)
+        run_pk, rs_pk, rr_pk = _seed_run_with_children(engine)
+        t = Base.metadata.tables
+        with engine.begin() as conn:
+            conn.execute(
+                t["runs"]
+                .update()
+                .where(t["runs"].c.pk == run_pk)
+                .values(
+                    settings_json='{"budget":{"per_run_requests":500}}',
+                    warnings_json='[{"name":"budget_exhausted","detail":"r/premiere"}]',
+                )
+            )
+
+        cfg = alembic_config()
+        cfg.attributes["connection"] = engine
+        command.downgrade(cfg, "0004")
+
+        columns = _run_columns(engine)
+        for column in _0005_COLUMNS:
+            assert column not in columns, f"the downgrade left runs.{column} behind"
+        with engine.connect() as conn:
+            assert _table_count(conn, "runs") == 1
+            assert conn.execute(text("SELECT pk FROM runs")).scalar_one() == run_pk
+            assert conn.execute(text("SELECT pk FROM run_subreddits")).scalar_one() == rs_pk
+            assert conn.execute(text("SELECT pk FROM raw_rejects")).scalar_one() == rr_pk
+            assert conn.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+
+        command.upgrade(cfg, "head")
+        with engine.connect() as conn:
+            assert conn.execute(
+                text("SELECT settings_json, warnings_json FROM runs WHERE pk = :pk"),
+                {"pk": run_pk},
+            ).one() == (None, None), "the drop is not reversible in value, only in shape"
+    finally:
+        engine.dispose()
+
+
 # --- db/migrate.py: current / head / is_at_head / pending (step 2, §10.2) ------------------
 
 

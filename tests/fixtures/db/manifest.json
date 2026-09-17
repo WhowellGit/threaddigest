@@ -64,5 +64,27 @@
       "ui_state": 1,
       "workspaces": 1
     }
+  },
+  "0004": {
+    "revision": "0004",
+    "row_counts": {
+      "authors": 1,
+      "backups": 1,
+      "comment_more": 1,
+      "comments": 1,
+      "item_snapshots": 1,
+      "post_sources": 1,
+      "post_themes": 1,
+      "posts": 1,
+      "raw_rejects": 1,
+      "run_subreddits": 1,
+      "runs": 1,
+      "searches": 1,
+      "subreddits": 1,
+      "theme_rules": 1,
+      "themes": 1,
+      "ui_state": 1,
+      "workspaces": 1
+    }
   }
 }
