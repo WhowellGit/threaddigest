@@ -54,7 +54,7 @@ that only goes down.
 | No new abstraction without two concrete uses | review |
 | Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` (tranche B) | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |
 | `create_engine`, `text()`, `sqlite3.connect` only inside `db/`; `mock.patch` only in `tests/adapters/`; `encoding=` on every text open | ruff `TID251`, `PLW1514` |
-| Never import another system's identifiers, attribution trailers, or model names into tracked text | `tests/gates/test_no_imported_identifiers.py`; `tools/hooks/no_bypass_git.sh` refuses a commit whose message carries a trailer |
+| Never import another system's identifiers, attribution trailers, or model names into tracked text, or a term on the operator's private list | `tests/gates/test_no_imported_identifiers.py`; `tools/private_terms.py`, which reads the list from the private folder beside the memory snapshot and names a match by its ordinal, never its text (the repository is public); `tools/hooks/no_bypass_git.sh` refuses a commit whose message carries a trailer |
 | Every rule in this table names an enforcer that exists, or says review; review-only rules are a ceiling that only goes down | `tests/gates/test_rules_name_their_enforcer.py`; `.ratchets/review_only_rules.txt` |
 | Generated data is produced by a script and never committed; one green commit per module | `tools/make_demo_fixture.py`; `.pre-commit-config.yaml` (large-file check); review for commit size |
 | Tests never touch the network; warnings are errors | pytest `--block-network -W error` in `pyproject.toml`; `tests/gates/test_pytest_config.py` |

@@ -11,10 +11,13 @@ test instead. Widened 2026-09-14: a lowercase codename had survived inside a quo
 line, and the company's name had survived inside an imported lint name, so the codename rule is
 case-insensitive and the company name is allowed only in its public-product sense.
 
-What is scanned: every tracked file whose extension is in :data:`TEXT_SUFFIXES`. The one
-exclusion is ``docs/reference/earlier-project-retrospectives/``: those three files plus their
-index are the earlier project's own documents, kept deliberately and redacted under their own
-``REDACTION_NOTE.md``.
+What is scanned: every tracked file whose extension is in
+:data:`tools.private_terms.TEXT_SUFFIXES`. The one exclusion is
+``docs/reference/earlier-project-retrospectives/``: those three files plus their index are the
+earlier project's own documents, kept deliberately and redacted under their own
+``REDACTION_NOTE.md``. The file set moved into ``tools/private_terms.py`` on 2026-09-17, where
+the private-term check can read it too; a tool cannot import a test module, so the shared half
+lives in the tool and this file imports it.
 
 Carve-outs, each narrow and reasoned:
 
@@ -41,13 +44,20 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
+from tools.memory_snapshot import private_home
+from tools.private_terms import (
+    EXCLUDED_PREFIXES,
+    NO_LIST,
+    accept,
+    accepted_path,
+    check,
+    line_hash,
+    list_path,
+    scannable,
+    tracked_files,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
-
-TEXT_SUFFIXES = frozenset(
-    {".md", ".py", ".toml", ".yaml", ".yml", ".txt", ".json", ".cfg", ".ini", ".sh", ".mako"}
-)
-EXCLUDED_PREFIXES = ("docs/reference/earlier-project-retrospectives/",)
 
 # --------------------------------------------------------------------------- carve-outs
 
@@ -127,15 +137,6 @@ def _line_hits(line: str) -> list[tuple[str, str]]:
     return [(rule, hit) for rule, hit in hits if not _allowed(rule, hit)]
 
 
-def scannable(rel_paths: Iterable[str]) -> list[str]:
-    """The subset of ``rel_paths`` this gate reads: text suffixes, retrospectives excluded."""
-    return sorted(
-        rel
-        for rel in rel_paths
-        if Path(rel).suffix in TEXT_SUFFIXES and not rel.startswith(EXCLUDED_PREFIXES)
-    )
-
-
 def violations(root: Path, rel_paths: Iterable[str]) -> list[str]:
     """``file:line: rule: matched text`` for every hit under ``root``."""
     found: list[str] = []
@@ -144,24 +145,6 @@ def violations(root: Path, rel_paths: Iterable[str]) -> list[str]:
         for number, line in enumerate(text.splitlines(), start=1):
             found += [f"{rel}:{number}: {rule}: {hit}" for rule, hit in _line_hits(line)]
     return found
-
-
-def tracked_files(root: Path) -> list[str]:
-    """Tracked files plus untracked files git would not ignore.
-
-    A new file is invisible to ``git ls-files`` until it is added, so a scan of tracked files
-    alone lets a violation ride into the first commit that adds it (this happened on
-    2026-09-14: a review record carrying a foreign register id passed the gate untracked and
-    failed it once committed). Untracked-but-not-ignored files are therefore scanned too.
-    """
-    out = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard"],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=60,
-    ).stdout
-    return out.split()
 
 
 @pytest.mark.gate
@@ -345,3 +328,115 @@ def test_positive_control_a_real_author_in_a_fixture_is_red(tmp_path: Path) -> N
     # The scrubbed capture is green; the hand-written synthetic set is exempt by construction.
     capture.write_text(json.dumps(fs.scrub(raw)), encoding="utf-8")
     assert fixture_violations(tmp_path, rels[:1]) == []
+
+
+# ------------------------------------------------------- the private term list (2026-09-17)
+# Widened 2026-09-17: a term on the operator's private list was found in tracked text; nothing
+# mechanical had been checking for it. That half of the rule cannot be written down here: the
+# terms are the operator's and this repository is public, so the list lives in the private
+# folder beside the memory snapshot, the scan is ``tools/private_terms.py``, and a finding
+# names the pattern that matched by its ordinal in that list and never by its text. Every term
+# planted below is invented for the test.
+#
+# Two readers, deliberately. Under pytest every ``THREADDIGEST_*`` variable is stripped by the
+# data-directory fixture (``tests/conftest.py``), so this gate reads the tracked default home;
+# the ``make check`` line runs the same check outside pytest, where a folder moved with
+# ``THREADDIGEST_PRIVATE_DIR`` is honoured. With no folder at all -- CI, a fresh clone -- the
+# check prints its note and passes, which is a visible state rather than a silent skip.
+
+PLACEHOLDER_TERMS = "# invented for this test\n\nquokka-lantern\nnarwhal[- ]compass\n"
+
+
+def _private(tmp_path: Path, name: str = "private", terms: str = PLACEHOLDER_TERMS) -> Path:
+    """A private folder holding one term list."""
+    home = tmp_path / name
+    home.mkdir()
+    list_path(home).write_text(terms, encoding="utf-8")
+    return home
+
+
+@pytest.mark.gate("G35")
+def test_no_tracked_text_carries_a_private_term() -> None:
+    found = check(ROOT, tracked_files(ROOT), private_home())
+    assert not found, "private terms in tracked text:\n" + "\n".join(found)
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_a_planted_private_term_is_red(tmp_path: Path) -> None:
+    home = _private(tmp_path)
+    body = "# s\n\nthe quokka-lantern note\nand the narwhal compass beside it\n"
+    root, paths = _tree(tmp_path / "dirty", body)
+    assert check(root, paths, home) == [
+        "docs/SUSPECT.md:3: private term (pattern 1)",
+        "docs/SUSPECT.md:4: private term (pattern 2)",
+    ]
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_the_same_tree_without_a_private_term_is_green(tmp_path: Path) -> None:
+    home = _private(tmp_path)
+    root, paths = _tree(tmp_path / "clean", "# s\n\nthe main session decides.\n")
+    assert check(root, paths, home) == []
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_an_accepted_line_is_green_until_it_is_edited(tmp_path: Path) -> None:
+    """An acceptance is of the line's content under one path: it travels, it does not survive
+    an edit, and it says nothing about the same line anywhere else."""
+    home = _private(tmp_path)
+    offending = "the quokka-lantern note"
+    root, paths = _tree(tmp_path / "accepted", f"# s\n\n{offending}\n")
+    suspect = root / "docs" / "SUSPECT.md"
+    accepted_path(home).write_text(f"docs/SUSPECT.md\t{line_hash(offending)}\n", encoding="utf-8")
+    assert check(root, paths, home) == []
+
+    suspect.write_text(f"# s\n\nprose added above it\n\n{offending}\n", encoding="utf-8")
+    assert check(root, paths, home) == [], "a line that moved lost its acceptance"
+
+    suspect.write_text(f"# s\n\n{offending}, revised\n", encoding="utf-8")
+    assert check(root, paths, home) == ["docs/SUSPECT.md:3: private term (pattern 1)"]
+
+    (root / "docs" / "CLEAN.md").write_text(f"# c\n\n{offending}\n", encoding="utf-8")
+    assert check(root, paths, home) == [
+        "docs/CLEAN.md:3: private term (pattern 1)",
+        "docs/SUSPECT.md:3: private term (pattern 1)",
+    ]
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_accept_writes_the_hash_and_refuses_a_clean_line(tmp_path: Path) -> None:
+    home = _private(tmp_path)
+    offending = "the quokka-lantern note"
+    root, paths = _tree(tmp_path / "accepting", f"# s\n\n{offending}\n")
+    with pytest.raises(SystemExit, match="matches no pattern"):
+        accept(root, home, "docs/CLEAN.md:3")
+    entry = accept(root, home, "docs/SUSPECT.md:3")
+    assert entry == f"docs/SUSPECT.md\t{line_hash(offending)}"
+    assert check(root, paths, home) == []
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_no_list_checks_nothing_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CI and fresh-clone case: no private folder, so nothing is checked and it is said."""
+    root, paths = _tree(tmp_path / "unchecked", "# s\n\nthe quokka-lantern note\n")
+    absent = tmp_path / "no-private-folder"
+    assert check(root, paths, absent) == []
+    assert capsys.readouterr().out.strip() == NO_LIST.format(path=list_path(absent))
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_a_list_that_cannot_be_used_is_red(tmp_path: Path) -> None:
+    """A list that is present and unusable fails; only an absent list is green."""
+    root, paths = _tree(tmp_path / "broken", "# s\n\nthe quokka-lantern note\n")
+    uncompilable = _private(tmp_path, "uncompilable", "quokka-[lantern\n")
+    with pytest.raises(SystemExit, match="not a valid regular expression"):
+        check(root, paths, uncompilable)
+    empty = _private(tmp_path, "empty", "# every line a comment\n")
+    with pytest.raises(SystemExit, match="holds no pattern"):
+        check(root, paths, empty)
+    malformed = _private(tmp_path, "malformed")
+    accepted_path(malformed).write_text("docs/SUSPECT.md no-tab-no-hash\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="path<TAB>sha1hex"):
+        check(root, paths, malformed)

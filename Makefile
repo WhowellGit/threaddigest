@@ -76,6 +76,7 @@ check: | $(BUILD_DIR)
 	@$(UV) run python tools/hooks_status.py
 	@$(UV) run python tools/memory_snapshot.py check
 	@$(UV) run python tools/memory_snapshot.py diff
+	@$(UV) run python -m tools.private_terms check
 	@$(UV) run python tools/check_stamp.py
 
 # Claude Code's auto-memory: the one asset here that no rebuild can regenerate. It is keyed to
