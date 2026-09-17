@@ -12,7 +12,8 @@ cannot be fooled by a collection error elsewhere. A parametrised id (``name[case
 the function name. ``::name`` on its own continues the previous path in the same cell, which is
 how ``GUARDS.md`` lists a second control from the same file. HTML comments are stripped first
 (with their line breaks kept, so line numbers stay true), because the format example in
-``KNOWN_ISSUES.md`` is documentation, not a row.
+``KNOWN_ISSUES.md`` is documentation, not a row; since 2026-09-16 every row-shaped line must be
+one the parser returned, because the strip had hidden thirteen real rows (KI-034).
 """
 
 from __future__ import annotations
@@ -221,6 +222,105 @@ def test_positive_control_a_second_control_from_the_same_file_resolves(tmp_path:
     assert unresolved(root, KNOWN_ISSUES, ISSUES_COLUMN) == [
         "docs/runbook/KNOWN_ISSUES.md:5: tests/test_real.py defines no nope"
     ]
+
+
+# --------------------------------------------------- rows the parser never reached (2026-09-16)
+#
+# Birth incident (KI-034): thirteen rows, KI-015 to KI-027, had been appended inside the HTML
+# comment that holds the runbook's format example, by sessions that added a row at the end of what
+# looked like the table without noticing that the comment opened above the example and closed
+# fifteen lines below it, and three more, KI-028 to KI-030, below the blank line that ended
+# the table. ``strip_comments`` dropped the thirteen before parsing -- rightly for the
+# example, whose test does not exist -- and the blank line cut the other three off, so the
+# checks above resolved nothing for any of the sixteen, the page did not render them, and
+# the rule the register enforces was unenforced for every one. A parser that
+# silently skips a row is the register-that-reads-as-complete failure one level down, so every
+# row-shaped line must now be one the parser returned.
+
+#: A register row's first cell: a real id, or the placeholder the format example uses; a
+#: comment opener before it (``<!-- | KI-0XX | ... | -->`` on one line) is still that row.
+KI_SHAPED = re.compile(r"^\s*(?:<!--\s*)?\|\s*(KI-(?:\d+|0XX))\s*\|")
+EXAMPLE_ID = "KI-0XX"
+
+
+def commented_lines(text: str) -> set[int]:
+    """Line numbers that fall inside an HTML comment, both ends inclusive."""
+    inside: set[int] = set()
+    for match in COMMENT.finditer(text):
+        first = text.count("\n", 0, match.start()) + 1
+        last = text.count("\n", 0, match.end()) + 1
+        inside.update(range(first, last + 1))
+    return inside
+
+
+def rows_the_parser_missed(text: str, column: str) -> list[str]:
+    """Every row-shaped line that ``cells_under`` did not return for ``column``, with why.
+
+    One line may escape: the format example, whose id is the placeholder ``KI-0XX``, inside a
+    comment, once. A real id inside a comment, a row cut off from its table by a blank line or
+    sitting under a header without the column, a second placeholder, or the placeholder outside
+    the comment is reported with its line number.
+    """
+    parsed = {number for number, _ in cells_under(text, column)}
+    inside = commented_lines(text)
+    missed: list[str] = []
+    example_seen = False
+    for number, line in enumerate(text.splitlines(), start=1):
+        match = KI_SHAPED.match(line)
+        if not match or number in parsed:
+            continue
+        ident = match.group(1)
+        if ident == EXAMPLE_ID and number in inside and not example_seen:
+            example_seen = True
+        elif ident == EXAMPLE_ID:
+            missed.append(
+                f"{number}: {ident} is the format example; one is allowed, inside the comment"
+            )
+        elif number in inside:
+            missed.append(
+                f"{number}: {ident} sits inside an HTML comment, where the gate cannot see it"
+            )
+        else:
+            missed.append(f"{number}: {ident} is outside every table that declares '{column}'")
+    return missed
+
+
+def test_every_known_issues_row_is_in_the_parsed_table() -> None:
+    """The checks above see only what the parser returns; a row it never reached is a row the
+    rule is not enforced for."""
+    text = (ROOT / KNOWN_ISSUES).read_text(encoding="utf-8")
+    missed = rows_the_parser_missed(text, ISSUES_COLUMN)
+    assert not missed, "KNOWN_ISSUES.md rows the gate cannot see:\n" + "\n".join(missed)
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_row_the_parser_cannot_see_is_red() -> None:
+    """Each way a row escapes the parser is planted and named; the clean shape is silent."""
+    table = f"| ID | {ISSUES_COLUMN} |\n|---|---|\n| KI-1 | tests/a.py::t |\n"
+    example = "<!-- example:\n| KI-0XX | tests/x.py::t |\n-->\n"
+    assert rows_the_parser_missed(table + example, ISSUES_COLUMN) == []
+
+    hidden = table + "<!-- example:\n| KI-0XX | tests/x.py::t |\n| KI-2 | tests/a.py::t |\n-->\n"
+    assert rows_the_parser_missed(hidden, ISSUES_COLUMN) == [
+        "6: KI-2 sits inside an HTML comment, where the gate cannot see it"
+    ]
+    cut_off = table + "\n| KI-3 | tests/a.py::t |\n" + example
+    assert rows_the_parser_missed(cut_off, ISSUES_COLUMN) == [
+        f"5: KI-3 is outside every table that declares '{ISSUES_COLUMN}'"
+    ]
+    twice = table + example + "<!-- | KI-0XX | tests/y.py::t | -->\n"
+    assert rows_the_parser_missed(twice, ISSUES_COLUMN) == [
+        "7: KI-0XX is the format example; one is allowed, inside the comment"
+    ]
+    stray = table + "\n| KI-0XX | tests/x.py::t |\n"
+    assert rows_the_parser_missed(stray, ISSUES_COLUMN) == [
+        "5: KI-0XX is the format example; one is allowed, inside the comment"
+    ]
+    other_header = table + "\n| ID | Symptom |\n|---|---|\n| KI-4 | no test column |\n"
+    assert rows_the_parser_missed(other_header, ISSUES_COLUMN) == [
+        f"7: KI-4 is outside every table that declares '{ISSUES_COLUMN}'"
+    ]
+    assert commented_lines("a\n<!-- b\nc -->\nd\n<!-- e -->\n") == {2, 3, 5}
 
 
 # ------------------------------------------------- the reverse direction and hashes (2026-09-14)
