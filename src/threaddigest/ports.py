@@ -114,9 +114,12 @@ class TreeResult:
     """A comment tree fetch: the (refreshed) post, the flattened comments, and the leftovers.
 
     ``comments`` is in depth-first order, parents before children, each carrying ``depth``
-    (top level is 0), ``parent_id`` and ``link_id``. ``more`` lists the stubs not expanded
-    within ``more_limit``; ``complete`` is True only when the fetch succeeded and ``more``
-    is empty. ``requests_used`` is 1 for the base fetch plus one per expansion.
+    (top level is 0), ``parent_id`` and ``link_id``, and **each comment appears once**
+    however often Reddit delivered it: a ``morechildren`` batch overlapping the base fetch is
+    ordinary, and collapsing that is the gateway's job, not the caller's. ``more`` lists the
+    stubs not expanded within ``more_limit``; ``complete`` is True only when the fetch
+    succeeded and ``more`` is empty. ``requests_used`` is 1 for the base fetch plus one per
+    expansion.
     """
 
     post: RawItem

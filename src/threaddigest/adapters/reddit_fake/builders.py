@@ -207,13 +207,24 @@ class _Builders(_Items):
         return f"t1_{cid}"
 
     def add_more(
-        self, post: str, parent: str | None, count: int, children: Sequence[str] = ()
+        self,
+        post: str,
+        parent: str | None,
+        count: int,
+        children: Sequence[str] = (),
+        redelivers: Sequence[str] = (),
     ) -> None:
         """Hide ``children`` (comment ids) behind a ``more`` stub under ``parent``.
 
         ``parent`` is a comment id or fullname; None means the post itself. ``count == 0``
         is a "continue this thread" node. Expanding the stub reveals ``children`` and costs
         one request.
+
+        ``redelivers`` names comments the expansion returns *again* although they are already
+        visible -- the shape ``morechildren`` produces when it is asked with
+        ``limit_children=0``, which is how the real adapter asks. They are not hidden, so they
+        reveal nothing; what they exercise is the promise both gateways make, that
+        ``TreeResult.comments`` holds each comment once however often Reddit sends it (KI-042).
         """
         pid = _bare(post)
         if pid not in self._posts:
@@ -223,6 +234,7 @@ class _Builders(_Items):
             parent_fullname=self._parent_fullname(pid, parent),
             count=count,
             children=[_bare(c) for c in children],
+            redelivers=[_bare(c) for c in redelivers],
         )
         self._more.setdefault(pid, []).append(stub)
 

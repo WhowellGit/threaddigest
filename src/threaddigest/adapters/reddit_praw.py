@@ -388,12 +388,19 @@ class _TreeBuilder:
     so the depth-first order and the depths are computed once, at the end, from the parent
     links -- never from the order things arrived in or from Reddit's own ``depth`` field,
     which is absent from a ``morechildren`` batch.
+
+    Reddit may deliver the same comment twice. ``morechildren`` is asked with
+    ``limit_children=0``, so a batch overlapping the base fetch is the expected case, not an
+    oddity: the index therefore keeps the first copy of each ``name`` and drops later ones
+    (KI-042). A later copy's *replies* are still walked, because the rule is one row per
+    comment and a second copy may carry a reply the first did not.
     """
 
     def __init__(self, link: str) -> None:
         self.link = link
         self.by_parent: dict[str, list[RawItem]] = {}
         self.pending: list[MoreStub] = []
+        self.seen: set[str] = set()
 
     def add(self, thing: Any) -> None:
         """Index one ``t1`` comment (and its nested replies) or queue one ``more`` stub."""
@@ -407,7 +414,10 @@ class _TreeBuilder:
             return
         data = _data_of(thing)
         replies = data.pop("replies", "")
-        self.by_parent.setdefault(str(data.get("parent_id", self.link)), []).append(data)
+        name = str(data.get("name", ""))
+        if not name or name not in self.seen:
+            self.seen.add(name)
+            self.by_parent.setdefault(str(data.get("parent_id", self.link)), []).append(data)
         for child in _listing_children(replies):
             self.add(child)
 

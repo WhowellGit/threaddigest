@@ -1012,6 +1012,81 @@ def test_a_stub_over_a_hundred_children_is_split_across_requests(
     assert result.requests_used == 2
 
 
+def test_a_comment_an_expansion_returns_again_is_indexed_once(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """``morechildren`` is asked with ``limit_children=0``, so overlap is the expected case.
+
+    Panel finding C-5 (KI-042): the builder indexed by ``parent_id`` with no de-duplication,
+    so a comment the base fetch had already delivered was delivered a second time. The port
+    promises *every comment in depth-first order*, which the collector reads as one row per
+    comment: at M1b ``comments_captured`` would over-count, and the planned invariant
+    "comments_captured equals the actual count per fetched post" would fire against the
+    collector for the adapter's fault.
+    """
+    _token(http)
+    http.get(TREE_URL, json=_tree([_comment("c1", "t3_p1"), _more_node("t3_p1", 1, ["c2"])]))
+    http.get(MORE_URL, json=_things([_comment("c2", "t3_p1"), _comment("c1", "t3_p1")]))
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [c["id"] for c in result.comments] == ["c1", "c2"]
+    assert result.complete is True
+    _round_trips(http, gateway, 3)
+
+
+def test_a_parent_an_expansion_returns_again_does_not_re_emit_its_subtree(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The same defect at its worst: a repeated *parent* re-emitted everything under it.
+
+    The later copy's replies are still walked -- de-duplication is per item, and a second copy
+    may carry a reply the first did not -- so the count is the number of distinct comments,
+    never the number of times Reddit mentioned one.
+    """
+    _token(http)
+    http.get(
+        TREE_URL,
+        json=_tree(
+            [
+                _comment("c1", "t3_p1", replies=[_comment("c11", "t1_c1")]),
+                _more_node("t3_p1", 1, ["c2"]),
+            ]
+        ),
+    )
+    http.get(
+        MORE_URL,
+        json=_things(
+            [
+                _comment("c2", "t3_p1"),
+                _comment("c1", "t3_p1", replies=[_comment("c11", "t1_c1")]),
+            ]
+        ),
+    )
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [(c["id"], c["depth"]) for c in result.comments] == [("c1", 0), ("c11", 1), ("c2", 0)]
+
+
+def test_a_reply_only_the_second_copy_of_a_parent_carries_is_still_indexed(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The reason the duplicate's replies are walked rather than skipped with it."""
+    _token(http)
+    http.get(TREE_URL, json=_tree([_comment("c1", "t3_p1"), _more_node("t3_p1", 1, ["c2"])]))
+    http.get(
+        MORE_URL,
+        json=_things(
+            [_comment("c2", "t3_p1"), _comment("c1", "t3_p1", replies=[_comment("late", "t1_c1")])]
+        ),
+    )
+
+    result = gateway.fetch_tree("p1", more_limit=1)
+
+    assert [c["id"] for c in result.comments] == ["c1", "late", "c2"]
+
+
 def test_a_continue_this_thread_stub_is_expanded_by_refetching_the_thread(
     http: responses.RequestsMock, gateway: PrawGateway
 ) -> None:

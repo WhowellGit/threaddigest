@@ -32,6 +32,9 @@ Behaviour summary
   ``more_limit``; a stub is only known (and reported) once its parent is visible, like PRAW's
   discovery. ``count == 0`` stubs are "continue this thread" links. ``set_tree_clamp(n)``
   turns everything after the first ``n`` comments into synthetic stubs (the ``?limit`` clamp).
+  ``add_more(..., redelivers=[…])`` makes an expansion return comments that are already
+  visible, the shape a real ``morechildren`` produces when asked with ``limit_children=0``;
+  each comment still comes back once, which is the port's promise (KI-042).
   Deleted *leaf* comments vanish from trees; deleted comments with children stay as
   ``[deleted]`` placeholders; removed comments stay as ``[removed]``. Each comment carries
   ``depth``.

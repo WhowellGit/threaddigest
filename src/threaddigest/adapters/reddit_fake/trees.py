@@ -27,6 +27,20 @@ class _Tree:
         self.stubs = stubs
         self.hidden: set[str] = {c for stub in stubs for c in stub.children}
         self.expanded: list[_More] = []
+        self.redelivered: list[str] = []
+
+    def delivered(self) -> list[tuple[str, int]]:
+        """Every ``(comment id, depth)`` this fetch handed over, duplicates included.
+
+        ``visible()`` is a walk of an index and so cannot repeat itself; Reddit can. An
+        expansion built with ``add_more(..., redelivers=...)`` returns a comment the base
+        fetch already delivered, and this is where that duplicate enters the stream, so the
+        de-duplication in :meth:`_Trees.fetch_tree` is exercised rather than merely true by
+        construction (KI-042, the fidelity gap panel finding C-5 named).
+        """
+        shown = self.visible()
+        depths = dict(shown)
+        return shown + [(cid, depths[cid]) for cid in self.redelivered if cid in depths]
 
     def visible(self) -> list[tuple[str, int]]:
         """``(comment id, depth)`` in depth-first order, skipping comments behind a stub."""
@@ -69,6 +83,7 @@ class _Tree:
         gap, not a silent one; the real chunking is validated on the probe day before M1b.
         """
         self.expanded.append(stub)
+        self.redelivered.extend(stub.redelivers)
         revealed = 0
         leftover: list[str] = []
         for cid in stub.children:
@@ -115,16 +130,7 @@ class _Trees(_Requests):
             raise pending
         tree = self._tree_index(pid)
         expansions = self._expand_tree(tree, more_limit, pending, after_n)
-        comments: list[RawItem] = []
-        for cid, depth in tree.visible():
-            fn = f"t1_{cid}"
-            if fn in self._dropped or fn in self._vanished:
-                continue
-            if self._state.get(fn) == "deleted" and not tree.children_of.get(fn):
-                continue  # Reddit drops deleted leaf comments from trees
-            item = self._emit("comment", self._comments[cid])
-            item["depth"] = depth
-            comments.append(item)
+        comments = self._comments_of(tree)
         more = [MoreStub(s.parent_fullname, s.count, list(s.children)) for s in tree.reachable()]
         self._done("tree")
         return TreeResult(
@@ -134,6 +140,27 @@ class _Trees(_Requests):
             requests_used=1 + expansions,
             complete=not more,
         )
+
+    def _comments_of(self, tree: _Tree) -> list[RawItem]:
+        """The delivered stream as the port sees it: each comment once, in depth-first order.
+
+        A comment Reddit delivered twice (``add_more(..., redelivers=...)``) is emitted on its
+        first appearance and skipped afterwards, which is the promise ``TreeResult.comments``
+        makes and the one the real adapter broke until KI-042.
+        """
+        comments: list[RawItem] = []
+        seen: set[str] = set()
+        for cid, depth in tree.delivered():
+            fn = f"t1_{cid}"
+            if cid in seen or fn in self._dropped or fn in self._vanished:
+                continue
+            seen.add(cid)
+            if self._state.get(fn) == "deleted" and not tree.children_of.get(fn):
+                continue  # Reddit drops deleted leaf comments from trees
+            item = self._emit("comment", self._comments[cid])
+            item["depth"] = depth
+            comments.append(item)
+        return comments
 
     def _tree_index(self, pid: str) -> _Tree:
         link = f"t3_{pid}"

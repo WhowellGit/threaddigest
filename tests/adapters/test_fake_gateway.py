@@ -613,6 +613,52 @@ class TestTree:
         assert len(full.comments) == 202
         assert full.requests_used == 4  # base + ceil(201/100) = 3 expansions
 
+    def test_a_comment_an_expansion_redelivers_comes_back_once(
+        self, fake: FakeRedditGateway
+    ) -> None:
+        """KI-042, panel finding C-5: the shape the fake could not express until 2026-09-17.
+
+        `morechildren` is asked with `limit_children=0`, so a batch that repeats a comment the
+        base fetch already delivered is the expected case, not an oddity -- and the real
+        adapter re-emitted it (and, for a repeated parent, its whole subtree). The fake could
+        never produce the shape, because it walks an index, so the contract suite (AD-04) as
+        designed would never have seen it. `add_more(..., redelivers=...)` produces it, and
+        both gateways answer with the same count: the real adapter's half is
+        `tests/adapters/test_praw_gateway.py::test_a_comment_an_expansion_returns_again_is_indexed_once`.
+        """
+        post = fake.add_post("premiere", title="overlapping batch", created_utc=T)
+        c1 = fake.add_comment(post, body="c1", author="a", created_utc=T + 1)
+        c2 = fake.add_comment(post, body="c2", author="b", created_utc=T + 2)
+        fake.add_more(post, None, 1, [c2], redelivers=[c1])
+
+        tree = fake.fetch_tree(post, more_limit=1)
+
+        assert [c["body"] for c in tree.comments] == ["c1", "c2"]
+        assert [c["depth"] for c in tree.comments] == [0, 0]
+        assert tree.complete is True
+        assert tree.requests_used == 2
+
+    def test_a_redelivering_expansion_really_puts_the_comment_in_the_stream_twice(
+        self, fake: FakeRedditGateway
+    ) -> None:
+        """The control for the test above: the de-duplication is a guard, not an accident.
+
+        Without it the fake would hand back the comment twice, exactly as the adapter did,
+        and the contract row would prove nothing.
+        """
+        post = fake.add_post("premiere", title="overlapping batch", created_utc=T)
+        c1 = fake.add_comment(post, body="c1", author="a", created_utc=T + 1)
+        c2 = fake.add_comment(post, body="c2", author="b", created_utc=T + 2)
+        fake.add_more(post, None, 1, [c2], redelivers=[c1])
+
+        tree = fake._tree_index(bare(post))
+        stub = tree.next_stub()
+        assert stub is not None
+        tree.expand(stub)
+
+        assert [cid for cid, _ in tree.delivered()].count(bare(c1)) == 2
+        assert [cid for cid, _ in tree.visible()].count(bare(c1)) == 1
+
     def test_a_single_more_child_with_a_large_subtree_is_revealed_whole(
         self, fake: FakeRedditGateway
     ) -> None:

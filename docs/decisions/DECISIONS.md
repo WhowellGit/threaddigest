@@ -566,6 +566,28 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   probe day (P-15) captures a real 429 and shows which form Reddit sends — which changes nothing
   here, since both are handled, but would let the plan's failure matrix say so from evidence.
 
+## 2026-09-17 (the tree builder) — one row per comment, whatever Reddit sends twice
+
+- **The gateway de-duplicates a comment tree on the item's wire `name`, and the fake can now
+  produce the shape that proves it (KI-042).** `morechildren` is asked with `limit_children=0`,
+  so a batch that repeats a comment the base fetch already delivered is the expected case rather
+  than an oddity, and the builder indexed by `parent_id` alone: the panel's reproduction got
+  three entries for two comments, and a repeated *parent* re-emitted its whole subtree.
+  `TreeResult.comments` now says what it always meant — each comment once — and the port's
+  docstring says so, because "every comment in depth-first order" was read by everyone as one
+  row per comment and by the code as one row per delivery. **The narrower choice inside it:** a
+  later copy is dropped but its replies are still walked, since de-duplication is per item and a
+  second copy may carry a reply the first did not; the alternative, skipping the copy whole,
+  loses those replies to save a line. **Why the fake changed too:** it emits from an index walk,
+  which cannot repeat itself, so the shape was inexpressible there and the AD-04 contract suite
+  as designed would never have seen it — a fake that cannot produce a failure is a fake that
+  certifies the absence of it. `add_more(..., redelivers=…)` produces the duplicate in the
+  stream the fake builds its comments from, so the fake's own de-duplication is exercised
+  rather than true by construction, and a test asserts both halves: the stream carries the
+  comment twice and the gateway hands it over once. **Revisit when:** the probe day's tree
+  captures (P-08, P-11, P-20) show how much a real batch overlaps, which decides whether the
+  collector should also be told how many duplicates it was sent.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

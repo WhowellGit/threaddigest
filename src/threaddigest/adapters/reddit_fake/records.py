@@ -100,6 +100,10 @@ class _More:
     parent_fullname: str
     count: int
     children: list[str] = field(default_factory=list)
+    #: Comment ids this stub's expansion returns *again* although they are already visible.
+    #: Reddit's ``morechildren`` is asked with ``limit_children=0``, so a batch overlapping the
+    #: base fetch is ordinary; the ids here are not hidden and reveal nothing (KI-042).
+    redelivers: list[str] = field(default_factory=list)
 
 
 @dataclass
