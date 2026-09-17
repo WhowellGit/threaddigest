@@ -237,9 +237,11 @@ def test_positive_control_a_second_control_from_the_same_file_resolves(tmp_path:
 # silently skips a row is the register-that-reads-as-complete failure one level down, so every
 # row-shaped line must now be one the parser returned.
 
-#: A register row's first cell: a real id, or the placeholder the format example uses; a
-#: comment opener before it (``<!-- | KI-0XX | ... | -->`` on one line) is still that row.
-KI_SHAPED = re.compile(r"^\s*(?:<!--\s*)?\|\s*(KI-(?:\d+|0XX))\s*\|")
+#: A register row's first cell: a real id, or the placeholder the format example uses, however
+#: decorated (bold, backticked), after a blockquote mark, or after a comment opener and any text
+#: before the first pipe (``<!-- | KI-0XX | ... | -->`` on one line is still that row). The review
+#: seat of 2026-09-16 planted the decorated and the prefixed forms and found them unseen.
+KI_SHAPED = re.compile(r"^\s*(?:<!--[^|]*)?(?:>\s*)*\|\s*[*`]*(KI-(?:\d+|0[Xx]{2}))[*`]*\s*\|")
 EXAMPLE_ID = "KI-0XX"
 
 
@@ -270,9 +272,9 @@ def rows_the_parser_missed(text: str, column: str) -> list[str]:
         if not match or number in parsed:
             continue
         ident = match.group(1)
-        if ident == EXAMPLE_ID and number in inside and not example_seen:
+        if ident.upper() == EXAMPLE_ID and number in inside and not example_seen:
             example_seen = True
-        elif ident == EXAMPLE_ID:
+        elif ident.upper() == EXAMPLE_ID:
             missed.append(
                 f"{number}: {ident} is the format example; one is allowed, inside the comment"
             )
@@ -285,42 +287,77 @@ def rows_the_parser_missed(text: str, column: str) -> list[str]:
     return missed
 
 
+def parsed_rows_the_shape_missed(text: str, column: str) -> list[str]:
+    """The floor under the row shape: every row the parser returned for ``column`` must also
+    match ``KI_SHAPED``, so a shape that quietly stops matching real ids is red here rather than
+    blind in ``rows_the_parser_missed`` (the review seat narrowed the shape to one digit and the
+    check above saw nothing and passed)."""
+    lines = text.splitlines()
+    return [
+        f"{number}: {split_row(lines[number - 1])[0]} is a parsed row the row shape does not match"
+        for number, _ in cells_under(text, column)
+        if not KI_SHAPED.match(lines[number - 1])
+    ]
+
+
 def test_every_known_issues_row_is_in_the_parsed_table() -> None:
     """The checks above see only what the parser returns; a row it never reached is a row the
-    rule is not enforced for."""
+    rule is not enforced for. The second assertion is the floor: the shape sees every parsed row,
+    so the first assertion cannot pass by seeing nothing."""
     text = (ROOT / KNOWN_ISSUES).read_text(encoding="utf-8")
     missed = rows_the_parser_missed(text, ISSUES_COLUMN)
     assert not missed, "KNOWN_ISSUES.md rows the gate cannot see:\n" + "\n".join(missed)
+    unshaped = parsed_rows_the_shape_missed(text, ISSUES_COLUMN)
+    assert not unshaped, "KNOWN_ISSUES.md rows the row shape misses:\n" + "\n".join(unshaped)
 
 
 @pytest.mark.gate("G40")
 def test_positive_control_a_row_the_parser_cannot_see_is_red() -> None:
     """Each way a row escapes the parser is planted and named; the clean shape is silent."""
-    table = f"| ID | {ISSUES_COLUMN} |\n|---|---|\n| KI-1 | tests/a.py::t |\n"
+    table = f"| ID | {ISSUES_COLUMN} |\n|---|---|\n| KI-101 | tests/a.py::t |\n"
     example = "<!-- example:\n| KI-0XX | tests/x.py::t |\n-->\n"
     assert rows_the_parser_missed(table + example, ISSUES_COLUMN) == []
+    assert parsed_rows_the_shape_missed(table + example, ISSUES_COLUMN) == []
 
-    hidden = table + "<!-- example:\n| KI-0XX | tests/x.py::t |\n| KI-2 | tests/a.py::t |\n-->\n"
+    hidden = table + "<!-- example:\n| KI-0XX | tests/x.py::t |\n| KI-102 | tests/a.py::t |\n-->\n"
     assert rows_the_parser_missed(hidden, ISSUES_COLUMN) == [
-        "6: KI-2 sits inside an HTML comment, where the gate cannot see it"
+        "6: KI-102 sits inside an HTML comment, where the gate cannot see it"
     ]
-    cut_off = table + "\n| KI-3 | tests/a.py::t |\n" + example
+    cut_off = table + "\n| KI-103 | tests/a.py::t |\n" + example
     assert rows_the_parser_missed(cut_off, ISSUES_COLUMN) == [
-        f"5: KI-3 is outside every table that declares '{ISSUES_COLUMN}'"
+        f"5: KI-103 is outside every table that declares '{ISSUES_COLUMN}'"
     ]
     twice = table + example + "<!-- | KI-0XX | tests/y.py::t | -->\n"
     assert rows_the_parser_missed(twice, ISSUES_COLUMN) == [
         "7: KI-0XX is the format example; one is allowed, inside the comment"
     ]
-    stray = table + "\n| KI-0XX | tests/x.py::t |\n"
+    stray = table + "\n| KI-0xx | tests/x.py::t |\n"
     assert rows_the_parser_missed(stray, ISSUES_COLUMN) == [
-        "5: KI-0XX is the format example; one is allowed, inside the comment"
+        "5: KI-0xx is the format example; one is allowed, inside the comment"
     ]
-    other_header = table + "\n| ID | Symptom |\n|---|---|\n| KI-4 | no test column |\n"
+    other_header = table + "\n| ID | Symptom |\n|---|---|\n| KI-104 | no test column |\n"
     assert rows_the_parser_missed(other_header, ISSUES_COLUMN) == [
-        f"7: KI-4 is outside every table that declares '{ISSUES_COLUMN}'"
+        f"7: KI-104 is outside every table that declares '{ISSUES_COLUMN}'"
+    ]
+    decorated = (
+        table + example + "<!-- note | **KI-105** | t | -->\n> | `KI-106` | t |\n|KI-107|t|\n"
+    )
+    assert rows_the_parser_missed(decorated, ISSUES_COLUMN) == [
+        "7: KI-105 sits inside an HTML comment, where the gate cannot see it",
+        f"8: KI-106 is outside every table that declares '{ISSUES_COLUMN}'",
+        f"9: KI-107 is outside every table that declares '{ISSUES_COLUMN}'",
     ]
     assert commented_lines("a\n<!-- b\nc -->\nd\n<!-- e -->\n") == {2, 3, 5}
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_parsed_row_the_shape_misses_is_red() -> None:
+    """A parsed row whose id the shape does not match is named, so the shape cannot narrow
+    itself past the rows it exists to see."""
+    table = f"| ID | {ISSUES_COLUMN} |\n|---|---|\n| KI-101 | tests/a.py::t |\n| G40 | t |\n"
+    assert parsed_rows_the_shape_missed(table, ISSUES_COLUMN) == [
+        "4: G40 is a parsed row the row shape does not match"
+    ]
 
 
 # ------------------------------------------------- the reverse direction and hashes (2026-09-14)
