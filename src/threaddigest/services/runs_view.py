@@ -8,15 +8,18 @@ budget are already values, and ``services/report.py`` uses the same function rat
 parsing the row a second way (N-20's two concrete uses).
 
 **What a `partial` run can and cannot say.** ``ok`` means zero warnings and ``partial``
-means at least one, so the page must be able to name the warning that made a run amber. Two
-of the three sources survive into the database: an invariant's ``WARNING`` violation is in
-``runs.violations_json``, and a source's own failure is in ``run_subreddits.error`` beside
-its ``stop_reason``. The third does not: ``services.runs.RunContext.warn`` records a name
-and a detail in memory, and only the **count** reaches the row, in
-``counters_json["warnings"]``. :attr:`RunLine.unrecorded_warnings` is that gap stated as a
-number rather than hidden by it, so a page says "3 warnings, 1 named" instead of quietly
-showing one. Closing it needs a column and therefore a migration; until then the count is
-the honest denominator.
+means at least one, so the page must be able to name the warning that made a run amber. All
+three sources now survive into the database: an invariant's ``WARNING`` violation is in
+``runs.violations_json``, a source's own failure is in ``run_subreddits.error`` beside its
+``stop_reason``, and a warning recorded by ``services.runs.RunContext.warn`` is in
+``runs.warnings_json`` since revision 0005. Both JSON columns are parsed into the same
+:class:`RunProblem`, so a reader treats a named warning the same way whichever of the two
+raised it.
+
+A row written **before** that revision still carries a count and nothing else, and
+:attr:`RunLine.unrecorded_warnings` is that gap stated as a number rather than hidden by
+it: the count the row kept, less the ones it named. It is zero for every run since, and a
+page that says "3 warnings, 1 named" is reading an old row rather than losing two.
 """
 
 from __future__ import annotations
@@ -53,7 +56,14 @@ UNREADABLE: Final = "unreadable_run_row"
 
 @dataclass(frozen=True, slots=True)
 class RunProblem:
-    """One entry of ``runs.violations_json``, or a complaint about the row itself."""
+    """One entry of ``runs.violations_json`` or ``runs.warnings_json``, or a complaint about
+    the row itself.
+
+    ``invariant`` carries the invariant's name for a verdict and the warning's name for a
+    recorded warning -- one field, because every reader asks the same question of it ("what
+    is this called"), and a page that had to know which column a problem came from would be
+    a second reader of the row's format.
+    """
 
     invariant: str
     severity: str
@@ -83,6 +93,9 @@ class RunLine:
     #: ``options_json['budget']['limit']``: the budget this run was actually allowed, which
     #: is not today's configured budget and is the only honest denominator for its requests.
     budget_limit: int | None
+    #: How many warnings ``warnings_json`` named. NULL on the column means none were
+    #: recorded (a row from before revision 0005), which is not the same as ``[]``.
+    recorded_warnings: int
 
     @property
     def duration_seconds(self) -> int | None:
@@ -101,8 +114,14 @@ class RunLine:
 
     @property
     def unrecorded_warnings(self) -> int:
-        """Warnings the run counted whose detail no column kept (see the module docstring)."""
-        return max(self.counters.warnings, 0)
+        """Warnings the run counted whose name no column kept (see the module docstring).
+
+        Zero for every run since revision 0005, where the counter and the list are written
+        together and a test asserts they are the same length. It stays honest for the rows
+        written before it: those carry the count alone, and the page shows it as a number
+        rather than as a silent zero.
+        """
+        return max(self.counters.warnings - self.recorded_warnings, 0)
 
 
 def _loads(payload: str | None) -> Any | None:
@@ -153,6 +172,32 @@ def _problems_of(payload: str | None) -> tuple[bool, tuple[RunProblem, ...]]:
     )
 
 
+def _warnings_of(payload: str | None) -> tuple[RunProblem, ...]:
+    """``runs.warnings_json`` as problems: a warning's name in ``invariant``, its detail
+    beside it, severity ``warning`` because that is what a ``RunContext.warn`` warning is --
+    the one thing that turns an ``ok`` run ``partial``."""
+    loaded = _loads(payload)
+    if payload is not None and not isinstance(loaded, list):
+        return (
+            RunProblem(
+                invariant=UNREADABLE,
+                severity=SEVERITY_FAILURE,
+                detail="warnings_json is not a readable JSON array; its warnings are lost",
+            ),
+        )
+    if not isinstance(loaded, list):
+        return ()
+    return tuple(
+        RunProblem(
+            invariant=str(entry.get("name", UNREADABLE)),
+            severity=SEVERITY_WARNING,
+            detail=str(entry.get("detail", "")),
+        )
+        for entry in loaded
+        if isinstance(entry, dict)
+    )
+
+
 def _budget_limit_of(payload: str | None) -> int | None:
     loaded = _loads(payload)
     budget = loaded.get("budget") if isinstance(loaded, dict) else None
@@ -164,12 +209,16 @@ def line_for(run: repo.RunDisplay) -> RunLine:
     """Parse one run row. Pure: no connection, so a template never reaches the database."""
     counters, counter_problems = _counters_of(run.counters_json)
     invariants_ran, violations = _problems_of(run.violations_json)
+    recorded = _warnings_of(run.warnings_json)
     return RunLine(
         run=run,
         counters=counters,
-        problems=counter_problems + violations,
+        # The run's own warnings last: an invariant's verdict is about the whole run and a
+        # `warn` is about one moment in it, and a reader wants the general before the local.
+        problems=counter_problems + violations + recorded,
         invariants_ran=invariants_ran,
         budget_limit=_budget_limit_of(run.options_json),
+        recorded_warnings=sum(1 for problem in recorded if problem.invariant != UNREADABLE),
     )
 
 

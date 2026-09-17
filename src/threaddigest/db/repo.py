@@ -271,7 +271,13 @@ class RunDisplay:
     api_requests: int
     error: str | None
     violations_json: str | None
+    #: The warnings the run recorded (revision 0005). NULL is not ``[]``: a row that
+    #: recorded nothing at all, against a run that looked and had none.
+    warnings_json: str | None
     settings_fingerprint: str | None
+    #: The resolved non-secret settings the run ran with (revision 0005), so the digest can
+    #: name the keys that changed rather than only that the fingerprint moved.
+    settings_json: str | None
     app_version: str | None
     schema_rev: str | None
 
@@ -1390,7 +1396,9 @@ def _run_display(mapping: RowMapping) -> RunDisplay:
         api_requests=int(mapping["api_requests"]),
         error=mapping["error"],
         violations_json=mapping["violations_json"],
+        warnings_json=mapping["warnings_json"],
         settings_fingerprint=mapping["settings_fingerprint"],
+        settings_json=mapping["settings_json"],
         app_version=mapping["app_version"],
         schema_rev=mapping["schema_rev"],
     )

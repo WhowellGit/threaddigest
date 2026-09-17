@@ -23,7 +23,12 @@ import pytest
 from sqlalchemy import Engine
 
 from threaddigest.adapters.clock import FakeClock
-from threaddigest.core.digest import SubredditStatus, render_html, render_markdown
+from threaddigest.core.digest import (
+    SettingChange,
+    SubredditStatus,
+    render_html,
+    render_markdown,
+)
 from threaddigest.core.models import PostRow
 from threaddigest.core.retry import RunStatus
 from threaddigest.db import repo
@@ -132,6 +137,8 @@ def plant_finished_run(engine: Engine) -> PlantFinishedRun:
         violations_json: str | None = "[]",
         error: str | None = None,
         settings_fingerprint: str | None = "9f2c" * 4,
+        settings_json: str | None = None,
+        warnings_json: str | None = None,
         kind: str = "run",
     ) -> repo.RunDisplay:
         options_json = (
@@ -158,6 +165,8 @@ def plant_finished_run(engine: Engine) -> PlantFinishedRun:
                     log_path=None,
                 ),
             )
+            if settings_json is not None:
+                repo.record_run_settings(conn, run_pk=run_pk, settings_json=settings_json)
             for subreddit_pk, progress in (outcomes or {}).items():
                 repo.upsert_run_subreddit(
                     conn, run_pk=run_pk, subreddit_pk=subreddit_pk, progress=progress
@@ -171,7 +180,7 @@ def plant_finished_run(engine: Engine) -> PlantFinishedRun:
                 api_requests=api_requests,
                 error=error,
                 violations_json=violations_json,
-                warnings_json=None,
+                warnings_json=warnings_json,
             )
         with engine.connect() as conn:
             row = repo.run_display(conn, run_pk=run_pk)
@@ -246,18 +255,62 @@ def test_run_line_parses_the_counters_the_budget_and_the_violations(
     assert [p.invariant for p in line.failures] == ["counters_equal_table_deltas"]
 
 
-def test_run_line_says_how_many_warnings_no_column_kept(
+def test_run_line_says_how_many_warnings_a_row_from_before_0005_could_not_name(
     plant_finished_run: PlantFinishedRun,
 ) -> None:
-    """``ok`` means zero warnings, so an amber run owes the page a reason. Only the count of
-    a ``RunContext.warn`` warning reaches the database, so the count is what is shown --
-    never a silent zero, and never a name the row does not hold."""
-    run = plant_finished_run(counters=Counters(warnings=3), status="partial")
+    """``ok`` means zero warnings, so an amber run owes the page a reason. On a row written
+    before revision 0005 only the count of a ``RunContext.warn`` warning reached the
+    database, so the count is what is shown -- never a silent zero, and never a name the row
+    does not hold."""
+    run = plant_finished_run(counters=Counters(warnings=3), status="partial", warnings_json=None)
 
     line = runs_view.line_for(run)
 
     assert line.warnings == (), "no invariant complained; the three warnings are unnamed"
     assert line.unrecorded_warnings == 3
+
+
+def test_run_line_names_the_warnings_the_row_recorded(
+    plant_finished_run: PlantFinishedRun,
+) -> None:
+    """Revision 0005: a ``RunContext.warn`` warning arrives as a named problem beside the
+    invariants' own, and nothing is left over for the page to report as a number."""
+    run = plant_finished_run(
+        counters=Counters(warnings=2),
+        status="partial",
+        warnings_json=json.dumps(
+            [
+                {"name": "budget_exhausted", "detail": "r/premiere: stopped after 3 pages"},
+                {"name": "cursor_stalled", "detail": "r/editors: after did not advance"},
+            ]
+        ),
+    )
+
+    line = runs_view.line_for(run)
+
+    assert [(p.invariant, p.detail) for p in line.warnings] == [
+        ("budget_exhausted", "r/premiere: stopped after 3 pages"),
+        ("cursor_stalled", "r/editors: after did not advance"),
+    ]
+    assert line.failures == ()
+    assert line.unrecorded_warnings == 0
+
+
+def test_run_line_reports_an_unreadable_warnings_column_instead_of_losing_it(
+    plant_finished_run: PlantFinishedRun,
+) -> None:
+    """The same treatment ``counters_json`` and ``violations_json`` already get: a row that
+    will not parse must not take the history page down, and must not read as "no warning"
+    either. The count stays the honest denominator, so the page still says two are missing.
+    """
+    run = plant_finished_run(
+        counters=Counters(warnings=2), status="partial", warnings_json="{not json"
+    )
+
+    line = runs_view.line_for(run)
+
+    assert [p.invariant for p in line.failures] == [runs_view.UNREADABLE]
+    assert line.unrecorded_warnings == 2
 
 
 def test_run_line_separates_invariants_that_did_not_run_from_a_clean_verdict(
@@ -377,6 +430,92 @@ def test_assemble_digest_counts_the_settings_the_fingerprint_covers(
     assert summary.settings_total == _leaf_count(non_secret_settings(settings))
     assert summary.settings_changes == [], "only the fingerprint is stored, never the settings"
     assert summary.previous_settings_fingerprint is None, "nothing ran before it"
+
+
+#: Two runs' worth of recorded settings, differing in one key. Written as literals rather
+#: than built from ``Settings``, so the test states the change it expects to be named.
+_SETTINGS_BEFORE = '{"budget":{"per_run_requests":1500},"display_timezone":"UTC"}'
+_SETTINGS_AFTER = '{"budget":{"per_run_requests":500},"display_timezone":"UTC"}'
+
+
+def test_assemble_digest_names_the_settings_keys_that_changed(
+    engine: Engine,
+    settings: Settings,
+    plant_finished_run: PlantFinishedRun,
+    clock_at_report: FakeClock,
+) -> None:
+    """Revision 0005: with both runs' settings on their rows, the digest names the key that
+    changed and both of its values, instead of reporting that the fingerprint moved.
+
+    The denominator is the settings the two runs between them recorded, so a key added or
+    removed between runs cannot make the numerator exceed it.
+    """
+    plant_finished_run(
+        started_at=STARTED - 3600,
+        finished_at=FINISHED - 3600,
+        settings_fingerprint="0a1b" * 4,
+        settings_json=_SETTINGS_BEFORE,
+    )
+    plant_finished_run(settings_fingerprint="9f2c" * 4, settings_json=_SETTINGS_AFTER)
+
+    summary = report.assemble_digest(
+        engine, settings=settings, report_date=REPORT_DATE, clock=clock_at_report
+    ).summary
+
+    assert summary.settings_changes == [
+        SettingChange(key="budget.per_run_requests", previous="1500", current="500")
+    ]
+    assert str(summary.settings_changed) == "1 of 2 non-secret settings (50%)"
+
+
+def test_a_settings_key_added_or_removed_between_runs_is_named_on_both_sides(
+    engine: Engine,
+    settings: Settings,
+    plant_finished_run: PlantFinishedRun,
+    clock_at_report: FakeClock,
+) -> None:
+    """A key only one of the two runs recorded is a change, and says which side lacked it."""
+    plant_finished_run(
+        started_at=STARTED - 3600,
+        finished_at=FINISHED - 3600,
+        settings_fingerprint="0a1b" * 4,
+        settings_json='{"kept":1,"dropped":"x"}',
+    )
+    plant_finished_run(settings_fingerprint="9f2c" * 4, settings_json='{"added":2,"kept":1}')
+
+    summary = report.assemble_digest(
+        engine, settings=settings, report_date=REPORT_DATE, clock=clock_at_report
+    ).summary
+
+    assert summary.settings_changes == [
+        SettingChange(key="added", previous=report.SETTING_ABSENT, current="2"),
+        SettingChange(key="dropped", previous='"x"', current=report.SETTING_ABSENT),
+    ]
+    assert str(summary.settings_changed) == "2 of 3 non-secret settings (67%)"
+
+
+def test_a_run_whose_settings_were_not_recorded_says_so_rather_than_nothing_changed(
+    engine: Engine,
+    settings: Settings,
+    plant_finished_run: PlantFinishedRun,
+    clock_at_report: FakeClock,
+) -> None:
+    """A row written before revision 0005 has NULL settings, and "not recorded" is not
+    "nothing changed": an empty list beside two different fingerprints would be a lie."""
+    plant_finished_run(
+        started_at=STARTED - 3600,
+        finished_at=FINISHED - 3600,
+        settings_fingerprint="0a1b" * 4,
+        settings_json=None,
+    )
+    plant_finished_run(settings_fingerprint="9f2c" * 4, settings_json=_SETTINGS_AFTER)
+
+    summary = report.assemble_digest(
+        engine, settings=settings, report_date=REPORT_DATE, clock=clock_at_report
+    ).summary
+
+    assert summary.settings_changes is None
+    assert summary.previous_settings_fingerprint == "0a1b" * 4, "the two rows still differ"
 
 
 def test_assemble_digest_compares_against_the_previous_run_of_the_same_kind(

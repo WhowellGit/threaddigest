@@ -85,14 +85,21 @@ def example_model(
     *,
     subreddit_status: SubredditStatus = SubredditStatus.FORBIDDEN,
     settings_changes: list[SettingChange] | None = None,
+    settings_recorded: bool = True,
 ) -> DigestModel:
     """The DG-01 seed: two subs ok, one failed, a gap, a backlog, unknown enums, a changed
-    budget and a reconcile tier fallback."""
-    changes = (
+    budget and a reconcile tier fallback.
+
+    ``settings_recorded=False`` is the row written before revision 0005: the model's
+    ``settings_changes`` is then None, which is not the empty list.
+    """
+    changes: list[SettingChange] | None = (
         [SettingChange(key=CHANGED_KEY, previous="1500", current="500")]
         if settings_changes is None
         else settings_changes
     )
+    if not settings_recorded:
+        changes = None
     failed = subreddit_status is not SubredditStatus.OK
     top = rank_posts([PROXIES, EXPORT_HANGS, CRASH_ON_LAUNCH])
     return DigestModel(
@@ -333,6 +340,22 @@ def test_derived_counts_are_rendered() -> None:
 
 
 # ------------------------------------------------------------------ evidence
+
+
+def test_a_digest_whose_settings_were_not_recorded_says_so_in_both_renderings() -> None:
+    """``None`` is not ``[]``: the renderings must say which keys changed is not recorded,
+    never print a zero that reads as "nothing changed", and never reach
+    ``RunSummary.settings_changed``, which has no answer for this model.
+    """
+    model = example_model(settings_recorded=False)
+    assert model.summary.settings_changes is None
+    with pytest.raises(ValueError, match="not recorded"):
+        _ = model.summary.settings_changed
+
+    for output in (render_markdown(model), render_html(model)):
+        assert "which keys changed is not recorded" in output
+        assert CHANGED_KEY not in output
+        assert "0 of 14 non-secret settings" not in output
 
 
 def test_failed_subreddit_and_changed_setting_come_from_the_model() -> None:

@@ -67,8 +67,16 @@ FAILURE_INVARIANT = "counters_equal_table_deltas"
 FAILURE_DETAIL = "posts grew by 13 while counters.posts_new said 12"
 RUN_ERROR = "database is locked"
 
-#: The partial run counted three warnings; the invariants named one of them.
+#: The legacy partial run counted three warnings; the invariants named one of them, and the
+#: row is from before revision 0005, so the other two have no name anywhere.
 UNNAMED_WARNINGS = 2
+
+#: The warnings the amber run of the 0005 era recorded by name, as ``warnings_json`` holds
+#: them. Two, so a page that showed only the first would be visibly short.
+RECORDED_WARNINGS = (
+    ("budget_exhausted", "r/premiere: stopped after 3 pages"),
+    ("cursor_stalled", "r/editors: after did not advance past t3_abc"),
+)
 
 
 @dataclass(frozen=True)
@@ -76,7 +84,10 @@ class History:
     """What :func:`build_history` planted, named so a test asserts on a row, not a number."""
 
     ok_pk: int
+    #: Amber with two warnings its row never named: written before revision 0005.
     partial_pk: int
+    #: Amber with two warnings its row names, the shape every run has had since 0005.
+    named_warning_pk: int
     failed_pk: int
     running_pk: int
     oldest_on_first_page_pk: int
@@ -113,6 +124,7 @@ def _insert_run(
     api_requests: int = 312,
     budget_limit: int | None = 1500,
     violations_json: str | None = "[]",
+    warnings_json: str | None = None,
     error: str | None = None,
     finished: bool = True,
     outcomes: dict[int, repo.SweepProgress] | None = None,
@@ -156,7 +168,7 @@ def _insert_run(
                 api_requests=api_requests,
                 error=error,
                 violations_json=violations_json,
-                warnings_json=None,
+                warnings_json=warnings_json,
             )
     return run_pk
 
@@ -223,11 +235,21 @@ def build_history(engine: Engine) -> History:
             )
         },
     )
+    named_warning_pk = _insert_run(
+        engine,
+        status="partial",
+        counters=Counters(posts_new=1, pages=1, api_requests=11, warnings=len(RECORDED_WARNINGS)),
+        warnings_json=json.dumps(
+            [{"name": name, "detail": detail} for name, detail in RECORDED_WARNINGS]
+        ),
+        outcomes={premiere_pk: _progress(pages=1, items_seen=6, new_items=1, updated_items=0)},
+    )
     running_pk = _insert_run(engine, status="running", finished=False, budget_limit=None)
-    total = len(filler_pks) + 4
+    total = len(filler_pks) + 5
     return History(
         ok_pk=ok_pk,
         partial_pk=partial_pk,
+        named_warning_pk=named_warning_pk,
         failed_pk=failed_pk,
         running_pk=running_pk,
         # Rows come newest first, so the first page ends `total - PAGE_SIZE` rows above the

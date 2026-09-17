@@ -38,6 +38,7 @@ from threaddigest.db.repo import (
     ranked_posts,
     recent_runs,
     recent_sweeping_runs,
+    record_run_settings,
     rows_below_normalizer_version,
     run_display,
     run_for_window,
@@ -144,9 +145,15 @@ def _insert_run(engine: Any, **overrides: Any) -> int:
         settings_fingerprint=overrides.pop("settings_fingerprint", None),
         log_path=overrides.pop("log_path", None),
     )
+    settings_json = overrides.pop("settings_json", None)
     assert not overrides, f"unused overrides: {overrides}"
     with engine.begin() as conn:
-        return insert_run(conn, run)
+        run_pk = insert_run(conn, run)
+        # The production shape: the settings are a second statement inside the insert's own
+        # transaction, because `insert_run` may meet a database below head (repo docstring).
+        if settings_json is not None:
+            record_run_settings(conn, run_pk=run_pk, settings_json=settings_json)
+    return run_pk
 
 
 def test_default_workspace_pk_returns_the_seeded_workspace(engine: Any, workspace_pk: int) -> None:
@@ -548,8 +555,9 @@ def test_run_display_carries_every_column_a_page_shows(engine: Any) -> None:
         started_at=1,
         options_json='{"budget":{"limit":1500}}',
         settings_fingerprint="f" * 8,
+        settings_json='{"budget":{"per_run_requests":1500}}',
         app_version="0.1.0",
-        schema_rev="0004",
+        schema_rev="0005",
     )
     _finish(
         engine,
@@ -558,6 +566,7 @@ def test_run_display_carries_every_column_a_page_shows(engine: Any) -> None:
         counters_json='{"posts_new":7}',
         api_requests=42,
         violations_json='[{"invariant":"per_source_freshness","severity":"warning","detail":"x"}]',
+        warnings_json='[{"name":"budget_exhausted","detail":"r/premiere: stopped after 3 pages"}]',
     )
 
     with engine.connect() as conn:
@@ -569,7 +578,13 @@ def test_run_display_carries_every_column_a_page_shows(engine: Any) -> None:
     assert row.api_requests == 42
     assert row.options_json == '{"budget":{"limit":1500}}'
     assert row.violations_json is not None
-    assert (row.settings_fingerprint, row.app_version, row.schema_rev) == ("f" * 8, "0.1.0", "0004")
+    assert (row.settings_fingerprint, row.app_version, row.schema_rev) == ("f" * 8, "0.1.0", "0005")
+    # Revision 0005's two columns: the settings the run resolved, so the digest can name the
+    # keys that changed, and the warnings it recorded, so a page can name what made it amber.
+    assert row.settings_json == '{"budget":{"per_run_requests":1500}}'
+    assert row.warnings_json == (
+        '[{"name":"budget_exhausted","detail":"r/premiere: stopped after 3 pages"}]'
+    )
 
 
 def test_run_display_is_none_for_an_unknown_pk(engine: Any) -> None:

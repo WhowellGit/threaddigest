@@ -22,15 +22,17 @@ rather than as a finding. Concretely, today:
 * no tree is fetched and no reconcile has run, so the backlog is ``0 of 0`` and the
   compliance section reports what the run row and the live counts actually hold.
 
-**Two things the row cannot say, stated rather than hidden.** ``settings_changes`` is empty
-because only the settings *fingerprint* is stored, never the settings, so a changed
-fingerprint cannot be resolved into a list of keys; and a warning recorded by
-``RunContext.warn`` survives only as a count, which is why every one of them appears as its
-own unnamed problem (``services/runs_view.py`` explains both gaps and what would close them).
+**What an older run row still cannot say.** Since revision 0005 a run records the resolved
+non-secret settings and the warnings it raised, so the digest names the keys that changed
+and the warnings that made the run amber. A row written before it carries only a
+fingerprint and a count: the settings line then says which keys changed is not recorded --
+never that nothing changed -- and each counted warning appears as its own unnamed problem
+(``services/runs_view.py`` explains the gap and where it ends).
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Final
@@ -48,6 +50,7 @@ from threaddigest.core.digest import (
     Problem,
     RisingPhrasesSection,
     RunSummary,
+    SettingChange,
     SubredditLine,
     SubredditStatus,
     UnknownEnum,
@@ -70,6 +73,7 @@ __all__ = [
     "WINDOW_DAYS",
     "NoRunForDate",
     "NoRunForDateError",
+    "SETTING_ABSENT",
     "assemble_digest",
     "latest_report_date",
 ]
@@ -92,6 +96,10 @@ TOP_POSTS: Final = 10
 #: or stamped by another run's stale sweep, carries none. The model requires a non-empty
 #: string, so the digest says the fingerprint was not recorded instead of inventing one.
 UNRECORDED_FINGERPRINT: Final = "not recorded"
+
+#: Printed for the side of a settings change where the key did not exist at all, so a key
+#: added or removed between two runs reads as what it is rather than as a value of "null".
+SETTING_ABSENT: Final = "(not set)"
 
 #: "No upper bound" for :func:`repo.run_for_window`, so "the newest finished run" is the same
 #: query as "the run of one day" rather than a second spelling of the same filter. Epoch
@@ -141,15 +149,62 @@ def _local_day(report_date: date, zone_name: str) -> tuple[int, int]:
     return int(start.timestamp()), int(end.timestamp())
 
 
-def _leaves(value: object) -> int:
-    """How many settings a resolved settings mapping holds.
+def _flatten(value: object, prefix: str = "") -> dict[str, str]:
+    """A resolved settings mapping as ``dotted.key -> rendered value``.
 
     A nested section is not itself a setting and a list-valued setting (the revisit ladder)
-    is one setting, not one per element: the count is the number of leaf values.
+    is one setting, not one per element: a leaf is anything that is not a mapping. The value
+    is rendered with ``json.dumps`` rather than ``str``, so a list, a bool and a null read
+    as the configuration file writes them rather than as Python spells them.
     """
     if isinstance(value, dict):
-        return sum(_leaves(item) for item in value.values())
-    return 1
+        flat: dict[str, str] = {}
+        for key, item in value.items():
+            flat.update(_flatten(item, f"{prefix}{key}."))
+        return flat
+    return {prefix.rstrip("."): json.dumps(value, sort_keys=True)}
+
+
+def _leaves(value: object) -> int:
+    """How many settings a resolved settings mapping holds: its leaf values."""
+    return len(_flatten(value))
+
+
+def _settings_changes(
+    previous: str | None, current: str | None
+) -> tuple[list[SettingChange] | None, int]:
+    """The keys whose value differs between two runs' recorded settings, and how many
+    settings the comparison covered.
+
+    ``(None, 0)`` when either side did not record its settings -- a row written before
+    revision 0005, or one a stale sweep stamped -- because "not recorded" is not "nothing
+    changed", and an empty list beside two different fingerprints would be a lie the digest
+    told with a straight face.
+
+    The denominator is the keys the **two** rows between them recorded, not the count of
+    today's settings: a key added or removed between the runs is a change, and counting it
+    against a population it is not in would put the numerator above the denominator.
+    """
+    if previous is None or current is None:
+        return None, 0
+    try:
+        before, after = json.loads(previous), json.loads(current)
+    except json.JSONDecodeError:
+        return None, 0
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return None, 0
+    flat_before, flat_after = _flatten(before), _flatten(after)
+    keys = sorted(set(flat_before) | set(flat_after))
+    changes = [
+        SettingChange(
+            key=key,
+            previous=flat_before.get(key, SETTING_ABSENT),
+            current=flat_after.get(key, SETTING_ABSENT),
+        )
+        for key in keys
+        if flat_before.get(key, SETTING_ABSENT) != flat_after.get(key, SETTING_ABSENT)
+    ]
+    return changes, len(keys)
 
 
 def latest_report_date(engine: Engine, *, settings: Settings) -> date | None:
@@ -236,6 +291,9 @@ def _summary(
     items_seen = sum(progress.items_seen for progress in outcomes.values())
     started_at = run.started_at if run.started_at is not None else run.created_at
     previous = repo.recent_runs(conn, limit=1, before_pk=run.pk, kind=run.kind)
+    changes, changed_of = (
+        _settings_changes(previous[0].settings_json, run.settings_json) if previous else ([], 0)
+    )
     return RunSummary(
         run_id=run.pk,
         status=RunStatus(run.status),
@@ -254,10 +312,11 @@ def _summary(
         comments_new=Count(n=counters.comments_new, of=0, population="comments seen"),
         settings_fingerprint=run.settings_fingerprint or UNRECORDED_FINGERPRINT,
         previous_settings_fingerprint=previous[0].settings_fingerprint if previous else None,
-        settings_total=max(_leaves(non_secret_settings(settings)), 1),
-        # Only the fingerprint is stored, never the settings, so a changed fingerprint cannot
-        # be resolved into the keys that changed (module docstring).
-        settings_changes=[],
+        # The denominator is the settings the two rows recorded where both did, and today's
+        # count where they did not: on a first run there is nothing to compare with, and
+        # the population the reader can still be told about is the one in force now.
+        settings_total=max(changed_of or _leaves(non_secret_settings(settings)), 1),
+        settings_changes=changes,
     )
 
 
@@ -468,10 +527,11 @@ def _errors(line: runs_view.RunLine) -> list[Problem]:
 def _warnings(line: runs_view.RunLine) -> list[Problem]:
     """Every warning the run raised, named where the row kept its name.
 
-    An invariant's warning is in ``violations_json`` and names itself. A warning recorded by
-    ``RunContext.warn`` is only counted, so each one appears here as its own unnamed problem:
-    the digest's "N warnings this run" is then the number the run actually recorded, and the
-    missing names are visible instead of being a silent zero (``services/runs_view.py``).
+    Both named sources arrive through ``line.warnings``: an invariant's ``WARNING`` verdict
+    from ``violations_json`` and a ``RunContext.warn`` warning from ``warnings_json``. On a
+    row written before revision 0005 the second is a count alone, and each of those appears
+    as its own unnamed problem, so the digest's "N warnings this run" is still the number
+    the run recorded and the missing names are visible rather than a silent zero.
     """
     problems = [
         Problem(where=violation.invariant, message=violation.detail or "(no detail recorded)")

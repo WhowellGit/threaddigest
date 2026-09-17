@@ -20,6 +20,7 @@ from starlette.testclient import TestClient
 from tests.web.conftest import (
     FAILURE_DETAIL,
     FAILURE_INVARIANT,
+    RECORDED_WARNINGS,
     RUN_ERROR,
     UNNAMED_WARNINGS,
     WARNING_DETAIL,
@@ -115,14 +116,31 @@ def test_a_partial_run_names_the_warning_that_made_it_amber(
     assert any(WARNING_INVARIANT in text and WARNING_DETAIL in text for text in problems), problems
 
 
-def test_a_partial_run_reports_the_warnings_it_cannot_name_as_a_number(
+def test_a_run_from_before_0005_reports_the_warnings_it_cannot_name_as_a_number(
     client: TestClient, history: History
 ) -> None:
-    """One warning named of three counted: the gap is stated, not hidden by showing one."""
+    """One warning named of three counted: the gap is stated, not hidden by showing one.
+
+    This row predates the column that keeps a warning's name, and the page still owes its
+    reader the number the run actually counted rather than the number it can print.
+    """
     page = _tree(client, f"/runs/{history.partial_pk}")
     assert _measure(page, "Warnings named").startswith(f"1 of {UNNAMED_WARNINGS + 1} ")
     problems = " ".join(item.text() for item in page.css("ul.problems li"))
-    assert f"{UNNAMED_WARNINGS} warning(s) the run counted" in problems
+    assert f"{UNNAMED_WARNINGS} warning(s) this run counted and did not name" in problems
+
+
+def test_a_run_names_the_warnings_it_recorded_itself(client: TestClient, history: History) -> None:
+    """Revision 0005: an amber run whose warnings came from ``RunContext.warn`` names every
+    one of them, and the page's count says none is missing."""
+    page = _tree(client, f"/runs/{history.named_warning_pk}")
+    problems = " ".join(item.text() for item in page.css("ul.problems li"))
+    for name, detail in RECORDED_WARNINGS:
+        assert name in problems and detail in problems, problems
+    assert "did not name" not in problems, "nothing is unnamed on a row written since 0005"
+    assert _measure(page, "Warnings named").startswith(
+        f"{len(RECORDED_WARNINGS)} of {len(RECORDED_WARNINGS)} "
+    )
 
 
 def test_a_failed_run_shows_its_recorded_error_and_the_invariant_that_failed(

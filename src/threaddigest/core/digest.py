@@ -425,19 +425,24 @@ class RunSummary(_Frozen):
     previous_settings_fingerprint: str | None
     #: Number of resolved non-secret settings that go into the fingerprint.
     settings_total: int = Field(ge=1)
-    settings_changes: list[SettingChange]
+    #: The keys whose value differs from the previous run's, or **None** when one of the two
+    #: runs did not record its settings (a row written before revision 0005). ``[]`` and
+    #: ``None`` are different statements -- "nothing changed" against "which keys changed is
+    #: not recorded" -- exactly as for ``runs.violations_json``, and the renderings say so.
+    settings_changes: list[SettingChange] | None
 
     @model_validator(mode="after")
     def _consistent(self) -> RunSummary:
         if self.finished_at < self.started_at:
             msg = f"finished_at {self.finished_at} is before started_at {self.started_at}"
             raise ValueError(msg)
-        if len(self.settings_changes) > self.settings_total:
-            msg = f"{len(self.settings_changes)} changes exceed {self.settings_total} settings"
-            raise ValueError(msg)
-        if self.previous_settings_fingerprint is None and self.settings_changes:
-            msg = "settings_changes need a previous fingerprint to have changed from"
-            raise ValueError(msg)
+        if self.settings_changes is not None:
+            if len(self.settings_changes) > self.settings_total:
+                msg = f"{len(self.settings_changes)} changes exceed {self.settings_total} settings"
+                raise ValueError(msg)
+            if self.previous_settings_fingerprint is None and self.settings_changes:
+                msg = "settings_changes need a previous fingerprint to have changed from"
+                raise ValueError(msg)
         return self
 
     @property
@@ -450,6 +455,15 @@ class RunSummary(_Frozen):
 
     @property
     def settings_changed(self) -> Count:
+        """How many settings changed, of the settings the comparison covered.
+
+        Undefined when :attr:`settings_changes` is None: there is no numerator, and a zero
+        would read as "nothing changed". Both renderings branch before they reach this, and
+        a test renders such a model to prove it.
+        """
+        if self.settings_changes is None:
+            msg = "settings_changed is undefined when the settings were not recorded"
+            raise ValueError(msg)
         return Count(
             n=len(self.settings_changes),
             of=self.settings_total,
@@ -615,6 +629,10 @@ _MARKDOWN_TEMPLATE: Final = """\
 {{- " this run" }}
 {% if s.previous_settings_fingerprint is none %}
 - Settings: first run, nothing to compare with (fingerprint `{{ s.settings_fingerprint }}`)
+{% elif s.settings_changes is none %}
+- Settings: which keys changed is not recorded, because one of the two runs stored only a
+{{- " " }}fingerprint (`{{ s.settings_fingerprint }}` against
+{{- " " }}`{{ s.previous_settings_fingerprint }}`)
 {% else %}
 - Settings changed since last run: {{ s.settings_changed }}
 {% for change in s.settings_changes %}
@@ -763,6 +781,10 @@ body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; 
 {% if s.previous_settings_fingerprint is none %}
 <li>Settings: first run, nothing to compare with
 {{- " (fingerprint " }}<code>{{ s.settings_fingerprint }}</code>)</li>
+{% elif s.settings_changes is none %}
+<li>Settings: which keys changed is not recorded, because one of the two runs stored only a
+{{- " fingerprint (" }}<code>{{ s.settings_fingerprint }}</code> against
+{{- " " }}<code>{{ s.previous_settings_fingerprint }}</code>)</li>
 {% else %}
 <li>Settings changed since last run: {{ s.settings_changed }}
 {% if s.settings_changes %}

@@ -75,20 +75,23 @@
           {% if s.previous_settings_fingerprint is none %}
             First run of its kind: there is no earlier fingerprint to compare
             <code>{{ s.settings_fingerprint }}</code> with.
+          {% elif s.settings_changes is none %}
+            One of the two runs stored only a fingerprint
+            (<code>{{ s.previous_settings_fingerprint }}</code> →
+            <code>{{ s.settings_fingerprint }}</code>).
+            {{ note("A run from before the settings themselves were recorded: which keys changed is not recorded, which is not the same as nothing having changed.") }}
           {% else %}
             Changed since the previous run: {{ counted(s.settings_changed) }}
             (<code>{{ s.previous_settings_fingerprint }}</code> →
             <code>{{ s.settings_fingerprint }}</code>).
-          {% endif %}
-          {% if not s.settings_changes %}
-            {{ note("The run row keeps only the fingerprint, never the settings, so a change cannot be resolved into the keys that changed.") }}
-          {% else %}
-          <ul class="problems">
-            {% for change in s.settings_changes %}
-            <li><code>{{ change.key }}</code>: <code>{{ change.previous }}</code> →
-              <code>{{ change.current }}</code></li>
-            {% endfor %}
-          </ul>
+            {% if s.settings_changes %}
+            <ul class="problems">
+              {% for change in s.settings_changes %}
+              <li><code>{{ change.key }}</code>: <code>{{ change.previous }}</code> →
+                <code>{{ change.current }}</code></li>
+              {% endfor %}
+            </ul>
+            {% endif %}
           {% endif %}
         </td>
       </tr>

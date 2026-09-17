@@ -122,9 +122,10 @@ def _source_view(source: runs_view.SourceLine) -> SourceView:
 def _problems(line: runs_view.RunLine) -> tuple[Problem, ...]:
     """Everything the row can say, in words, about why a run is not green.
 
-    Three sources, in the order a reader wants them: the invariant verdicts the run recorded,
-    the warnings it counted but could not name (``services/runs_view.py`` explains why the
-    name does not survive), and the error text that closed the run.
+    Three sources, in the order a reader wants them: the verdicts and warnings the run
+    recorded by name (the invariants' from ``violations_json``, its own from
+    ``warnings_json`` since revision 0005), the warnings an older row counted without
+    naming, and the error text that closed the run.
     """
     named = tuple(
         Problem(where=problem.invariant or _UNNAMED_INVARIANT, message=problem.detail or _NO_DETAIL)
@@ -136,8 +137,8 @@ def _problems(line: runs_view.RunLine) -> tuple[Problem, ...]:
             Problem(
                 where="run warnings",
                 message=(
-                    f"{unnamed} warning(s) the run counted; no column keeps a warning's name "
-                    "or detail, so they are reported as a number rather than as a silent zero"
+                    f"{unnamed} warning(s) this run counted and did not name: it ran before "
+                    "revision 0005, which added the column that keeps a warning's name"
                 ),
             ),
         )
@@ -164,6 +165,8 @@ def _view(line: runs_view.RunLine) -> RunView:
         ),
         # Named of counted: "1 of 3 warnings this run" says both what is on the page and how
         # much the page cannot show, instead of showing one and implying it is all of them.
+        # Since revision 0005 the two are equal for every new run, and a run that shows
+        # fewer named than counted is one written before it.
         warnings=Count(
             n=named_warnings,
             of=named_warnings + line.unrecorded_warnings,
