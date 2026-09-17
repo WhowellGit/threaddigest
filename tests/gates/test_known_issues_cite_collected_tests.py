@@ -242,6 +242,13 @@ def test_positive_control_a_second_control_from_the_same_file_resolves(tmp_path:
 #: before the first pipe (``<!-- | KI-0XX | ... | -->`` on one line is still that row). The review
 #: seat of 2026-09-16 planted the decorated and the prefixed forms and found them unseen.
 KI_SHAPED = re.compile(r"^\s*(?:<!--[^|]*)?(?:>\s*)*\|\s*[*`]*(KI-(?:\d+|0[Xx]{2}))[*`]*\s*\|")
+#: The same first cell found anywhere on a line rather than only at its start. Everything above
+#: is keyed on the line, so a row written onto the end of another row's line is a row no check
+#: has an opinion about: Markdown renders it as extra columns of the first, ``cells_under``
+#: returns the first row's cell for that line number, and ``KI_SHAPED`` stops at the first id.
+#: The landing seat of 2026-09-16 found KI-029 living that way on the end of KI-028's line, seen
+#: by neither the parser nor the widened check above.
+KI_ANYWHERE = re.compile(r"\|\s*[*`]*(KI-(?:\d+|0[Xx]{2}))[*`]*\s*\|")
 EXAMPLE_ID = "KI-0XX"
 
 
@@ -300,15 +307,36 @@ def parsed_rows_the_shape_missed(text: str, column: str) -> list[str]:
     ]
 
 
+def rows_sharing_a_line(text: str) -> list[str]:
+    """Every id written onto a line that already carries a row, which is a row in nobody's sight.
+
+    The two checks above are keyed on the line number, so they can only ever have an opinion
+    about the first row on a line. A second one is rendered as extra columns of the first, and
+    the parser hands the first row's regression-test cell to the citation check, so the second
+    row's citation is resolved by nothing and its absence is reported by nothing.
+    """
+    found: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        found += [
+            f"{number}: {match.group(1)} is written onto another row's line, where it is neither "
+            "a row the parser returns nor a cell any check reads"
+            for match in list(KI_ANYWHERE.finditer(line))[1:]
+        ]
+    return found
+
+
 def test_every_known_issues_row_is_in_the_parsed_table() -> None:
     """The checks above see only what the parser returns; a row it never reached is a row the
     rule is not enforced for. The second assertion is the floor: the shape sees every parsed row,
-    so the first assertion cannot pass by seeing nothing."""
+    so the first assertion cannot pass by seeing nothing. The third closes the gap both leave,
+    a row sharing a physical line with the row in front of it (the landing seat, 2026-09-16)."""
     text = (ROOT / KNOWN_ISSUES).read_text(encoding="utf-8")
     missed = rows_the_parser_missed(text, ISSUES_COLUMN)
     assert not missed, "KNOWN_ISSUES.md rows the gate cannot see:\n" + "\n".join(missed)
     unshaped = parsed_rows_the_shape_missed(text, ISSUES_COLUMN)
     assert not unshaped, "KNOWN_ISSUES.md rows the row shape misses:\n" + "\n".join(unshaped)
+    doubled = rows_sharing_a_line(text)
+    assert not doubled, "KNOWN_ISSUES.md rows sharing a line:\n" + "\n".join(doubled)
 
 
 @pytest.mark.gate("G40")
@@ -348,6 +376,38 @@ def test_positive_control_a_row_the_parser_cannot_see_is_red() -> None:
         f"9: KI-107 is outside every table that declares '{ISSUES_COLUMN}'",
     ]
     assert commented_lines("a\n<!-- b\nc -->\nd\n<!-- e -->\n") == {2, 3, 5}
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_a_second_row_on_one_line_is_red() -> None:
+    """The shape that found KI-029 on the end of KI-028's line, driven both ways: the doubled
+    line is named wherever it sits, and the ordinary one-row-per-line file is silent.
+
+    The two rows are the real ones this repository carried on 2026-09-16, cut down to the two
+    cells the checks read, so the control is red against the shape of the defect rather than
+    against a shape invented for it.
+    """
+    header = f"| ID | {ISSUES_COLUMN} |\n|---|---|\n"
+    first = "| KI-028 | tests/gates/test_doc_policy.py::t | fixed |"
+    second = "| KI-029 | tests/services/test_probe.py::t | fixed |"
+    assert rows_sharing_a_line(header + first + "\n" + second + "\n") == []
+    assert rows_sharing_a_line(header + first + second + "\n") == [
+        "3: KI-029 is written onto another row's line, where it is neither a row the parser "
+        "returns nor a cell any check reads"
+    ]
+    # Inside the table it is invisible to both checks above, which is why this one exists.
+    doubled = header + first + second + "\n"
+    assert rows_the_parser_missed(doubled, ISSUES_COLUMN) == []
+    assert parsed_rows_the_shape_missed(doubled, ISSUES_COLUMN) == []
+    # And outside it, where the parser misses the line, only the first row is ever named.
+    cut_off = header + "\n" + first + second + "\n"
+    assert rows_the_parser_missed(cut_off, ISSUES_COLUMN) == [
+        f"4: KI-028 is outside every table that declares '{ISSUES_COLUMN}'"
+    ]
+    assert rows_sharing_a_line(cut_off) == [
+        "4: KI-029 is written onto another row's line, where it is neither a row the parser "
+        "returns nor a cell any check reads"
+    ]
 
 
 @pytest.mark.gate("G40")
