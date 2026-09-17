@@ -20,7 +20,7 @@ from __future__ import annotations
 import ast
 import re
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 import pytest
@@ -388,20 +388,66 @@ def exists_in_git(root: Path, sha: str) -> bool:
     return proc.returncode == 0
 
 
+def rows_a_citation_follows(root: Path, remap: Mapping[str, str]) -> set[tuple[str, str]]:
+    """Every ``(old, new)`` map row some document's citation walks through, chains included."""
+    reachable: set[tuple[str, str]] = set()
+    seen: set[str] = set()
+    frontier = [sha for _, _, sha in cited_hashes(root)]
+    while frontier:
+        current = frontier.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for old, new in remap.items():
+            if old.startswith(current):
+                reachable.add((old, new))
+                frontier.append(new)
+    return reachable
+
+
 @pytest.mark.gate("G40")
-def test_every_recorded_rewrite_lands_on_a_commit_that_exists() -> None:
-    """A map is only as good as its right-hand column: every commit a rewrite claims to have
-    produced must be a commit this repository has.
+def test_every_rewrite_a_citation_follows_lands_on_a_commit_that_exists() -> None:
+    """A map is only as good as its right-hand column where a citation walks down it: every
+    commit a rewrite claims to have produced, and that some document's citation is followed
+    into, must be a commit this repository has.
 
     Existence, not ancestry. A rewrite moves every branch, so a map row may name a commit that
     lives only on a side branch and is not reachable from ``HEAD`` -- a branch under review the
     day the history was rewritten. Ancestry stays where it belongs, on the citation: a document
     that cites a commit still needs that commit to be an ancestor of ``HEAD``, whether it cites
     it directly or through this map.
+
+    Reach, and why it stops where it does (2026-09-16, KI-032). Demanding existence for *every*
+    row asked a question about the machine that ran the rewrite rather than about the
+    repository: an unmerged local branch is in nobody else's clone, so the row for a commit on
+    one is red in CI and on every fresh checkout for as long as the branch is unpushed, while
+    the map itself is a reference record and may not be edited to drop the row. A row no
+    document cites cannot make a citation fail, and the day one does, the citation is followed
+    into the row and both this test and ``test_every_cited_commit_hash_resolves`` go red. What
+    the map may never do -- make a dead citation look alive -- is still checked here and there.
     """
     remap = load_remap(ROOT)
-    dead = [f"{old[:7]} -> {new[:7]}" for old, new in remap.items() if not exists_in_git(ROOT, new)]
-    assert not dead, "recorded rewrites whose commit is not in this repository:\n" + "\n".join(dead)
+    dead = sorted(
+        f"{old[:7]} -> {new[:7]}"
+        for old, new in rows_a_citation_follows(ROOT, remap)
+        if not exists_in_git(ROOT, new)
+    )
+    assert not dead, "cited rewrites whose commit is not in this repository:\n" + "\n".join(dead)
+
+
+@pytest.mark.gate("G40")
+def test_positive_control_only_the_rows_a_citation_follows_are_demanded(tmp_path: Path) -> None:
+    """Both halves of that reach, driven against a throwaway document tree: the rows a citation
+    walks through -- the whole chain, not just the first hop -- are the rows the gate demands,
+    and a row nothing cites is left alone."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("`0badc0d` is a citation\n", encoding="utf-8")
+    cited, middle, end = ("0badc0d" + "0" * 33, "b0bbed0" + "0" * 33, "decade0" + "0" * 33)
+    uncited, elsewhere = ("a11ce55" + "0" * 33, "d0omed0" + "0" * 33)
+    remap = {cited: middle, middle: end, uncited: elsewhere}
+    assert rows_a_citation_follows(tmp_path, remap) == {(cited, middle), (middle, end)}
+    assert rows_a_citation_follows(tmp_path, {uncited: elsewhere}) == set()
+    assert not exists_in_git(ROOT, elsewhere), "the uncited row points nowhere and is tolerated"
 
 
 @pytest.mark.gate("G40")
