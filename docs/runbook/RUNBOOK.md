@@ -59,7 +59,7 @@ Every schema change is an Alembic migration (`render_as_batch=True`, naming conv
 3. New NOT NULL columns are expand/contract: add nullable → backfill from `raw_json` → switch reads → drop later. Never rename in place. A new invariant is scoped by `normalizer_version` or a backfill flag so it cannot turn day one red.
 4. `make schema` regenerates `src/threaddigest/db/schema.sql` (DDL plus the generated column-comment section); review its diff in the PR. Models must match DDL (`include_object` excludes `%_fts`, `%_fts_%`, `%_live`).
 5. Apply on a machine: `threaddigest db upgrade` (or `/system` → **Apply pending migration**): online `Connection.backup()` to `data/backups/pre-migrate-<from>-<to>-<utc>.db` + `quick_check` **before** Alembic runs; after: `integrity_check`, `foreign_key_check`, `alembic_version == head`, `backups` row `kind='pre-migrate'`. On failure the copy is restored byte-identical and the command exits non-zero. Keep the last few pre-migration copies (D-31; and, until the retention pruning lands at M1d, no backup older than `retention.backups_days`, `DECISIONS.md` § 2).
-6. `serve` runs in **maintenance-only mode** (system, backups, health, setup pages) while migrations are pending; `run` refuses (exit 78).
+6. While a migration is pending, `serve` and `run` both refuse (exit 78) with the same message: apply it, then start the server. There is no maintenance-only mode to serve the pending migration from — the pages it would exist to reach arrive at M2 (`docs/PLAN.md` § Web UI, Process model).
 7. Semantic change to an existing column = separate PR with a `normalizer_version` bump, updated reprocess golden rows; a refactor keeps the reprocess golden byte-identical.
 
 ## 5. Restore drill
