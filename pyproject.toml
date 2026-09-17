@@ -20,6 +20,12 @@ dependencies = [
   "markdown-it-py>=3.0",
   "nh3>=0.2.18",
   "pyyaml>=6.0",
+  # The IANA zone database as a package, not an assumption about the host. `display_timezone`
+  # is resolved with `zoneinfo`, which reads the system database and has none to read in a
+  # slim container (the first CI run: `America/Los_Angeles` was unknown on Ubuntu 24.04 with
+  # no tzdata package). A runtime dependency, not a dev one: the digest renders on whatever
+  # machine runs the schedule.
+  "tzdata>=2025.2",
   "fastapi>=0.115",
   "uvicorn>=0.32",
   "jinja2>=3.1",
