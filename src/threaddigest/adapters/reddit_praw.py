@@ -37,16 +37,20 @@ is ``docs/runbook/RUNBOOK.md`` § 9.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import Any, Final
 
 import praw
 import prawcore
 import requests
 
+from threaddigest.adapters.clock import SystemClock
 from threaddigest.ports import (
     AuthFailed,
+    Clock,
     GatewayError,
     HtmlBlocked,
     Limits,
@@ -134,14 +138,28 @@ def build_reddit(config: PrawConfig, *, session: requests.Session) -> praw.Reddi
 # ------------------------------------------------------------------- exception translation
 
 
-def _seconds(raw: str | None) -> float | None:
-    """``Retry-After`` as a number. prawcore hands it over as the raw header string or None."""
+def _seconds(raw: str | None, *, now: float) -> float | None:
+    """``Retry-After`` as a wait in seconds. prawcore hands over the raw header string or None.
+
+    RFC 9110 allows two forms and Reddit may send either: a number of seconds, or an HTTP date
+    naming the instant the ban lifts. The date is turned into a wait against ``now``, the
+    adapter's own clock. None means "no usable value", which is what the caller's ladder falls
+    back on (``core.retry.plan_rate_limit_wait``'s sixty-second default): an unreadable header,
+    or a date already in the past, is a header this adapter will not guess at -- but never a
+    reason to call a 429 anything other than rate limited (KI-041).
+    """
     if raw is None:
         return None
     try:
         return float(raw)
     except (TypeError, ValueError):
+        pass
+    try:
+        deadline = parsedate_to_datetime(raw).timestamp()
+    except (TypeError, ValueError):
         return None
+    wait = deadline - now
+    return wait if wait > 0 else None
 
 
 def _names_a_quarantine(response: requests.Response) -> bool:
@@ -164,8 +182,10 @@ def _names_a_quarantine(response: requests.Response) -> bool:
     return any(key in body for key in QUARANTINE_KEYS)
 
 
-def _from_too_many_requests(exc: prawcore.exceptions.TooManyRequests) -> GatewayError:
-    return RateLimited(retry_after=_seconds(exc.retry_after))
+def _from_too_many_requests(
+    exc: prawcore.exceptions.TooManyRequests, *, now: float
+) -> GatewayError:
+    return RateLimited(retry_after=_seconds(exc.retry_after, now=now))
 
 
 def _from_forbidden(exc: prawcore.exceptions.Forbidden) -> GatewayError:
@@ -206,6 +226,34 @@ _OAUTH_TABLE_FRAME: Final = ("authorization_error_class", "prawcore/util.py")
 #: one alone, then reads ``x-ratelimit-used`` and ``x-ratelimit-reset`` by subscript, so a
 #: half-present set raises a ``KeyError`` naming the missing header on an ordinary 200.
 RATE_LIMIT_HEADER_PREFIX: Final = "x-ratelimit"
+
+
+#: The library frame the ``ValueError`` handler in :meth:`PrawGateway._get` was written for.
+#: ``prawcore/exceptions.py::TooManyRequests.__init__`` formats ``Retry-After`` with ``float()``
+#: while composing its own message, and it does so *after* binding the response and the header
+#: to ``self``. So the HTTP-date form RFC 9110 also allows kills the exception in its own
+#: constructor -- ``translate`` never sees a ``TooManyRequests`` at all -- while the half-built
+#: instance is still reachable through the raising frame (KI-041).
+_TOO_MANY_REQUESTS_FRAME: Final = ("__init__", "prawcore/exceptions.py")
+
+
+def _half_built_rate_limit(exc: ValueError) -> prawcore.exceptions.TooManyRequests | None:
+    """The ``TooManyRequests`` prawcore was building when this ``ValueError`` escaped, or None.
+
+    Identified by the frame it was raised in and by what that frame was building, the way
+    :func:`_raised_in_the_oauth_table` identifies its own: a ``ValueError`` from anywhere else
+    is still an answer the adapter could not read, and stays a ``GatewayError``.
+    """
+    name, tail = _TOO_MANY_REQUESTS_FRAME
+    trace = exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        if code.co_name == name and code.co_filename.replace("\\", "/").endswith(tail):
+            building = trace.tb_frame.f_locals.get("self")
+            if isinstance(building, prawcore.exceptions.TooManyRequests):
+                return building
+        trace = trace.tb_next
+    return None
 
 
 def _raised_in_the_oauth_table(exc: KeyError) -> bool:
@@ -259,9 +307,11 @@ def _programming_error(exc: Exception) -> GatewayError:
 
 
 #: Walked in order, so a subclass row must precede its base. Splitting the table from the
-#: dispatch is what keeps ``translate`` itself under the complexity ceilings.
+#: dispatch is what keeps ``translate`` itself under the complexity ceilings. ``TooManyRequests``
+#: is deliberately not a row: it is the one translation that needs the clock (an HTTP-date
+#: ``Retry-After`` is an instant, and the port promises a wait), so ``translate`` takes it first,
+#: ahead of its base class ``ResponseException`` exactly as a row here would have.
 _TRANSLATIONS: Final[tuple[tuple[type[BaseException], Callable[[Any], GatewayError]], ...]] = (
-    (prawcore.exceptions.TooManyRequests, _from_too_many_requests),
     (prawcore.exceptions.Forbidden, _from_forbidden),
     (prawcore.exceptions.InvalidToken, _auth_failed),
     (prawcore.exceptions.OAuthException, _auth_failed),
@@ -278,14 +328,20 @@ _TRANSLATIONS: Final[tuple[tuple[type[BaseException], Callable[[Any], GatewayErr
 )
 
 
-def translate(exc: Exception) -> GatewayError:
+def translate(exc: Exception, *, now: float | None = None) -> GatewayError:
     """Map one PRAW or prawcore exception onto the port's vocabulary.
 
     The table above is the contract; this function is only its dispatch. An exception that
     matches no row still becomes a ``GatewayError`` rather than escaping, because a service
     that catches the port's base class must not be bypassed by a library exception nobody
     anticipated.
+
+    ``now`` is the epoch second an absolute ``Retry-After`` is measured from; the gateway
+    passes its injected clock. It defaults to the wall clock so a caller translating an
+    exception by hand needs no clock of its own.
     """
+    if isinstance(exc, prawcore.exceptions.TooManyRequests):
+        return _from_too_many_requests(exc, now=time.time() if now is None else now)
     for kind, build in _TRANSLATIONS:
         if isinstance(exc, kind):
             return build(exc)
@@ -408,23 +464,29 @@ class PrawGateway:
         *,
         reddit: praw.Reddit | None = None,
         session: CountingSession | None = None,
+        clock: Clock | None = None,
     ) -> None:
         """Build the gateway, or refuse.
 
         ``reddit`` and ``session`` are one seam, not two: an injected client must arrive with
         the counting session it speaks through, or ``requests_made`` would report zero for
         every round-trip it makes and the budget would never close.
+
+        ``clock`` is read for one thing only: a ``Retry-After`` that arrives as an HTTP date
+        names an instant, and the port promises a wait, so the difference is taken against an
+        injected clock rather than the wall clock a test cannot fix.
         """
         if reddit is not None and session is None:
             msg = "an injected praw.Reddit must arrive with the CountingSession it speaks through"
             raise GatewayError(msg)
         self._session = session if session is not None else CountingSession()
+        self._clock = clock if clock is not None else SystemClock()
         try:
             self._reddit = (
                 reddit if reddit is not None else build_reddit(config, session=self._session)
             )
         except (prawcore.exceptions.PrawcoreException, praw.exceptions.PRAWException) as exc:
-            raise translate(exc) from exc
+            raise translate(exc, now=self._clock.now()) from exc
         if not self._reddit.read_only:
             msg = "this gateway is read-only; build it from a client id and secret alone"
             raise GatewayError(msg)
@@ -440,7 +502,7 @@ class PrawGateway:
         try:
             return self._reddit.request(method="GET", path=path, params=params)
         except (prawcore.exceptions.PrawcoreException, praw.exceptions.PRAWException) as exc:
-            raise translate(exc) from exc
+            raise translate(exc, now=self._clock.now()) from exc
         except KeyError as exc:
             # A bare KeyError arrives here from more than one place in the library, and they
             # are different failures: the OAuth error table on a 401 prawcore cannot name, and
@@ -450,8 +512,14 @@ class PrawGateway:
         except ValueError as exc:
             # The other way prawcore fails while building its own exception: it formats
             # ``Retry-After`` with ``float()``, so a 429 carrying the HTTP-date form the
-            # standard also allows dies inside ``TooManyRequests``. Reddit refused us and the
-            # library could not say how; the run records that, rather than a raw traceback.
+            # standard also allows dies inside ``TooManyRequests`` before it is ever raised.
+            # Reddit refused us, and that is the fact the run has to act on: the half-built
+            # exception is recovered from the raising frame and translated like any other 429
+            # (KI-041). Anything else is an answer the library could not describe, and is
+            # recorded as that rather than as a raw traceback.
+            building = _half_built_rate_limit(exc)
+            if building is not None:
+                raise _from_too_many_requests(building, now=self._clock.now()) from exc
             msg = f"the library could not describe Reddit's answer: {exc}"
             raise GatewayError(msg) from exc
 

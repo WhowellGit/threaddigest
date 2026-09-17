@@ -538,6 +538,34 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   refactor brief template exists that can carry the two conditions mechanically, or an Opus
   verifier finds nothing to correct in three Sonnet structural refactors in a row.
 
+## 2026-09-17 (the date-form 429) — the tranche B call is reversed: a 429 is always a back-off
+
+- **A `Retry-After` in the HTTP-date form is a rate limit with a wait, not an answer the adapter
+  could not read (KI-041; reverses the tranche B position recorded on 2026-09-16 (last)).** The
+  offline half of the adapter knew that prawcore formats `Retry-After` with `float()` while
+  building `TooManyRequests`, so the date form RFC 9110 also allows kills the exception inside the
+  library's own constructor, and it accepted the resulting `GatewayError` on the grounds that
+  Reddit sends seconds in practice and that a crash out of a third-party constructor is not an
+  outcome a run can record. **What the reversal rests on:** the 2026-09-17 code panel's seat C
+  drove the shape through the real adapter and measured what that `GatewayError` costs. It
+  classifies `fatal`, so the source is stamped `error` with a failure counted against it and the
+  collector moves to the next source and *keeps requesting while Reddit is rate-limiting us* —
+  the one behaviour the failure matrix's 429 row exists to prevent, arrived at through an
+  exception name rather than through a decision. "Reddit sends seconds in practice" was never
+  evidence: nothing in this project has seen Reddit's 429 at all, and a header form the standard
+  allows is a form an edge or a future Reddit may send. **The choice:** the half-built exception
+  is recovered from the raising frame — the same technique KI-030 uses to identify prawcore's
+  OAuth table, and defensible for the same reason, that the frame is what the rule is about — and
+  the date is read against the gateway's injected clock, so the run waits exactly as long as
+  Reddit asked. A date already past, or a header in neither form, yields `RateLimited` with no
+  wait of its own, which is what `core.retry.plan_rate_limit_wait`'s own default is for; a
+  `ValueError` from anywhere else in the library is still the `GatewayError` it was. **The general
+  lesson, worth more than the fix:** an accepted failure path was accepted on the *name* of the
+  exception the caller would see, with no one asking what the collector then does with it; a
+  failure path is settled only once the run's behaviour under it is stated. **Revisit when:** the
+  probe day (P-15) captures a real 429 and shows which form Reddit sends — which changes nothing
+  here, since both are handled, but would let the plan's failure matrix say so from evidence.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

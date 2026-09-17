@@ -22,6 +22,8 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
+from email.utils import format_datetime
 from typing import Any
 
 import praw
@@ -30,6 +32,7 @@ import pytest
 import requests
 import responses
 
+from threaddigest.adapters.clock import FakeClock
 from threaddigest.adapters.reddit_praw import (
     MORE_CHUNK,
     CountingSession,
@@ -37,6 +40,7 @@ from threaddigest.adapters.reddit_praw import (
     PrawGateway,
     translate,
 )
+from threaddigest.core.retry import Outcome, classify
 from threaddigest.ports import (
     AuthFailed,
     GatewayError,
@@ -78,6 +82,14 @@ MORE_URL = f"{OAUTH}/api/morechildren/"
 
 INVALID_TOKEN_HEADER = {"www-authenticate": 'Bearer realm="reddit", error="invalid_token"'}
 
+#: The adapter's clock in every test here, so an absolute ``Retry-After`` has a fixed answer.
+CLOCK_START = 1_761_000_000
+
+
+def _http_date(epoch: float) -> str:
+    """``epoch`` as the HTTP-date form of ``Retry-After`` (RFC 9110 allows either form)."""
+    return format_datetime(datetime.fromtimestamp(epoch, UTC), usegmt=True)
+
 
 # --------------------------------------------------------------------------- fixtures
 
@@ -90,9 +102,36 @@ def http() -> Iterator[responses.RequestsMock]:
 
 
 @pytest.fixture
-def gateway() -> PrawGateway:
+def clock() -> FakeClock:
+    """The adapter's clock, fixed: an HTTP-date ``Retry-After`` is read against it."""
+    return FakeClock(CLOCK_START)
+
+
+@pytest.fixture
+def gateway(clock: FakeClock) -> PrawGateway:
     """A gateway that has issued nothing yet: constructing one costs no round-trip."""
-    return PrawGateway(CONFIG)
+    return PrawGateway(CONFIG, clock=clock)
+
+
+class _ValueErrorReddit:
+    """A client whose ``request`` raises a ``ValueError`` from nowhere near prawcore's 429.
+
+    Injected rather than patched: the point of the case is a ``ValueError`` that carries no
+    half-built ``TooManyRequests`` in its traceback, and the cheapest honest way to raise one
+    is a client that raises it.
+    """
+
+    read_only = True
+
+    def request(self, **_kwargs: Any) -> Any:
+        msg = "could not convert string to float: 'nonsense'"
+        raise ValueError(msg)
+
+
+@pytest.fixture
+def gateway_over(clock: FakeClock) -> PrawGateway:
+    """A gateway over :class:`_ValueErrorReddit`; it opens no socket and costs no round-trip."""
+    return PrawGateway(CONFIG, reddit=_ValueErrorReddit(), session=CountingSession(), clock=clock)
 
 
 @pytest.fixture
@@ -387,49 +426,120 @@ def test_a_429_without_the_header_has_no_retry_after(
     _round_trips(http, gateway, 2)
 
 
-def test_a_429_whose_retry_after_is_an_http_date_does_not_escape_as_a_library_crash(
+def test_a_429_whose_retry_after_is_an_http_date_is_rate_limited_with_the_wait_it_names(
     http: responses.RequestsMock, gateway: PrawGateway
 ) -> None:
-    """``Retry-After`` is legally either seconds or an HTTP date, and prawcore assumes seconds.
+    """``Retry-After`` is legally either seconds or an HTTP date (RFC 9110); Reddit may send both.
 
-    Found here, not in production: the library formats the header with ``float()`` while
-    building its own ``TooManyRequests``, so the date form raises ``ValueError`` from inside
-    the constructor and never becomes a prawcore exception at all. Reddit sends seconds in
-    practice, but a crash out of a third-party constructor is not an outcome the run can
-    record, so the adapter turns it into the port's own error.
+    The date form never reaches the translation table: prawcore formats the header with
+    ``float()`` while *building* its own ``TooManyRequests``, so the exception dies in its own
+    constructor and a ``ValueError`` comes out of ``Reddit.request`` instead. Until 2026-09-17
+    the adapter reported that as a bare ``GatewayError``, which ``core.retry.classify`` calls
+    ``fatal``: the source was stamped errored and the run carried on requesting while Reddit
+    was rate-limiting it (panel finding C-1, KI-041). The adapter now recovers the half-built
+    exception from the raising frame and reads the date against its own clock, so the run
+    backs off for exactly the wait Reddit named.
     """
     _token(http)
     http.get(
         ABOUT_URL,
         status=429,
         json={"message": "Too Many Requests"},
-        headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"},
+        headers={"Retry-After": _http_date(CLOCK_START + 120)},
     )
 
-    with pytest.raises(GatewayError, match="could not describe"):
+    with pytest.raises(RateLimited) as caught:
         gateway.about("premiere")
 
+    assert caught.value.retry_after == 120.0
+    assert classify(caught.value) is Outcome.RATE_LIMITED
     _round_trips(http, gateway, 2)
 
 
-def test_a_retry_after_that_is_not_a_number_becomes_none(gateway: PrawGateway) -> None:
-    """The adapter's own half of the same question, asserted on the translation directly.
+def test_a_retry_after_date_that_has_already_passed_waits_the_ladders_default(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """A stale or skewed date is still a 429: rate limited, with no wait of its own.
 
-    prawcore hands ``retry_after`` over as the raw header string, so the conversion belongs to
-    the adapter; a value it cannot read must become ``None``, never an exception, because the
-    caller's fallback is its own wait ladder.
+    ``retry_after is None`` is what the port spells "no usable value"; the caller's
+    ``core.retry.plan_rate_limit_wait`` then falls back to its own sixty-second default. The
+    one outcome this must never be is fatal.
+    """
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=429,
+        json={"message": "Too Many Requests"},
+        headers={"Retry-After": _http_date(CLOCK_START - 60)},
+    )
+
+    with pytest.raises(RateLimited) as caught:
+        gateway.about("premiere")
+
+    assert caught.value.retry_after is None
+    assert classify(caught.value) is Outcome.RATE_LIMITED
+    _round_trips(http, gateway, 2)
+
+
+def test_a_retry_after_that_is_neither_seconds_nor_a_date_is_still_a_rate_limit(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """The third shape: a header the adapter cannot read at all. Reddit still refused us."""
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        status=429,
+        json={"message": "Too Many Requests"},
+        headers={"Retry-After": "soon"},
+    )
+
+    with pytest.raises(RateLimited) as caught:
+        gateway.about("premiere")
+
+    assert caught.value.retry_after is None
+    _round_trips(http, gateway, 2)
+
+
+def test_a_value_error_that_is_not_the_rate_limit_constructor_is_still_a_gateway_error(
+    gateway_over: PrawGateway,
+) -> None:
+    """The arm C-1 narrowed, kept honest: only the 429 frame becomes ``RateLimited``.
+
+    Anything else the library raises as a ``ValueError`` is still an answer the run could not
+    read, and it reaches the CLI as a ``GatewayError`` rather than as a traceback.
+    """
+    with pytest.raises(GatewayError, match="could not describe"):
+        gateway_over.about("premiere")
+
+
+def test_a_retry_after_is_read_the_same_way_whichever_form_it_arrives_in(
+    clock: FakeClock,
+) -> None:
+    """The adapter's own half of the question, asserted on the translation directly.
+
+    prawcore hands ``retry_after`` over as the raw header string, so reading it belongs to the
+    adapter: seconds as a number, an HTTP date as the wait from the adapter's clock to that
+    instant, and anything else as ``None`` -- never an exception, because the caller's fallback
+    is its own wait ladder.
     """
     response = requests.Response()
     response.status_code = 429
     response.headers["Retry-After"] = "600"
     response._content = b""
     exc = prawcore.exceptions.TooManyRequests(response)
-    exc.retry_after = "Wed, 21 Oct 2026 07:28:00 GMT"
 
-    translated = translate(exc)
+    assert _retry_after_of(translate(exc, now=clock.now())) == 600.0
 
+    exc.retry_after = _http_date(CLOCK_START + 45)
+    assert _retry_after_of(translate(exc, now=clock.now())) == 45.0
+
+    exc.retry_after = "half past four"
+    assert _retry_after_of(translate(exc, now=clock.now())) is None
+
+
+def _retry_after_of(translated: GatewayError) -> float | None:
     assert isinstance(translated, RateLimited)
-    assert translated.retry_after is None
+    return translated.retry_after
 
 
 def test_a_451_is_that_source_forbidden_and_not_a_fatal_run_error(
