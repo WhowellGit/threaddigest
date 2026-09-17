@@ -528,19 +528,50 @@ def test_seed_subreddits_is_idempotent_and_lower_cases_names(
     assert {"premiere", "videoediting", "adobe"} <= names
 
 
-def test_touch_run_writes_the_heartbeat_and_the_stage(engine: Any, now: int) -> None:
+def test_touch_run_writes_the_heartbeat_the_stage_and_the_warnings(engine: Any, now: int) -> None:
     run_pk = _insert_run_row(engine, now)
     with engine.begin() as conn:
-        touch_run(conn, run_pk=run_pk, heartbeat_at=now + 5, stage="sweep:premiere")
+        touch_run(
+            conn,
+            run_pk=run_pk,
+            heartbeat_at=now + 5,
+            stage="sweep:premiere",
+            warnings_json='[{"name":"cursor_stalled","detail":"r/premiere"}]',
+        )
 
     runs = Base.metadata.tables["runs"]
     with engine.connect() as conn:
         row = conn.execute(select(runs).where(runs.c.pk == run_pk)).mappings().one()
     assert row["heartbeat_at"] == now + 5
     assert row["stage"] == "sweep:premiere"
+    assert row["warnings_json"] == '[{"name":"cursor_stalled","detail":"r/premiere"}]'
 
 
-def test_finish_run_closes_the_row_with_counters_and_violations(engine: Any, now: int) -> None:
+def test_touch_run_with_no_warnings_leaves_the_ones_already_recorded(engine: Any, now: int) -> None:
+    """A beat that has nothing to flush must not erase what an earlier beat wrote: the
+    heartbeat is the only in-flight write, so overwriting here would lose the whole list."""
+    run_pk = _insert_run_row(engine, now)
+    with engine.begin() as conn:
+        touch_run(
+            conn,
+            run_pk=run_pk,
+            heartbeat_at=now + 5,
+            stage=None,
+            warnings_json='[{"name":"cursor_stalled","detail":"r/premiere"}]',
+        )
+    with engine.begin() as conn:
+        touch_run(conn, run_pk=run_pk, heartbeat_at=now + 10, stage=None, warnings_json=None)
+
+    runs = Base.metadata.tables["runs"]
+    with engine.connect() as conn:
+        row = conn.execute(select(runs).where(runs.c.pk == run_pk)).mappings().one()
+    assert row["heartbeat_at"] == now + 10
+    assert row["warnings_json"] == '[{"name":"cursor_stalled","detail":"r/premiere"}]'
+
+
+def test_finish_run_closes_the_row_with_counters_violations_and_warnings(
+    engine: Any, now: int
+) -> None:
     run_pk = _insert_run_row(engine, now)
     with engine.begin() as conn:
         finish_run(
@@ -552,6 +583,7 @@ def test_finish_run_closes_the_row_with_counters_and_violations(engine: Any, now
             api_requests=7,
             error=None,
             violations_json='[{"invariant":"per_source_freshness"}]',
+            warnings_json='[{"name":"budget_exhausted","detail":"r/premiere: 3 pages"}]',
         )
 
     runs = Base.metadata.tables["runs"]
@@ -562,6 +594,7 @@ def test_finish_run_closes_the_row_with_counters_and_violations(engine: Any, now
     assert row["counters_json"] == '{"pages":3}'
     assert row["api_requests"] == 7
     assert row["violations_json"] == '[{"invariant":"per_source_freshness"}]'
+    assert row["warnings_json"] == '[{"name":"budget_exhausted","detail":"r/premiere: 3 pages"}]'
 
 
 def test_mark_runs_stamps_a_terminal_status_on_the_named_rows(engine: Any, now: int) -> None:

@@ -852,8 +852,8 @@ class Run(Base):
     warnings_json: Mapped[str | None] = mapped_column(
         Text,
         comment=(
-            "Warnings recorded by RunContext.warn as JSON [{name, detail}]; NULL when none "
-            "were recorded, which is not the same as []."
+            "Warnings recorded by RunContext.warn as JSON [{name, detail}]; [] means the run "
+            "recorded none, NULL that it recorded nothing (a row before 0005)."
         ),
     )
 

@@ -118,7 +118,7 @@ def _plant_no_other_running_rows(ctx: Ctx) -> Any:
                     log_path=None,
                 ),
             )
-            repo.touch_run(conn, run_pk=other_pk, heartbeat_at=now, stage=None)
+            repo.touch_run(conn, run_pk=other_pk, heartbeat_at=now, stage=None, warnings_json=None)
     finally:
         engine.dispose()
     return ctx.invoke()

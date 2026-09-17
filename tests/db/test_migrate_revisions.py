@@ -35,7 +35,7 @@ from threaddigest.db.migrate import (
     require_known_revision,
     upgrade_head,
 )
-from threaddigest.db.repo import finish_run
+from threaddigest.db.repo import RunInsert, finish_run, insert_run, touch_run
 from threaddigest.db.schema import Base
 from threaddigest.db.schema_dump import alembic_config, migrate_to_head
 
@@ -438,6 +438,68 @@ def _database_at_0001(path: Path) -> Engine:
     return engine
 
 
+def test_insert_run_and_touch_run_work_on_a_database_at_0001(tmp_path: Path) -> None:
+    """``db upgrade`` opens its run row, and beats ``upgrade:backup`` onto it, **before** it
+    migrates the file (§10.3), so those two writes must name no column newer than the oldest
+    database they can meet -- revision 0001's.
+
+    Written after revision 0005 named ``settings_json`` on the insert and broke every
+    ``db upgrade`` against an existing file: the command died inside ``repo.insert_run``
+    with ``no such column``, before the backup that makes it recoverable. This is the
+    control for that class; the settings are recorded by ``repo.record_run_settings``, which
+    ``start_run`` issues only when the database is already at head.
+    """
+    engine = _database_at_0001(tmp_path / "at_0001.db")
+    try:
+        run = RunInsert(
+            kind="db_upgrade",
+            trigger="cli",
+            status="running",
+            created_at=NOW,
+            started_at=NOW,
+            pid=4242,
+            stage=None,
+            options_json=None,
+            app_version="0.1.0",
+            praw_version=None,
+            schema_rev="0001",
+            settings_fingerprint="f" * 64,
+            log_path=None,
+        )
+        with engine.begin() as conn:
+            run_pk = insert_run(conn, run)
+            touch_run(
+                conn,
+                run_pk=run_pk,
+                heartbeat_at=NOW + 1,
+                stage="upgrade:backup",
+                warnings_json=None,
+            )
+
+        with engine.connect() as conn:
+            stage, heartbeat_at = conn.execute(
+                text("SELECT stage, heartbeat_at FROM runs WHERE pk = :pk"), {"pk": run_pk}
+            ).one()
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(runs)")).all()}
+        assert (stage, heartbeat_at) == ("upgrade:backup", NOW + 1)
+        assert "settings_json" not in columns, "the fixture must be at revision 0001"
+        assert "warnings_json" not in columns
+
+        # Positive control, in the direction that matters: a beat that *does* carry the
+        # revision 0005 column fails here, which is what the head-only guard prevents.
+        with pytest.raises(OperationalError, match="no such column: warnings_json"):
+            with engine.begin() as conn:
+                touch_run(
+                    conn,
+                    run_pk=run_pk,
+                    heartbeat_at=NOW + 2,
+                    stage="upgrade:backup",
+                    warnings_json="[]",
+                )
+    finally:
+        engine.dispose()
+
+
 def test_finish_restored_run_writes_only_columns_the_restored_revision_has(
     tmp_path: Path,
 ) -> None:
@@ -510,6 +572,7 @@ def test_finish_restored_run_writes_only_columns_the_restored_revision_has(
                     api_requests=0,
                     error="x",
                     violations_json=None,
+                    warnings_json=None,
                 )
     finally:
         engine.dispose()

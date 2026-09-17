@@ -171,6 +171,7 @@ def plant_finished_run(engine: Engine) -> PlantFinishedRun:
                 api_requests=api_requests,
                 error=error,
                 violations_json=violations_json,
+                warnings_json=None,
             )
         with engine.connect() as conn:
             row = repo.run_display(conn, run_pk=run_pk)

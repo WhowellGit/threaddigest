@@ -11,6 +11,7 @@ in this tranche reaches until steps 4-7.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
@@ -27,7 +28,7 @@ from threaddigest.db import migrate, repo
 from threaddigest.db.engine import engine_for
 from threaddigest.db.schema import Base
 from threaddigest.services import runs
-from threaddigest.settings import Settings, settings_fingerprint
+from threaddigest.settings import Settings, settings_fingerprint, settings_json
 
 STALE_AFTER_SECONDS = 180  # settings.static.run.stale_after_minutes (3) * 60, config/settings.yaml
 QUEUED_GRACE_SECONDS = runs.STALE_QUEUED_SECONDS
@@ -328,6 +329,7 @@ def test_start_run_commits_a_running_row_with_versions_fingerprint_and_baselines
     assert row["praw_version"] is None
     assert row["schema_rev"] == migrate.head_revision()
     assert row["settings_fingerprint"] == settings_fingerprint(settings)
+    assert row["settings_json"] == settings_json(settings)
 
     assert ctx.persisted is True
     assert ctx.dry_run is False
@@ -419,6 +421,57 @@ def test_warn_records_the_warning_and_bumps_the_counter(run_context: Any) -> Non
         runs.RunWarning(name="wall_clock_ceiling", detail="3 h reached with 2 sources left")
     ]
     assert run_context.counters.warnings == 1
+
+
+def test_the_counter_and_the_recorded_list_stay_the_same_length(run_context: Any) -> None:
+    """Revision 0005's invariant, at the source: ``counters_json["warnings"]`` and
+    ``warnings_json`` are two spellings of one fact, so every ``warn`` must move both."""
+    for number in range(4):
+        run_context.warn(f"warning_{number}", f"detail {number}")
+        recorded = json.loads(run_context.warnings_json())
+        assert len(recorded) == run_context.counters.warnings == number + 1
+    assert [entry["name"] for entry in recorded] == [f"warning_{n}" for n in range(4)]
+    assert [entry["detail"] for entry in recorded] == [f"detail {n}" for n in range(4)]
+
+
+def test_a_run_with_no_warning_records_an_empty_list_not_null(
+    run_context: Any, engine: Engine
+) -> None:
+    """``[]`` and NULL say different things: this run looked and had nothing to report, as
+    against a row that recorded nothing at all (a run from before revision 0005, or one a
+    later run's stale sweep stamped). A reader that conflated them would print "no warning"
+    for a row that never had the column."""
+    runs.finish_run_from(run_context, status=RunStatus.OK, violations_json="[]", error=None)
+
+    assert _run_row(engine, run_context.run_pk)["warnings_json"] == "[]"
+
+
+def test_the_heartbeat_flushes_the_warnings_recorded_so_far(
+    run_context: Any, engine: Engine, clock: Any
+) -> None:
+    """A run the machine loses mid-sweep leaves behind what it had named by the last beat.
+
+    The close is not reached here on purpose: this is the crash case, and without the flush
+    the row would carry a counter with nothing behind it.
+    """
+    run_context.warn("cursor_stalled", "r/premiere: after did not advance past t3_x")
+    clock.advance(runs.HEARTBEAT_INTERVAL_SECONDS + 1)
+    runs.heartbeat(run_context, stage="sweep:premiere")
+
+    recorded = json.loads(_run_row(engine, run_context.run_pk)["warnings_json"])
+    assert [entry["name"] for entry in recorded] == ["cursor_stalled"]
+    assert recorded[0]["detail"].startswith("r/premiere:")
+
+
+def test_the_row_s_fingerprint_is_the_hash_of_the_row_s_own_settings(
+    run_context: Any, engine: Engine
+) -> None:
+    """The column and the hash beside it are derived from one serialization, so a row can
+    never claim a fingerprint for settings other than the ones it stored."""
+    row = _run_row(engine, run_context.run_pk)
+
+    digest = hashlib.sha256(str(row["settings_json"]).encode("utf-8")).hexdigest()
+    assert row["settings_fingerprint"] == digest
 
 
 def test_sync_budget_follows_the_gateway_and_never_decreases(run_context: Any) -> None:

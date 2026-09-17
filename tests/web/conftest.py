@@ -156,6 +156,7 @@ def _insert_run(
                 api_requests=api_requests,
                 error=error,
                 violations_json=violations_json,
+                warnings_json=None,
             )
     return run_pk
 

@@ -83,6 +83,7 @@ def _plant_successful_run(db_path: Path, *, finished_at: int) -> None:
                 api_requests=0,
                 error=None,
                 violations_json="[]",
+                warnings_json="[]",
             )
     finally:
         engine.dispose()

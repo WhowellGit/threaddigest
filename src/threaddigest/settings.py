@@ -78,6 +78,7 @@ __all__ = [
     "default_settings_file",
     "non_secret_settings",
     "settings_fingerprint",
+    "settings_json",
     "unknown_environment_variables",
     "user_agent",
 ]
@@ -389,15 +390,25 @@ def non_secret_settings(settings: Settings) -> dict[str, Any]:
     return settings.model_dump(mode="json", exclude=_secret_field_names())
 
 
+def settings_json(settings: Settings) -> str:
+    """The resolved non-secret settings as canonical JSON: sorted keys, no whitespace.
+
+    Exactly what :func:`settings_fingerprint` hashes, and exactly what a run row stores in
+    ``runs.settings_json`` (revision 0005). One function rather than two serializations, so
+    the stored bytes and the hash beside them cannot describe different settings: a run row
+    whose fingerprint is not the SHA-256 of its own ``settings_json`` is a bug a test can
+    state in one line.
+    """
+    return json.dumps(non_secret_settings(settings), sort_keys=True, separators=(",", ":"))
+
+
 def settings_fingerprint(settings: Settings) -> str:
     """SHA-256 over the resolved non-secret settings, stable across key order.
 
     Every ``SecretStr`` field on :class:`Settings` is excluded structurally, so adding a
     new secret cannot leak into the fingerprint by omission.
     """
-    payload = non_secret_settings(settings)
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(settings_json(settings).encode("utf-8")).hexdigest()
 
 
 def user_agent(settings: Settings, version: str) -> str:

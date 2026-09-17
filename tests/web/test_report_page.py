@@ -238,6 +238,7 @@ def digest_run(seeded_engine: Engine, history: History) -> Digest:
             api_requests=120,
             error=None,
             violations_json="[]",
+            warnings_json="[]",
         )
     return Digest(run_pk=run_pk, items_seen=PREMIERE_SEEN + EDITORS_SEEN)
 

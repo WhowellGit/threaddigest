@@ -103,7 +103,13 @@ def plant_run(engine: Engine) -> PlantRun:
         with engine.begin() as conn:
             pk = repo.insert_run(conn, run)
             if heartbeat_at is not None:
-                repo.touch_run(conn, run_pk=pk, heartbeat_at=heartbeat_at, stage=stage)
+                repo.touch_run(
+                    conn,
+                    run_pk=pk,
+                    heartbeat_at=heartbeat_at,
+                    stage=stage,
+                    warnings_json=None,
+                )
         return pk
 
     return _plant

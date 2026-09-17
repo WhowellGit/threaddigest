@@ -95,7 +95,9 @@ def _plant_run(
     with engine.begin() as conn:
         pk = repo.insert_run(conn, run)
         if heartbeat_at is not None:
-            repo.touch_run(conn, run_pk=pk, heartbeat_at=heartbeat_at, stage=stage)
+            repo.touch_run(
+                conn, run_pk=pk, heartbeat_at=heartbeat_at, stage=stage, warnings_json=None
+            )
     return pk
 
 
@@ -111,6 +113,7 @@ def _plant_ok_run(engine: Engine, *, now: int, finished_at: int) -> int:
             api_requests=0,
             error=None,
             violations_json=None,
+            warnings_json=None,
         )
     return pk
 

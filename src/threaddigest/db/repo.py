@@ -83,6 +83,7 @@ __all__ = [
     "recent_runs",
     "recent_sweeping_runs",
     "recount_authors",
+    "record_run_settings",
     "record_subreddit_failure",
     "rows_below_normalizer_version",
     "run_display",
@@ -731,7 +732,18 @@ def set_gap_suspected(conn: Connection, *, subreddit_pk: int, at: int | None) ->
 
 
 def insert_run(conn: Connection, run: RunInsert) -> int:
-    """Insert one ``runs`` row; returns its pk."""
+    """Insert one ``runs`` row; returns its pk.
+
+    **The one write here that may legitimately meet a database below head**, so it names
+    only columns revision 0001 already has. ``db upgrade`` inserts its own run row *before*
+    it migrates the file (§10.3), and ``cli``'s ``skipped_locked`` row is written while
+    another process may be mid-migration. A column a later revision added therefore cannot
+    be named here, however convenient: ``db upgrade`` would die inside this statement,
+    before the backup it takes to make itself recoverable. :func:`record_run_settings`
+    exists for exactly that reason, and
+    ``tests/db/test_migrate_revisions.py::test_insert_run_and_touch_run_work_on_a_database_at_0001``
+    is the control.
+    """
     runs = _table("runs")
     pk = conn.execute(
         insert(runs)
@@ -755,12 +767,46 @@ def insert_run(conn: Connection, run: RunInsert) -> int:
     return int(pk)
 
 
-def touch_run(conn: Connection, *, run_pk: int, heartbeat_at: int, stage: str | None) -> None:
-    """Write the heartbeat and the current stage onto the run row."""
+def record_run_settings(conn: Connection, *, run_pk: int, settings_json: str) -> None:
+    """Store the resolved non-secret settings on a run row (revision 0005).
+
+    A second statement rather than two more columns on :func:`insert_run`, because the
+    insert may meet a database below head and this column arrived at 0005: the caller
+    (``services.runs.start_run``) issues it in the insert's own transaction when the
+    database is at head, so a run row either carries its settings from the moment it exists
+    or says NULL, never something in between. ``settings_fingerprint`` stays on the insert:
+    it is a revision 0001 column and the two are derived from one serialization
+    (``settings.settings_json``), so the hash on the row is the hash of these bytes.
+    """
     runs = _table("runs")
-    conn.execute(
-        update(runs).where(runs.c.pk == run_pk).values(heartbeat_at=heartbeat_at, stage=stage)
-    )
+    conn.execute(update(runs).where(runs.c.pk == run_pk).values(settings_json=settings_json))
+
+
+def touch_run(
+    conn: Connection,
+    *,
+    run_pk: int,
+    heartbeat_at: int,
+    stage: str | None,
+    warnings_json: str | None,
+) -> None:
+    """Write the heartbeat, the current stage and the warnings recorded so far.
+
+    The warnings ride on the heartbeat rather than on a statement of their own because the
+    heartbeat is already the one write that happens *during* a run: a run killed between two
+    beats then leaves behind every warning it had recorded by the last one, instead of
+    leaving a counter with nothing behind it.
+
+    ``warnings_json=None`` never names the column at all, which is what keeps this callable
+    against a database below head -- ``db upgrade`` beats ``upgrade:backup`` onto its row
+    before it migrates the file. It also means a caller with nothing to flush cannot erase
+    what an earlier beat wrote.
+    """
+    runs = _table("runs")
+    values: dict[str, object] = {"heartbeat_at": heartbeat_at, "stage": stage}
+    if warnings_json is not None:
+        values["warnings_json"] = warnings_json
+    conn.execute(update(runs).where(runs.c.pk == run_pk).values(**values))
 
 
 def finish_run(
@@ -773,6 +819,7 @@ def finish_run(
     api_requests: int,
     error: str | None,
     violations_json: str | None,
+    warnings_json: str | None,
 ) -> None:
     """Close the run row.
 
@@ -793,6 +840,7 @@ def finish_run(
             api_requests=api_requests,
             error=error,
             violations_json=violations_json,
+            warnings_json=warnings_json,
         )
     )
 

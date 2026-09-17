@@ -533,6 +533,7 @@ def _finish(engine: Any, run_pk: int, **overrides: Any) -> None:
             api_requests=overrides.pop("api_requests", 0),
             error=overrides.pop("error", None),
             violations_json=overrides.pop("violations_json", None),
+            warnings_json=overrides.pop("warnings_json", None),
         )
     assert not overrides, f"unused overrides: {overrides}"
 

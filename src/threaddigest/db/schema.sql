@@ -193,7 +193,7 @@ CREATE TRIGGER posts_fts_au AFTER UPDATE OF title, selftext, author, content_sta
 -- runs.log_path: Path of the run's log file.
 -- runs.purge_counts_json: Rows purged per table as JSON, so the row-count invariant can read them.
 -- runs.violations_json: Invariant violations as JSON; NULL when they did not run.
--- runs.warnings_json: Warnings recorded by RunContext.warn as JSON [{name, detail}]; NULL when none were recorded, which is not the same as [].
+-- runs.warnings_json: Warnings recorded by RunContext.warn as JSON [{name, detail}]; [] means the run recorded none, NULL that it recorded nothing (a row before 0005).
 -- searches.pk: Surrogate key.
 -- searches.workspace_pk: Owning workspace.
 -- searches.query: Reddit search query.

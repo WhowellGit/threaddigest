@@ -9,6 +9,12 @@ instead of importing ``Severity``.
 
 :class:`RunContext` is the one mutable value type in the design: counters and warnings
 accumulate over a run. Everything else here is frozen.
+
+Since revision 0005 the warnings reach the row as well as the counter: the heartbeat and
+the close both carry ``warnings_json``, so what the run had named by its last beat survives
+a process that never reaches T8. The settings the run resolved are written once, in the
+insert's own transaction. Both are guarded by :attr:`RunContext.schema_at_head`, because
+``db upgrade`` opens its run row on a file it has not migrated yet.
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from threaddigest.core.retry import RunStatus
 from threaddigest.db import migrate, repo
 from threaddigest.ports import Clock, RedditGateway
 from threaddigest.services import lock
-from threaddigest.settings import Settings, settings_fingerprint
+from threaddigest.settings import Settings, settings_fingerprint, settings_json
 
 __all__ = [
     "DELTA_COUNTER_FOR_TABLE",
@@ -49,6 +55,7 @@ __all__ = [
     "start_run",
     "sweep_stale",
     "sync_budget",
+    "warnings_to_json",
 ]
 
 #: How often a repeated stage may touch the run row. A CHANGED stage always writes (§12.4).
@@ -148,6 +155,21 @@ class RunWarning:
     name: str
     detail: str
 
+    def as_dict(self) -> dict[str, str]:
+        """The two keys ``runs.warnings_json`` carries, in the order the column names them."""
+        return {"name": self.name, "detail": self.detail}
+
+
+def warnings_to_json(warnings: Sequence[RunWarning]) -> str:
+    """``runs.warnings_json``: always an array, ``"[]"`` when empty.
+
+    ``"[]"`` is **not** the same as NULL, exactly as for ``violations_json``: ``[]`` means
+    this run recorded its warnings and had none, NULL that it recorded nothing at all -- a
+    row written before revision 0005, or one a stale sweep stamped on another process's
+    behalf. The readers say "not recorded" for NULL rather than "no warning".
+    """
+    return json.dumps([warning.as_dict() for warning in warnings], separators=(",", ":"))
+
 
 class RunTerminalError(Exception):
     """The whole run must end now with ``status`` (design-round5 §3.4).
@@ -216,6 +238,10 @@ class RunContext:
     started_at: int = 0
     deadline_at: int = 0
     dry_run: bool = False
+    #: The database was already at head when the row was inserted, so every head-model
+    #: column exists on it. False for ``db upgrade``, the one command that legitimately runs
+    #: against an older file: its heartbeats must name no column that file may not have.
+    schema_at_head: bool = False
     terminal_status: RunStatus | None = None
     _last_heartbeat_at: int = 0
     #: §12.4: a CHANGED stage always writes, throttle or not.
@@ -236,9 +262,19 @@ class RunContext:
         return self.remaining_ceiling_seconds <= 0.0
 
     def warn(self, name: str, detail: str) -> None:
-        """Record a warning. One warning is the difference between ``ok`` and ``partial``."""
+        """Record a warning. One warning is the difference between ``ok`` and ``partial``.
+
+        The list and the counter move together and are two spellings of one fact: the
+        counter is what ``counters_json`` carries and the list is what ``warnings_json``
+        carries, and a test asserts the equality on a real run, because a page that says
+        "3 warnings, 1 named" is only honest while the two agree.
+        """
         self.warnings.append(RunWarning(name=name, detail=detail))
         self.counters.warnings += 1
+
+    def warnings_json(self) -> str:
+        """The warnings recorded so far, for ``runs.warnings_json`` (revision 0005)."""
+        return warnings_to_json(self.warnings)
 
 
 def _budget_for(settings: Settings) -> Budget:
@@ -358,8 +394,18 @@ def start_run(
         settings_fingerprint=settings_fingerprint(settings),
         log_path=None,
     )
+    # The settings themselves, not only their hash (revision 0005): the digest can then name
+    # the keys that changed since the run before instead of reporting that something did.
+    # Both come from ``settings.settings_json``'s one serialization, so the row's
+    # fingerprint is the SHA-256 of the row's own settings by construction. It is a second
+    # statement inside the insert's transaction, not two more columns on ``RunInsert``,
+    # because ``db upgrade`` inserts its run row against a file it has not migrated yet and
+    # the insert may name no column newer than revision 0001 (``repo.insert_run``).
+    schema_at_head = migrate.is_at_head(engine)
     with engine.begin() as conn:
         run_pk = repo.insert_run(conn, run)
+        if schema_at_head:
+            repo.record_run_settings(conn, run_pk=run_pk, settings_json=settings_json(settings))
     with engine.connect() as conn:
         workspace_pk = repo.default_workspace_pk(conn)
         baseline_counts = repo.table_counts(conn, TRACKED_TABLES)
@@ -376,6 +422,7 @@ def start_run(
         baseline_counts=baseline_counts,
         started_at=now,
         deadline_at=now + settings.static.run.wall_clock_ceiling_hours * 3600,
+        schema_at_head=schema_at_head,
     )
 
 
@@ -423,7 +470,18 @@ def heartbeat(ctx: RunContext, *, stage: str | None = None) -> None:
     if not stage_changed and now - ctx._last_heartbeat_at < HEARTBEAT_INTERVAL_SECONDS:
         return
     with ctx.engine.begin() as conn:
-        repo.touch_run(conn, run_pk=ctx.run_pk, heartbeat_at=now, stage=stage or ctx._last_stage)
+        # The beat also flushes the warnings recorded so far (revision 0005): a run the
+        # machine loses between two beats leaves behind the ones it had named by the last
+        # one, rather than a counter in `counters_json` with nothing behind it. Below head
+        # it flushes nothing, because `db upgrade` beats `upgrade:backup` onto its row
+        # before it migrates the file, and `warnings_json` may not exist there yet.
+        repo.touch_run(
+            conn,
+            run_pk=ctx.run_pk,
+            heartbeat_at=now,
+            stage=stage or ctx._last_stage,
+            warnings_json=ctx.warnings_json() if ctx.schema_at_head else None,
+        )
     ctx._last_heartbeat_at = now
     if stage is not None:
         ctx._last_stage = stage
@@ -488,4 +546,5 @@ def finish_run_from(
             api_requests=ctx.budget.used,
             error=error,
             violations_json=violations_json,
+            warnings_json=ctx.warnings_json(),
         )

@@ -433,6 +433,9 @@ def _record_skipped_locked(settings: Settings, trigger: str) -> None:
                 api_requests=0,
                 error="another process holds the collector lock",
                 violations_json=None,
+                # A run that never started recorded nothing, which NULL says and `[]`
+                # would not: `[]` is a run that looked and found no warning.
+                warnings_json=None,
             )
     except DatabaseError as exc:
         _echo_error(
