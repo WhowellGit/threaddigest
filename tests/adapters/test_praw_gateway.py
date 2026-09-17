@@ -499,6 +499,92 @@ def test_a_401_the_library_cannot_name_is_still_an_auth_failure(
     _round_trips(http, gateway, 6)
 
 
+def test_a_half_present_rate_limit_header_set_is_not_reported_as_bad_credentials(
+    http: responses.RequestsMock, gateway: PrawGateway
+) -> None:
+    """KI-030: the ``KeyError`` handler was written for one library path and caught two.
+
+    prawcore's rate limiter (``prawcore/rate_limit.py``) decides whether a response carries
+    rate-limit headers by testing for ``x-ratelimit-remaining`` alone, then reads
+    ``x-ratelimit-used`` and ``x-ratelimit-reset`` by subscript. A response with the first
+    header and not the third -- a proxy that rewrites headers, an edge that serves a cached
+    copy, a future change at Reddit -- therefore raises a bare ``KeyError`` from inside the
+    library, on an ordinary 200 that carried the data we asked for.
+
+    The adapter mapped every ``KeyError`` out of ``request`` to ``AuthFailed``, so this one
+    reached the operator as "credentials rejected", and ``doctor``'s auth-ping row would send
+    them to ``/setup`` to fix credentials that are working. It is a malformed answer, not a
+    refused one, and it says so.
+    """
+    _token(http)
+    http.get(
+        ABOUT_URL,
+        json={"kind": "t5", "data": {"display_name": "premiere"}},
+        headers={"x-ratelimit-remaining": "993.0", "x-ratelimit-used": "7"},
+    )
+
+    with pytest.raises(GatewayError) as caught:
+        gateway.about("premiere")
+
+    assert not isinstance(caught.value, AuthFailed)
+    assert "rate-limit" in str(caught.value)
+    assert "x-ratelimit-reset" in str(caught.value)
+    _round_trips(http, gateway, 2)
+
+
+def test_a_401_the_library_cannot_name_is_still_an_auth_failure_after_the_narrowing(
+    http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
+) -> None:
+    """KI-030's other direction: narrowing the handler must not lose the case it was for.
+
+    The OAuth-table miss (``prawcore/util.py::authorization_error_class``) is still an
+    ``AuthFailed``, and it is identified by the frame it was raised in rather than by being
+    the only ``KeyError`` the library can produce.
+    """
+    _token(http)
+    http.get(ABOUT_URL, status=401, json={"message": "Unauthorized"})
+
+    with pytest.raises(AuthFailed) as caught:
+        gateway.about("premiere")
+
+    assert "unrecognised OAuth error" in str(caught.value)
+    assert len(retry_sleeps) == 2
+    _round_trips(http, gateway, 6)
+
+
+def test_a_key_error_from_anywhere_else_in_the_library_is_named_and_never_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third shape: neither the OAuth table nor the rate-limit headers.
+
+    Nothing from the library may reach a service untranslated, named row or not, so a
+    ``KeyError`` from a path this adapter has not met is still a plain ``GatewayError`` -- not
+    an ``AuthFailed``, and not a traceback. Driven through the injection seam, so no request
+    is made and no socket is opened.
+    """
+    session = CountingSession()
+    reddit = praw.Reddit(
+        client_id="fake-id",
+        client_secret="fake-secret",
+        user_agent=CONFIG.user_agent,
+        check_for_updates=False,
+        check_for_async=False,
+        requestor_kwargs={"session": session},
+    )
+    gateway = PrawGateway(CONFIG, reddit=reddit, session=session)
+
+    def _raise(**kwargs: Any) -> Any:
+        raise KeyError("data")
+
+    monkeypatch.setattr(reddit, "request", _raise)
+
+    with pytest.raises(GatewayError) as caught:
+        gateway.about("premiere")
+
+    assert not isinstance(caught.value, AuthFailed)
+    assert "data" in str(caught.value)
+
+
 def test_a_503_is_transient_only_after_prawcores_two_retries(
     http: responses.RequestsMock, gateway: PrawGateway, retry_sleeps: list[float]
 ) -> None:

@@ -354,6 +354,27 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   that the pre-push check did not cover (a second remote, a push made outside an agent session),
   at which point the rule needs the remote's own protection behind it and not only this hook.
 
+## 2026-09-16 (the adapter's bare `KeyError`) — a malformed header is not a refused credential
+
+- **A half-present rate-limit header set is a `GatewayError`, not an `AuthFailed` (KI-030).**
+  The translation table's entry of earlier today said prawcore raises a bare `KeyError` when it
+  looks a 401 up in its three-entry OAuth table and misses, and the adapter caught every
+  `KeyError` out of the request at that one site and called it rejected credentials. It raises a
+  bare `KeyError` from a second place too: the rate limiter tests for `x-ratelimit-remaining`
+  alone and then reads `x-ratelimit-used` and `x-ratelimit-reset` by subscript, so a response
+  carrying the first and not the third — a proxy or an edge that rewrites headers, or a change
+  at Reddit — dies on an ordinary 200 that carried the data we asked for. **The choice:** the
+  handler is narrowed to the frame the OAuth table is looked up in
+  (`prawcore/util.py::authorization_error_class`), identified from the exception's own
+  traceback rather than by the key, because the frame is what the rule is about; a missing
+  `x-ratelimit` header becomes a `GatewayError` naming the header, and any other `KeyError` a
+  `GatewayError` naming the key. **Why it matters more than the exception's name:** a
+  credentials failure is the one gateway error that sends an operator to the setup page, and
+  the hourly `doctor` alerts on it, so mislabelling a malformed answer as a refused credential
+  trains the operator to distrust the alert and hides the real cause. **Revisit when:** a third
+  bare-`KeyError` path appears in the library, or the probe day shows Reddit sending a partial
+  header set often enough that it deserves a retry rather than an error.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

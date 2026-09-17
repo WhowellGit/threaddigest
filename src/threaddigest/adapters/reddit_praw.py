@@ -197,6 +197,50 @@ def _auth_failed(exc: Exception) -> GatewayError:
     return AuthFailed(f"credentials rejected: {exc}")
 
 
+#: The one library frame the bare-``KeyError`` handler in :meth:`PrawGateway._get` was written
+#: for: ``prawcore/util.py::authorization_error_class`` looks a 401's ``www-authenticate`` error
+#: up in a three-entry mapping, so an absent header, or an error outside the table, raises a
+#: ``KeyError`` there instead of one of prawcore's own exceptions.
+_OAUTH_TABLE_FRAME: Final = ("authorization_error_class", "prawcore/util.py")
+#: prawcore's rate limiter decides a response carries rate-limit headers by testing for this
+#: one alone, then reads ``x-ratelimit-used`` and ``x-ratelimit-reset`` by subscript, so a
+#: half-present set raises a ``KeyError`` naming the missing header on an ordinary 200.
+RATE_LIMIT_HEADER_PREFIX: Final = "x-ratelimit"
+
+
+def _raised_in_the_oauth_table(exc: KeyError) -> bool:
+    """True when this ``KeyError`` came out of prawcore's OAuth error table.
+
+    Identified by the frame it was raised in, not by being the only ``KeyError`` the library
+    can produce, which is what KI-030 proved it is not.
+    """
+    name, tail = _OAUTH_TABLE_FRAME
+    trace = exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        if code.co_name == name and code.co_filename.replace("\\", "/").endswith(tail):
+            return True
+        trace = trace.tb_next
+    return False
+
+
+def _from_key_error(exc: KeyError) -> GatewayError:
+    """The three shapes a bare ``KeyError`` out of ``Reddit.request`` arrives in (KI-030).
+
+    The OAuth-table miss is a credentials failure and says so. A half-present rate-limit header
+    set is a malformed answer to a request that otherwise succeeded, and reporting it as
+    rejected credentials would send an operator to fix credentials that work. Anything else is
+    named rather than swallowed, because nothing from the library may reach a service
+    untranslated.
+    """
+    if _raised_in_the_oauth_table(exc):
+        return AuthFailed(f"unrecognised OAuth error: {exc}")
+    key = exc.args[0] if exc.args else ""
+    if isinstance(key, str) and key.lower().startswith(RATE_LIMIT_HEADER_PREFIX):
+        return GatewayError(f"Reddit's rate-limit headers are malformed: {exc} is missing")
+    return GatewayError(f"the library read a key Reddit's answer does not carry: {exc}")
+
+
 def _not_found(exc: Exception) -> GatewayError:
     return SubredditNotFound(f"404: {exc}")
 
@@ -398,12 +442,11 @@ class PrawGateway:
         except (prawcore.exceptions.PrawcoreException, praw.exceptions.PRAWException) as exc:
             raise translate(exc) from exc
         except KeyError as exc:
-            # prawcore looks an OAuth failure up in a three-entry table (``prawcore/util.py``);
-            # a 401 whose ``www-authenticate`` header is absent, or names an error outside that
-            # table, raises a bare KeyError from inside the library. It is still a credentials
-            # failure, and it must reach the CLI's exit 78 rather than a traceback.
-            msg = f"unrecognised OAuth error: {exc}"
-            raise AuthFailed(msg) from exc
+            # A bare KeyError arrives here from more than one place in the library, and they
+            # are different failures: the OAuth error table on a 401 prawcore cannot name, and
+            # the rate limiter on a half-present ``x-ratelimit`` header set (KI-030). Whichever
+            # it is, it must reach the CLI's exit 78 rather than a traceback.
+            raise _from_key_error(exc) from exc
         except ValueError as exc:
             # The other way prawcore fails while building its own exception: it formats
             # ``Retry-After`` with ``float()``, so a 429 carrying the HTTP-date form the
