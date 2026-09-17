@@ -23,7 +23,9 @@ bare number):
                             use from a test counts as use, with decorator-registered names
                             ignored and the rest matched against tools/vulture_whitelist.py
     dead_code_whitelisted   entries in that whitelist, so the list itself cannot grow unseen
-    duplicate_blocks        pylint duplicate-code findings (eight similar lines or more)
+    duplicate_blocks        pylint duplicate-code findings (eight similar lines or more), each
+                            named by every module the block sits in rather than by the module
+                            pylint happened to finish its run on
 
 A missing analyzer or a failed run exits non-zero and writes no report, so the ratchet turns
 red rather than reading zero: fail, never skip. Standard library only; the analyzers are
@@ -70,6 +72,11 @@ REPORT = Path(".build") / "code_health.json"
 TIMEOUT = 300
 
 VULTURE_LINE = re.compile(r"^(?P<where>.+?:\d+): unused (?P<kind>\w+) '(?P<name>[^']+)'")
+#: pylint emits duplicate-code from its closing pass, with no node to attach it to, so the row's
+#: ``path`` is whichever module the run happened to finish on -- a different file on a different
+#: filesystem, and often not one of the duplicated modules at all. The modules that actually hold
+#: the block are in the message body, one ``==<dotted module>:[start:end]`` line each.
+DUPLICATE_SITE = re.compile(r"^==(?P<module>[\w.]+):\[(?P<start>\d+):\d+\]$", re.MULTILINE)
 #: One whitelist entry: a dotted name inside the WHITELISTED tuple, one per line, with a reason.
 WHITELIST_ENTRY = re.compile(r"^\s*(?P<name>[\w.]+)\s*,\s*(#.*)?$")
 
@@ -257,6 +264,30 @@ def dead_code(tools: Analyzers) -> list[str]:
     return sorted(hits)
 
 
+def module_file(root: Path, source: Path, module: str) -> str:
+    """``pkg.a.b`` → the file that defines it, relative to ``root``; the dotted name if unknown."""
+    base = source.parent.joinpath(*module.split("."))
+    for candidate in (base.with_suffix(".py"), base / "__init__.py"):
+        if candidate.is_file():
+            return rel(root, str(candidate))
+    return module
+
+
+def duplicate_sites(root: Path, source: Path, row: dict[str, object]) -> str:
+    """Every module the duplicated block sits in, sorted, so the hit is the same on every host.
+
+    pylint's own ``path`` for a duplicate-code row names the last module the run linted, which
+    follows directory-read order and so differs between filesystems; it is kept only as the
+    fallback for a message this parser does not recognise.
+    """
+    message = row.get("message")
+    sites = sorted(
+        f"{module_file(root, source, m.group('module'))}:{m.group('start')}"
+        for m in DUPLICATE_SITE.finditer(message if isinstance(message, str) else "")
+    )
+    return " ".join(sites) or f"{rel(root, str(row['path']))}:{row['line']}"
+
+
 def duplicates(tools: Analyzers, source: Path) -> list[str]:
     data = tools.run_json(
         "pylint",
@@ -270,7 +301,7 @@ def duplicates(tools: Analyzers, source: Path) -> list[str]:
     if not isinstance(data, list):
         fail("pylint returned an unexpected shape")
     return sorted(
-        f"{rel(tools.root, row['path'])}:{row['line']} duplicate-code"
+        f"{duplicate_sites(tools.root, source, row)} duplicate-code"
         for row in data
         if row.get("symbol") == "duplicate-code"
     )

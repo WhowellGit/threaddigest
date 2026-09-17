@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from tools import code_health
+
 pytestmark = pytest.mark.gate("G51")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -149,9 +151,41 @@ def test_planted_offenders_are_counted_and_named(project: Path) -> None:
     assert "PLR0913" in hits and "PLR0912" in hits
     assert "knotty.py:" in hits and "unused function never_called" in hits
     assert "tools/vulture_whitelist.py:5 clean.listed_but_unused" in hits
-    assert "dup_" in hits and "duplicate-code" in hits
+    # Named by the modules that hold the block, on every filesystem: pylint attaches a
+    # duplicate-code row to whichever module its run finished on, which follows directory-read
+    # order and named the unrelated huge.py on Linux while naming dup_b.py on macOS.
+    duplicate = [hit for hit in data["hits"] if str(hit).startswith("duplicate_blocks ")]
+    assert len(duplicate) == 1
+    assert "duplicate-code" in duplicate[0]
+    assert f"{PACKAGE.as_posix()}/dup_a.py:" in duplicate[0]
+    assert f"{PACKAGE.as_posix()}/dup_b.py:" in duplicate[0]
+    assert "huge.py" not in duplicate[0] and "knotty.py" not in duplicate[0]
     assert proc.stdout.count("HIT       ") == len(data["hits"])
     assert "code_health.cognitive_over_15" in proc.stdout
+
+
+def test_a_duplicate_hit_names_the_duplicated_modules_not_the_reporting_one(project: Path) -> None:
+    """Positive control for the platform difference that made this gate red on Linux and green
+    on macOS: pylint has no node to hang a duplicate-code message on, so its row names whichever
+    module the run finished on -- directory-read order, which differs between filesystems. The
+    duplicated modules are in the message body and are what the hit must name."""
+    row = {
+        "path": "src/threaddigest/huge.py",  # pylint's own, unrelated to the finding
+        "line": 1,
+        "message": (
+            "Similar lines in 2 files\n"
+            "==threaddigest.dup_b:[4:17]\n"
+            "==threaddigest.dup_a:[4:17]\n"
+            "    out = []\n"
+        ),
+    }
+    sites = code_health.duplicate_sites(project, project / PACKAGE, row)
+    assert sites == "src/threaddigest/dup_a.py:4 src/threaddigest/dup_b.py:4"
+    assert "huge.py" not in sites
+    # A message this parser does not recognise still leaves a locatable hit.
+    assert code_health.duplicate_sites(project, project / PACKAGE, {**row, "message": "?"}) == (
+        "src/threaddigest/huge.py:1"
+    )
 
 
 def test_a_clean_tree_measures_zero_except_the_whitelist(project: Path) -> None:
