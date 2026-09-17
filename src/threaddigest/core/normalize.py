@@ -5,11 +5,14 @@ shapes the collector meets are accepted through :func:`canonicalize`:
 
 * **listing JSON** (``reddit.request()`` / ``/r/x/new.json``): ``author`` is a string,
   ``"[deleted]"`` for deleted accounts; ``subreddit`` is a string; ``replies`` is ``""`` or a
-  nested listing;
-* **PRAW-attribute JSON** (``vars(obj)`` of a ``Submission``/``Comment``, which is how comment
-  trees arrive): ``author`` is ``{"name": ...}`` or ``None``, ``subreddit`` is
-  ``{"display_name": ...}``, ``replies`` has moved to ``_replies``, and private ``_*`` keys plus
-  PRAW-only attributes are present.
+  nested listing. This is what every shipped adapter method returns, **comment trees
+  included**: the adapter reads a tree through the library's request method too
+  (``adapters/reddit_praw.py``), so no PRAW model object reaches this module from any path;
+* **PRAW-attribute JSON** (the dict of a ``Submission``/``Comment``'s attributes): ``author``
+  is ``{"name": ...}`` or ``None``, ``subreddit`` is ``{"display_name": ...}``, ``replies``
+  has moved to ``_replies``, and private ``_*`` keys plus PRAW-only attributes are present.
+  Accepted because a model object is the one shape a future call could still hand this
+  module, and because the shape-parity test feeds it deliberately.
 
 Both must normalize to identical rows (the shape-parity requirement). Everything here operates
 on dicts only; nothing ever calls ``getattr`` on a value, because a lazy PRAW object fires an HTTP

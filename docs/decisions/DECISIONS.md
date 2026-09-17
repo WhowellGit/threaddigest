@@ -623,6 +623,47 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   the 2026-09-17 code panel's cut list, which the panel record names. **Revisit when:** a
   stale-work-list failure mode appears, which is N-08's own trigger — and then the anchor is
   designed again from that evidence rather than restored from a deleted method.
+## 2026-09-17 (comment trees) — the four rulings M1b starts on
+
+- **D-41, the four M1b rulings (Wes, 2026-09-17).** The design pass over the comment-tree
+  milestone (a read-only pass over the tree at `7528af9`) put four questions to Wes, three of them
+  open since 2026-09-13 and one found by the pass itself. All four are ruled here, in the first
+  M1b commit, so that no later brief inherits them as assumptions.
+  1. **The per-post expansion cap is per fetch, never cumulative.** A cumulative cap would freeze
+     a thread once it had spent its forty expansions, and the deletions inside that thread would
+     never be seen again — a compliance cost paid for a budget saving the per-run budget already
+     provides. (`docs/TEST_STRATEGY.md` row TR-02 carried "pending Wes" for this since
+     2026-09-13.)
+  2. **The failure invariant's "row counts never decrease" clause is narrowed for `comment_more`
+     alone,** and replaced there by a stronger per-post rule: after a tree write, that post's
+     stub rows equal exactly what the fetch left. A tree that becomes *more* complete decreases
+     the stub count, and a run must not turn red for improving its coverage; every other tracked
+     table keeps the blanket non-decrease. The invariant itself changes with the stage that reads
+     it (M1b, brief 5); this entry is the ruling, and the write it is about landed with the
+     database layer.
+  3. **M1b is built before the probe day, and the four capture-dependent rows stay `planned`.**
+     Every M1b test row sits above the port, the port is implemented on both sides, and the fake
+     needs no extension — so nothing encodes a guessed wire shape; the rows that do depend on a
+     capture (AD-03, PA-01, and probes P-08, P-11, P-20, P-22) are *adapter* rows, and a capture
+     that contradicts the fake fails at the adapter, below unchanged service code.
+  4. **The due queue is newest first.** A backfill's point is to reach the newest discussion
+     first, and the shipped read ordered by `next_check_at`, which during a backfill is
+     `created_utc` plus a day for every post and so drained the queue oldest-thread-first — the
+     exact opposite (found 2026-09-17 by the design pass; KI-044).
+  **Revisit when:** (1) a thread is found costing its whole per-run budget on repeat fetches; (2)
+  a second table needs a per-row rule instead of a table-level one, which is the moment to ask
+  whether the invariant wants a shape rather than a list; (3) the probe day contradicts the fake,
+  which is what the contract suite exists to show; (4) never, unless the ladder stops deriving
+  from `created_utc`.
+- **The tree write is what makes ruling 2 safe, and it is in the statement rather than in a
+  caller.** `comments.parent_comment_pk` is resolved after the insert, not during it, and a
+  comment already `deleted_by_author` has its content held by the upsert's own `SET` clause, so
+  no tree re-fetch can write a body back over a deletion the store has honoured. The alternative
+  — deciding it in the values a service builds, as the sweep does for posts — would have left the
+  rule true only for callers that remembered it, which is the class of rule this project treats
+  as unenforced. **Revisit when:** the scrub service lands (M1c) and needs the same guard on a
+  second path, which is the moment to ask whether the ownership table should carry the state
+  rather than each row naming it.
 
 ## Retired claims (machine-read)
 
@@ -663,6 +704,7 @@ Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live docume
 | `flags degraded` | never built: a freshness violation is a warning that closes the run `partial` (the deep review of 2026-09-16) | 2026-09-16 |
 | `two-day reconcile cadence` | D-30 (the reconcile runs on each scheduled run; the forty-eight-hour recommendation is not met between runs) | 2026-09-16 |
 | `run daily` | D-30 (every source runs on the schedule) | 2026-09-16 |
+| `serialized with vars()` | the adapter reads trees as raw JSON through the library's request method, so the lazy-attribute footgun cannot fire on that path (D-41; built that way with tranche B's offline half) | 2026-09-17 |
 
 ## Live facts (machine-read)
 

@@ -39,7 +39,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-05 | timestamp_columns_are_integer_epoch | db+unit | M0 | H | planned | |
 | DB-06 | next_check_at_not_null_enforced | db | M1a | H | shipped | tests/db/test_schema_shape.py::test_next_check_at_is_not_null |
 | DB-07 | derived_enums_closed_upstream_enums_open | db | M1a | H | shipped | tests/db/test_schema_shape.py::test_check_rejects_unknown_derived_state, ::test_check_rejects_unknown_run_status, ::test_check_accepts_unknown_upstream_enum_values |
-| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | shipped | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus (stress corpus cut 2026-09-13, N-11); tests/db/test_query_plans.py::test_due_posts_uses_next_check_at_index, ::test_window_query_uses_subreddit_created_index, ::test_author_query_uses_author_index, ::test_live_feed_uses_content_state_index |
+| DB-08 | hot_queries_use_declared_indexes | db | M1a | M | shipped | the four `EXPLAIN QUERY PLAN` assertions the plan keeps in place of the stress corpus (stress corpus cut 2026-09-13, N-11); the due-queue assertion states the plan the newest-first order gives (2026-09-17, D-41), the range from `ix_posts_next_check_at` and the sort on top of it, both asserted so neither half can change unseen; tests/db/test_query_plans.py::test_due_posts_uses_next_check_at_index, ::test_window_query_uses_subreddit_created_index, ::test_author_query_uses_author_index, ::test_live_feed_uses_content_state_index |
 | DB-09 | every_column_has_a_comment | unit | M0 | M | planned | |
 | DB-10 | fts_definition_shape (live views, `_docsize`) | db | M1a | H | shipped | tests/db/test_fts.py::test_fts_definition_shape |
 | DB-11 | create_engine_only_in_db_engine | gate | M0 | H | changed | symbol ban is ruff `TID251` (`create_engine`, `text(`, `sqlite3.connect`); import-linter confines modules only |
@@ -55,7 +55,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | DB-21 | field_ownership_per_ingest_path | db | M1a | H | shipped | may be deleted with the second wire shape if trees are fetched via `reddit.request()` (decide M1b); tests/db/test_repo_ownership.py::test_ownership_covers_every_column, ::test_emitted_statement_matches_ownership, ::test_value_builder_emits_exactly_the_declared_insert_columns |
 | DB-22 | upsert_never_resurrects_terminal_content | db+e2e | M1c | H | planned | |
 | DB-23 | moderator_removed_returns_to_live_reindexes | db | M1c | M | planned | |
-| DB-24 | orphan_parent_comment_without_fk | db | M1b | M | planned | |
+| DB-24 | orphan_parent_comment_without_fk | db | M1b | M | shipped | tests/db/test_repo_comments.py::test_a_comment_whose_parent_is_behind_a_stub_keeps_a_null_parent_pk; asserts both directions, so a NULL cannot be bought by resolving nothing |
 | DB-25 | unknown_enum_values_stored_raw_and_counted | e2e | M1a | H | shipped | tests/services/test_sweep_writes.py::test_unknown_enum_is_stored_raw_and_counted, ::test_overlapping_pages_count_one_unknown_occurrence |
 | DB-26 | fts_membership_equals_live_via_run (`_docsize`) | gate/e2e | M1a | H | shipped | a failure since 2026-09-16 (the index is a compliance surface); tests/services/test_invariants.py::test_fts_membership_equals_live_passes_when_the_index_matches_live_rows, ::test_fts_membership_equals_live_flags_a_membership_mismatch; planted control tests/gates/test_invariants_planted.py::test_planted_violation_flips_the_run |
 | DB-27 | fts_insert_gated_on_live | db | M1a | H | shipped | tests/db/test_fts.py::test_live_post_is_indexed, ::test_tombstone_insert_is_not_indexed |
@@ -122,7 +122,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | TE-01 | transient_page_error_outer_retry_backoff | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_transient_page_error_walks_the_30_120_300_ladder |
 | TE-02 | rate_limited_and_fatal_gateway_errors | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_rate_limited_waits_then_retries_once, ::test_auth_failed_aborts_the_run_with_78, ::test_html_403_aborts_the_run_not_the_subreddit |
 | TR-01 | tree_skip_when_num_comments_zero | service | M1b | H | planned | |
-| TR-02 | tree_more_accounting_and_per_post_cap | service | M1b | H | planned | cap is per fetch (ingest D-3), pending Wes |
+| TR-02 | tree_more_accounting_and_per_post_cap | service | M1b | H | planned | cap is per fetch (ingest D-3), ruled 2026-09-17 (D-41) |
 | TR-03 | tree_crash_mid_tree_nothing_committed | e2e | M1b | H | planned | |
 | TR-04 | tree_budget_reserve_newest_first | service | M1b | H | planned | |
 | TR-05 | tree_missing_known_comments_checked_via_info | service | M1c | H | planned | |
