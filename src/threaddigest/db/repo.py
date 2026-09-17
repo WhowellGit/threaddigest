@@ -76,6 +76,7 @@ __all__ = [
     "mark_runs",
     "post_source_values",
     "post_values",
+    "REDDIT_WEB_HOST",
     "posts_in_window",
     "prior_posts",
     "ranked_posts",
@@ -105,6 +106,14 @@ __all__ = [
 
 #: Slug of the workspace every M1a command operates in.
 DEFAULT_WORKSPACE_SLUG: Final = "premiere"
+
+#: Where a stored permalink is rooted. ``posts.permalink`` holds the site-relative path Reddit's
+#: API returns (``/r/premiere/comments/abc123/slug/``), which is the form the scrub clears and
+#: the form the column's comment describes; joined to this host on the way out, in one place, so
+#: no reader of a permalink can hand the digest a link that resolves against whatever server
+#: rendered the page. A literal until M2, when the UI gains its own configuration and this
+#: becomes a setting beside the bind address (PLAN § Web UI).
+REDDIT_WEB_HOST: Final = "https://www.reddit.com"
 
 #: Upstream enum columns of ``posts`` that are scanned for unknown values. ``subreddit_type``
 #: is registered in ``core.models.KNOWN_VALUES`` but is a column of ``subreddits``, which
@@ -1474,6 +1483,14 @@ def ranked_posts(
     the ranking falls through to comment count and score: the digest is thin, not wrong. The
     post's own author is deliberately not counted -- the section asks how many people are
     *discussing* a post, and the author is its subject.
+
+    ``permalink`` comes back rooted at :data:`REDDIT_WEB_HOST`. The column holds the
+    site-relative path Reddit's API returns, so a digest that rendered it unchanged produced a
+    link resolving against whatever server served the page rather than against Reddit
+    (KI-036). The host is joined on here, once, rather than in each of the three renderings,
+    because :class:`core.digest.PostItem` is what the model carries and a link is the one
+    thing that list is for; the stored column is left as the collector wrote it, which is what
+    the scrub clears and what a re-upsert compares.
     """
     posts = _table("posts")
     subreddits = _table("subreddits")
@@ -1503,7 +1520,7 @@ def ranked_posts(
         PostItem(
             post_id=str(row["reddit_id"]),
             title="" if row["title"] is None else str(row["title"]),
-            permalink=str(row["permalink"]),
+            permalink=f"{REDDIT_WEB_HOST}{row['permalink']}",
             subreddit=str(row["display_name"]),
             distinct_author_count=int(row["distinct_author_count"]),
             comment_count=int(row["num_comments"]),

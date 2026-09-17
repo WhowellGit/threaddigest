@@ -19,6 +19,7 @@ from sqlalchemy import select
 from threaddigest.core.models import KNOWN_VALUES, PostRow
 from threaddigest.db.ownership import IngestPath
 from threaddigest.db.repo import (
+    REDDIT_WEB_HOST,
     PostWrite,
     RunInsert,
     SweepProgress,
@@ -697,6 +698,28 @@ def test_ranked_posts_orders_by_rank_posts_and_not_by_the_database(
     assert all(p.distinct_author_count == 0 for p in top), "no comment is captured before M1b"
     assert top[0].subreddit == "Premiere"
     assert top[1].subreddit == "editors"
+
+
+def test_ranked_posts_hands_the_digest_a_link_that_opens_on_reddit(
+    engine: Any, workspace_pk: int, now: int
+) -> None:
+    """KI-036. ``posts.permalink`` holds Reddit's own site-relative path, which is what the API
+    returns and what a scrub clears; rendered unchanged it resolves against whatever server
+    served the page, so every link in the digest pointed back at this one. The host is joined
+    on here, on the way out, and the stored column keeps the path it was given: the digest's
+    link is an address, and the row is still the row the collector wrote.
+    """
+    _rank_fixture(engine, workspace_pk, now)
+
+    posts = Base.metadata.tables["posts"]
+    with engine.connect() as conn:
+        top = ranked_posts(conn, workspace_pk=workspace_pk, since_created_utc=now - 10, limit=10)
+        stored = conn.execute(select(posts.c.permalink)).scalars().all()
+
+    assert top, "the fixture planted no post in the window"
+    for post in top:
+        assert post.permalink.startswith(f"{REDDIT_WEB_HOST}/r/"), post.permalink
+    assert all(path is not None and path.startswith("/r/") for path in stored), stored
 
 
 def test_ranked_posts_limits_after_ranking_and_counts_its_own_window(

@@ -31,6 +31,7 @@ from tests.web.conftest import History
 from threaddigest.core.models import PostRow
 from threaddigest.db import repo
 from threaddigest.db.ownership import IngestPath
+from threaddigest.db.repo import REDDIT_WEB_HOST
 from threaddigest.services.report import MIN_DISTINCT_AUTHORS, WINDOW_DAYS
 from threaddigest.services.runs import Counters
 
@@ -288,6 +289,18 @@ def test_the_top_posts_are_ranked_and_the_heading_names_its_window(page: HTMLPar
     heading = workspace.css('h3[data-heading="top-posts"]')
     assert heading, "the top-post list has no heading"
     assert f"last {WINDOW_DAYS} days" in " ".join((heading[0].text() or "").split())
+
+
+def test_every_post_link_on_the_page_opens_on_reddit(page: HTMLParser) -> None:
+    """KI-036: the rendering, not the read. The page's whole purpose is to send a reader to the
+    thread, and a stored permalink is a site-relative path, so an unchanged one resolved
+    against this server and the link went nowhere. Asserted on the rendered ``href`` because
+    that is what a reader clicks; the read's own half is in ``tests/db/test_repo_reads.py``.
+    """
+    hrefs = [node.attributes.get("href") for node in page.css("ol.posts li[data-post] a")]
+    assert hrefs, "the digest listed no post at all"
+    off_site = [href for href in hrefs if not (href or "").startswith(f"{REDDIT_WEB_HOST}/r/")]
+    assert not off_site, f"post links that do not open on Reddit: {off_site}"
 
 
 def test_every_number_on_the_page_carries_the_population_it_came_from(page: HTMLParser) -> None:
