@@ -35,6 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.sqlite import Insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from threaddigest.core.digest import PostItem, rank_posts
 from threaddigest.core.models import PostRow, Reject
 from threaddigest.core.paging import KnownPost
 from threaddigest.db.ownership import OWNERSHIP, IngestPath
@@ -46,6 +47,7 @@ __all__ = [
     "BackupInsert",
     "PostWrite",
     "PriorPost",
+    "RunDisplay",
     "RunInsert",
     "RunRow",
     "SnapshotWrite",
@@ -74,11 +76,16 @@ __all__ = [
     "mark_runs",
     "post_source_values",
     "post_values",
+    "posts_in_window",
     "prior_posts",
+    "ranked_posts",
+    "recent_runs",
     "recent_sweeping_runs",
     "recount_authors",
     "record_subreddit_failure",
     "rows_below_normalizer_version",
+    "run_display",
+    "run_for_window",
     "run_options",
     "running_runs",
     "seed_subreddits",
@@ -87,11 +94,13 @@ __all__ = [
     "source_outcomes",
     "stale_candidates",
     "stamp_complete_poll",
+    "subreddit_names",
     "table_counts",
     "unknown_enum_occurrences",
     "upsert_authors",
     "upsert_posts",
     "upsert_run_subreddit",
+    "workspaces",
 ]
 
 #: Slug of the workspace every M1a command operates in.
@@ -223,6 +232,38 @@ class RunRow:
     pid: int | None
     stage: str | None
     error: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunDisplay:
+    """Every ``runs`` column a surface *displays*, as opposed to the lifecycle columns
+    :class:`RunRow` carries for the stale sweep.
+
+    A separate type rather than a widened :class:`RunRow` because the two have different
+    readers: the sweep must not be tempted to branch on a counter, and a page must not be
+    handed a row missing the trigger, the budget or the violations it has to print. The JSON
+    columns arrive as the raw strings the run wrote; ``services/runs_view.py`` parses them
+    once for every reader, so no route or template ever calls ``json.loads``.
+    """
+
+    pk: int
+    kind: str
+    trigger: str
+    status: str
+    created_at: int
+    started_at: int | None
+    finished_at: int | None
+    heartbeat_at: int | None
+    pid: int | None
+    stage: str | None
+    options_json: str | None
+    counters_json: str | None
+    api_requests: int
+    error: str | None
+    violations_json: str | None
+    settings_fingerprint: str | None
+    app_version: str | None
+    schema_rev: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1096,6 +1137,12 @@ def recent_sweeping_runs(conn: Connection, *, current_run_pk: int, limit: int) -
     The ``EXISTS`` clause is self-maintaining: every kind of run that writes a ``runs`` row
     but sweeps nothing -- ``skipped_locked``, a run aborted at the auth preflight, a network
     outage -- is excluded by construction, with no status list to keep in sync.
+
+    The window *ends* at ``current_run_pk``: it is the newest ``runs`` row by construction
+    while the invariants run (the row was inserted by this process, which holds the
+    collector flock), so the clause changes nothing for ``per_source_freshness``. It is what
+    makes the read usable after the fact, by the digest of an older run, which must not be
+    handed runs that had not happened yet.
     """
     runs = _table("runs")
     run_subreddits = _table("run_subreddits")
@@ -1105,6 +1152,7 @@ def recent_sweeping_runs(conn: Connection, *, current_run_pk: int, limit: int) -
         .where(
             runs.c.kind == "run",
             swept,
+            runs.c.pk <= current_run_pk,
             (runs.c.pk == current_run_pk) | (runs.c.status.in_(sorted(FRESHNESS_STATUSES))),
         )
         .order_by(runs.c.pk.desc())
@@ -1210,26 +1258,37 @@ def rows_below_normalizer_version(conn: Connection, *, table: str, since: int, v
 
 
 def unknown_enum_occurrences(
-    conn: Connection, *, since: int, known: Mapping[str, frozenset[str]]
+    conn: Connection,
+    *,
+    since: int,
+    known: Mapping[str, frozenset[str]],
+    until: int | None = None,
 ) -> list[str]:
     """``"<reddit_id>|<field>=<value>"`` per unknown enum occurrence written this run.
 
     One entry per ``(reddit_id, field, value)`` triple where ``value`` is non-NULL and
-    outside the known set for that field, over the distinct posts written since ``since``.
+    outside the known set for that field, over the distinct posts written in the window.
     The field set is exactly ``UNKNOWN_ENUM_FIELDS``.
+
+    ``until`` closes the window at the top. The invariant leaves it open, because it runs
+    while the run it measures is the last thing that wrote anything; the digest passes the
+    run's ``finished_at``, because a report assembled for an older run must not count the
+    rows a *later* run wrote into that run's section (§14.1's window, read after the fact).
     """
     posts = _table("posts")
     found: list[str] = []
     for field in UNKNOWN_ENUM_FIELDS:
         column = posts.c[field]
-        rows = conn.execute(
-            select(posts.c.reddit_id, column).where(
-                posts.c.last_fetched_at >= since,
-                column.is_not(None),
-                column.notin_(sorted(known[field])),
-            )
-        ).all()
-        found.extend(f"{reddit_id}|{field}={value}" for reddit_id, value in rows)
+        stmt = select(posts.c.reddit_id, column).where(
+            posts.c.last_fetched_at >= since,
+            column.is_not(None),
+            column.notin_(sorted(known[field])),
+        )
+        if until is not None:
+            stmt = stmt.where(posts.c.last_fetched_at <= until)
+        found.extend(
+            f"{reddit_id}|{field}={value}" for reddit_id, value in conn.execute(stmt).all()
+        )
     return found
 
 
@@ -1252,3 +1311,205 @@ def live_counts(conn: Connection) -> dict[str, int]:
         select(posts_live.label("posts_live"), comments_live.label("comments_live"))
     ).one()
     return {"posts_live": int(row[0]), "comments_live": int(row[1])}
+
+
+# --- display reads: the Runs page and the digest (DB-63, the first web slice) ---------------
+
+
+def _run_display(mapping: RowMapping) -> RunDisplay:
+    return RunDisplay(
+        pk=int(mapping["pk"]),
+        kind=str(mapping["kind"]),
+        trigger=str(mapping["trigger"]),
+        status=str(mapping["status"]),
+        created_at=int(mapping["created_at"]),
+        started_at=mapping["started_at"],
+        finished_at=mapping["finished_at"],
+        heartbeat_at=mapping["heartbeat_at"],
+        pid=mapping["pid"],
+        stage=mapping["stage"],
+        options_json=mapping["options_json"],
+        counters_json=mapping["counters_json"],
+        api_requests=int(mapping["api_requests"]),
+        error=mapping["error"],
+        violations_json=mapping["violations_json"],
+        settings_fingerprint=mapping["settings_fingerprint"],
+        app_version=mapping["app_version"],
+        schema_rev=mapping["schema_rev"],
+    )
+
+
+def recent_runs(
+    conn: Connection, *, limit: int, before_pk: int | None = None, kind: str | None = None
+) -> list[RunDisplay]:
+    """One page of run rows, newest first: the Runs page's list read.
+
+    ``before_pk`` is the page cursor and is **strictly** exclusive, so "load more" can never
+    repeat the row it paged from; the pk is the cursor rather than a timestamp because two
+    runs can share a second and a pk cannot. ``kind`` narrows to one command (the digest asks
+    for ``run``); the page itself passes nothing, because an operator reading history wants
+    the ``doctor`` and ``migrate`` rows in it too.
+    """
+    runs = _table("runs")
+    stmt = select(runs).order_by(runs.c.pk.desc()).limit(limit)
+    if before_pk is not None:
+        stmt = stmt.where(runs.c.pk < before_pk)
+    if kind is not None:
+        stmt = stmt.where(runs.c.kind == kind)
+    return [_run_display(row) for row in conn.execute(stmt).mappings()]
+
+
+def run_display(conn: Connection, *, run_pk: int) -> RunDisplay | None:
+    """One run row by pk, or ``None`` -- which the route turns into a 404."""
+    runs = _table("runs")
+    row = conn.execute(select(runs).where(runs.c.pk == run_pk)).mappings().first()
+    return None if row is None else _run_display(row)
+
+
+def run_for_window(
+    conn: Connection, *, start_utc: int, end_utc: int, kind: str = "run"
+) -> RunDisplay | None:
+    """The newest **finished** run of ``kind`` that started inside ``[start_utc, end_utc)``.
+
+    Two choices are made here rather than in the caller, because both are properties of the
+    query and a caller handed a single row could not undo them:
+
+    * A run belongs to the day it **started**, from ``coalesce(started_at, created_at)``: a
+      sweep that begins at 23:50 and ends after midnight is one evening's run, not two days'.
+      The window is half-open so consecutive local days tile without an overlap.
+    * Only a finished run has a report. A run still in flight has no terminal status, no
+      counters and no invariant verdict, so a digest of it would be a page of NULLs; the Runs
+      page is where a run in flight is read.
+    """
+    runs = _table("runs")
+    anchor = func.coalesce(runs.c.started_at, runs.c.created_at)
+    row = (
+        conn.execute(
+            select(runs)
+            .where(
+                runs.c.kind == kind,
+                runs.c.finished_at.is_not(None),
+                anchor >= start_utc,
+                anchor < end_utc,
+            )
+            .order_by(runs.c.pk.desc())
+            .limit(1)
+        )
+        .mappings()
+        .first()
+    )
+    return None if row is None else _run_display(row)
+
+
+def subreddit_names(conn: Connection, *, pks: Sequence[int]) -> dict[int, str]:
+    """``subreddit_pk -> display_name`` for the per-source rows of a run.
+
+    Reddit's own capitalisation, because that is what an operator sees on the site; the
+    lower-cased name is the identity and never the label.
+    """
+    wanted = list(dict.fromkeys(pks))
+    if not wanted:
+        return {}
+    subreddits = _table("subreddits")
+    rows = conn.execute(
+        select(subreddits.c.pk, subreddits.c.display_name).where(subreddits.c.pk.in_(wanted))
+    ).all()
+    return {int(pk): str(display_name) for pk, display_name in rows}
+
+
+def workspaces(conn: Connection) -> list[tuple[int, str, str]]:
+    """``(pk, slug, name)`` for every workspace, ordered by slug."""
+    table = _table("workspaces")
+    rows = conn.execute(select(table.c.pk, table.c.slug, table.c.name).order_by(table.c.slug)).all()
+    return [(int(pk), str(slug), str(name)) for pk, slug, name in rows]
+
+
+def _post_window_stmt(*, workspace_pk: int, since_created_utc: int) -> Select[tuple[int]]:
+    """The digest's post window: live, linkable posts of one workspace created since a point.
+
+    One builder for both the ranked list and its denominator, because "show the denominator"
+    is only true if the population counted is the population listed. A post with no
+    ``permalink`` is excluded from both halves together: a scrubbed row has no link and no
+    title, so it can be neither shown nor named, and a *live* row without one is a population
+    floor violation the run already reports (DB-50).
+    """
+    posts = _table("posts")
+    subreddits = _table("subreddits")
+    return (
+        select(posts.c.pk)
+        .select_from(posts.join(subreddits, posts.c.subreddit_pk == subreddits.c.pk))
+        .where(
+            subreddits.c.workspace_pk == workspace_pk,
+            posts.c.content_state == "live",
+            posts.c.permalink.is_not(None),
+            posts.c.created_utc >= since_created_utc,
+        )
+    )
+
+
+def posts_in_window(conn: Connection, *, workspace_pk: int, since_created_utc: int) -> int:
+    """How many posts :func:`ranked_posts` ranks over, with no ranking and no limit.
+
+    The denominator of every digest count whose population is "posts in the window": the
+    ranked list is capped at its top N, so its length can never be the population.
+    """
+    stmt = _post_window_stmt(workspace_pk=workspace_pk, since_created_utc=since_created_utc)
+    return int(conn.execute(stmt.with_only_columns(func.count())).scalar_one())
+
+
+def ranked_posts(
+    conn: Connection, *, workspace_pk: int, since_created_utc: int, limit: int
+) -> list[PostItem]:
+    """The window's posts ordered by :func:`core.digest.rank_posts`, capped at ``limit``.
+
+    The ordering is **never** a SQL ``ORDER BY`` on the ranking keys: one ranking function is
+    shared by the digest, the theme pages and the export (D-09), so a second spelling of it
+    in SQL is a second answer waiting to disagree. ``limit`` is therefore applied after the
+    ranking, in Python; the database's bound is the window, which is what keeps the read
+    finite.
+
+    ``distinct_author_count`` counts the **distinct live comment authors** of the post by
+    ``author_fullname``, with NULL identities excluded rather than collapsed into one bucket
+    (D-09). No comment tree is captured before M1b, so today it is zero for every post and
+    the ranking falls through to comment count and score: the digest is thin, not wrong. The
+    post's own author is deliberately not counted -- the section asks how many people are
+    *discussing* a post, and the author is its subject.
+    """
+    posts = _table("posts")
+    subreddits = _table("subreddits")
+    comments = _table("comments")
+    distinct_authors = (
+        select(func.count(func.distinct(comments.c.author_fullname)))
+        .where(
+            comments.c.post_pk == posts.c.pk,
+            comments.c.content_state == "live",
+            comments.c.author_fullname.is_not(None),
+        )
+        .scalar_subquery()
+    )
+    stmt = _post_window_stmt(
+        workspace_pk=workspace_pk, since_created_utc=since_created_utc
+    ).with_only_columns(
+        posts.c.reddit_id,
+        posts.c.title,
+        posts.c.permalink,
+        subreddits.c.display_name,
+        distinct_authors.label("distinct_author_count"),
+        posts.c.num_comments,
+        posts.c.score,
+        posts.c.created_utc,
+    )
+    items = [
+        PostItem(
+            post_id=str(row["reddit_id"]),
+            title="" if row["title"] is None else str(row["title"]),
+            permalink=str(row["permalink"]),
+            subreddit=str(row["display_name"]),
+            distinct_author_count=int(row["distinct_author_count"]),
+            comment_count=int(row["num_comments"]),
+            score=int(row["score"]),
+            created_utc=int(row["created_utc"]),
+        )
+        for row in conn.execute(stmt).mappings()
+    ]
+    return rank_posts(items)[:limit]

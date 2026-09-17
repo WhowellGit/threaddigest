@@ -55,9 +55,11 @@ __all__ = [
     "UnknownEnumSection",
     "UntaggedSection",
     "WorkspaceSection",
+    "duration",
     "rank_posts",
     "render_html",
     "render_markdown",
+    "when",
 ]
 
 #: A source not fetched for this many runs is reported stale (PLAN.md, Resilience: "the
@@ -516,13 +518,20 @@ def known_display_timezone(name: str) -> str:
     return name
 
 
-def _when(epoch: int, zone_name: str) -> str:
-    """``2026-09-13 06:30 UTC``: minute precision, zone abbreviation, no seconds."""
+def when(epoch: int, zone_name: str) -> str:
+    """``2026-09-13 06:30 UTC``: minute precision, zone abbreviation, no seconds.
+
+    Public because the web templates need the same rendering the digest uses: two spellings
+    of "when" would eventually disagree about a zone or a seconds field, and one page showing
+    a different time from the digest of the same run is exactly the drift this project
+    treats as a defect. The Jinja filter below keeps the name ``when``.
+    """
     moment = datetime.fromtimestamp(epoch, tz=_zone(zone_name))
     return moment.strftime("%Y-%m-%d %H:%M %Z")
 
 
-def _duration(seconds: int) -> str:
+def duration(seconds: int) -> str:
+    """``11 min`` / ``2 h 05 min`` / ``42 s``: the one spelling of an elapsed time."""
     if seconds < 60:
         return f"{seconds} s"
     minutes, _ = divmod(seconds, 60)
@@ -574,8 +583,8 @@ def _environment(*, autoescape: bool) -> Environment:
     )
     env.filters.update(
         {
-            "when": _when,
-            "duration": _duration,
+            "when": when,
+            "duration": duration,
             "hours": _hours,
             "plural": _plural,
             "md": _md_escape,

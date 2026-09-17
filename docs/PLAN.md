@@ -131,7 +131,7 @@ Layers, outermost to innermost: `web` | `cli` → `services` → `db` | `adapter
 | `core.themes` | rule compile (`regex` with timeout, caps) and match; `rules_hash` | regex | unit incl. ReDoS timeout | built |
 | `core.budget` | per-run request accounting and reserve | — | unit | built |
 | `core.retry` | retry ladder, exception classification, run statuses and exit codes, rate-limit wait planning | — | unit, hypothesis | built |
-| `core.digest` | digest model (ranking, theme, untagged, rising, workspace, backlog, compliance sections) → markdown and HTML | jinja2 | golden file | built, not yet assembled from the DB (M1d) |
+| `core.digest` | digest model (ranking, theme, untagged, rising, workspace, backlog, compliance sections) → markdown and HTML | jinja2 | golden file | built; assembled from the DB by `services.report` (the first web slice, 2026-09-16) |
 | `adapters.reddit_fake` | scenario-building fake gateway, a package | — | contract suite (same cases as the real adapter) | built |
 | `adapters.reddit_praw` | `RedditGateway` over PRAW; request counting; exception translation | praw | cassettes + `responses` + contract suite | built; failure paths covered by `responses`, cassettes and the contract suite follow the probe day |
 | `adapters.notify`, `adapters.clock` | `Notifier` (macOS `osascript`, log, null, and a fake for tests; ntfy is a later option, D-10); injected clock | subprocess | unit | built |

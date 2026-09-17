@@ -76,6 +76,7 @@ __all__ = [
     "TierMaxAgeHours",
     "default_data_dir",
     "default_settings_file",
+    "non_secret_settings",
     "settings_fingerprint",
     "unknown_environment_variables",
     "user_agent",
@@ -377,13 +378,24 @@ def _secret_field_names() -> set[str]:
     return {name for name, field in Settings.model_fields.items() if _is_secret(field)}
 
 
+def non_secret_settings(settings: Settings) -> dict[str, Any]:
+    """The resolved settings the fingerprint covers: every field except the ``SecretStr`` ones.
+
+    One home for "the non-secret settings". :func:`settings_fingerprint` hashes exactly this
+    mapping and the digest counts its leaves for the denominator of "settings changed since
+    the last run", so the hash and the count can never disagree about what a setting is --
+    and a second definition of "secret" cannot appear beside the structural one above.
+    """
+    return settings.model_dump(mode="json", exclude=_secret_field_names())
+
+
 def settings_fingerprint(settings: Settings) -> str:
     """SHA-256 over the resolved non-secret settings, stable across key order.
 
     Every ``SecretStr`` field on :class:`Settings` is excluded structurally, so adding a
     new secret cannot leak into the fingerprint by omission.
     """
-    payload = settings.model_dump(mode="json", exclude=_secret_field_names())
+    payload = non_secret_settings(settings)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
