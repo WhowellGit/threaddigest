@@ -85,13 +85,24 @@ def missing_records(root: Path, register_rows: list[dict[str, str]]) -> list[str
 
 
 def required_commits(root: Path, baseline: str = BASELINE) -> list[tuple[str, str]]:
-    """``(full hash, subject)`` for every ancestor of HEAD since ``baseline`` touching a surface."""
-    out = git(root, "log", f"--since={baseline}", "--format=%H%x00%s", "--", *SURFACES)
+    """``(full hash, subject)`` for every ancestor of HEAD dated on or after ``baseline``.
+
+    The date is read off each commit and compared here rather than handed to ``git log --since``.
+    Git's approximate date parser fills the fields a bare date leaves out from the current clock,
+    so ``--since=2026-09-15`` means *that date at the hour the suite happens to run*, in whatever
+    timezone the host is set to. The cutoff slid through the day and moved with the machine, and
+    six commits on review-required surfaces were invisible on the owner's Mac while the Linux
+    runner demanded rows for them (KI-035). ``%cs`` is the committer date in the commit's own
+    recorded zone -- the date a reader of ``git log`` sees -- and comparing two ``YYYY-MM-DD``
+    strings has no clock in it at all.
+    """
+    out = git(root, "log", "--format=%H%x00%cs%x00%s", "--", *SURFACES)
     commits: list[tuple[str, str]] = []
     for line in out.splitlines():
         if line:
-            full, subject = line.split("\x00", 1)
-            commits.append((full, subject))
+            full, dated, subject = line.split("\x00", 2)
+            if dated >= baseline:
+                commits.append((full, subject))
     return commits
 
 
@@ -108,12 +119,19 @@ def covered(root: Path, scope: str, full: str, remap: Mapping[str, str] | None =
     became (``docs/reference/hash-remap-*.tsv``) and both a bare hash and each end of a range
     are followed through that map. A scope that names no commit, before or after the map, still
     covers nothing.
+
+    The two ends are followed independently, so the pairs tried include the start as it was
+    written with the end as the rewrite left it. Those two sit on histories with no commit in
+    common, and ``git rev-list old..new`` answers such a pair with the whole new history -- a row
+    covering every commit before its own start. A pair is therefore a range only when the start
+    is an ancestor of the end, which is what ``first..last`` means (KI-035).
     """
     remap = load_remap(root) if remap is None else remap
     for first, last in RANGE.findall(scope):
         for start in _through_remap(remap, first):
             for end in _through_remap(remap, last):
                 try:  # ``a..b`` excludes ``a``; it is added back (a root has no parent)
+                    git(root, "merge-base", "--is-ancestor", start, end)
                     listed = git(root, "rev-list", f"{start}..{end}").split()
                     listed.append(git(root, "rev-parse", f"{start}^{{commit}}").strip())
                 except subprocess.CalledProcessError:
@@ -155,9 +173,9 @@ def test_every_required_commit_since_the_baseline_has_a_review_row() -> None:
 # --------------------------------------------------------------------------- positive controls
 
 
-def _repo_with_dated_commits(root: Path) -> list[str]:
-    """Three commits: one before the baseline on a surface, two after (surface, not surface)."""
-    env = {
+def _git_env(root: Path) -> dict[str, str]:
+    """A git environment with no global configuration and a fixed identity."""
+    return {
         **os.environ,
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1",
@@ -168,26 +186,32 @@ def _repo_with_dated_commits(root: Path) -> list[str]:
         "GIT_COMMITTER_EMAIL": "register-test@example.invalid",
     }
 
-    def commit(rel: str, date: str, subject: str) -> str:
-        path = root / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(subject + "\n", encoding="utf-8")
-        subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env, timeout=60)
-        subprocess.run(
-            ["git", "commit", "-q", "-m", subject],
-            cwd=root,
-            check=True,
-            env={**env, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date},
-            timeout=60,
-        )
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
-        ).stdout.strip()
 
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=env, timeout=60)
-    old = commit("tests/gates/test_old.py", "2026-09-10T10:00:00", "before the baseline")
-    new = commit("tests/gates/test_new.py", "2026-09-16T10:00:00", "gate after the baseline")
-    other = commit("docs/x.md", "2026-09-17T10:00:00", "a document, not a surface")
+def _commit(root: Path, rel: str, date: str, subject: str) -> str:
+    """Write ``rel``, commit it at ``date`` (any git date, its zone included), return the hash."""
+    env = _git_env(root)
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(subject + "\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True, env=env, timeout=60)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", subject],
+        cwd=root,
+        check=True,
+        env={**env, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date},
+        timeout=60,
+    )
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _repo_with_dated_commits(root: Path) -> list[str]:
+    """Three commits: one before the baseline on a surface, two after (surface, not surface)."""
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, env=_git_env(root), timeout=60)
+    old = _commit(root, "tests/gates/test_old.py", "2026-09-10T10:00:00", "before the baseline")
+    new = _commit(root, "tests/gates/test_new.py", "2026-09-16T10:00:00", "gate after the baseline")
+    other = _commit(root, "docs/x.md", "2026-09-17T10:00:00", "a document, not a surface")
     return [old, new, other]
 
 
@@ -201,6 +225,10 @@ def test_positive_control_an_uncovered_surface_commit_is_red(tmp_path: Path) -> 
     assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: "pre-baseline"}]) != []
     assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: other[:7]}]) != [], (
         "a wrong hash covers nothing"
+    )
+    assert uncovered_commits(tmp_path, [{SCOPE_COLUMN: f"{old[:7]}..HEAD"}]) != [], (
+        "a moving reference is not a range end; such a scope covers the hash it names and no "
+        "more, and the gate stays red over the commits the writer meant to cover (KI-035)"
     )
 
 
@@ -254,3 +282,76 @@ def test_positive_control_a_missing_record_is_red(tmp_path: Path) -> None:
     parsed = rows(register)
     assert len(parsed) == 2
     assert missing_records(tmp_path, parsed) == ["ghost.md"]
+
+
+@pytest.mark.gate("G50")
+def test_positive_control_the_baseline_is_a_date_not_the_hour_the_suite_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Which commits need a row is a property of the commits, never of the clock or the host.
+
+    Birth incident (2026-09-16, KI-035): the baseline was handed to ``git log --since=``, whose
+    approximate date parser fills the hour a bare date leaves out from the current time. The
+    cutoff therefore slid through the day and moved with the host's timezone: six commits on
+    review-required surfaces were invisible on the owner's Mac and demanded rows on the Linux
+    runner, which is where the second CI run went red while ``make check`` was green here. The
+    zones are written as POSIX strings so the assertion holds on a container with no zone
+    database (``XXX12`` is twelve hours behind UTC, ``YYY-14`` fourteen ahead).
+    """
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, env=_git_env(tmp_path), timeout=60
+    )
+    eve = _commit(tmp_path, "tests/gates/test_eve.py", "2026-09-14T23:59:00-06:00", "the eve")
+    dawn = _commit(tmp_path, "tests/gates/test_dawn.py", "2026-09-15T00:04:26-06:00", "four past")
+    dusk = _commit(tmp_path, "tests/gates/test_dusk.py", "2026-09-15T23:50:00-06:00", "ten to")
+
+    for zone in ("UTC0", "XXX12", "YYY-14", "America/Denver"):
+        monkeypatch.setenv("TZ", zone)
+        assert [full for full, _ in required_commits(tmp_path)] == [dusk, dawn], (
+            f"the set of commits needing a row moved with the host timezone {zone}"
+        )
+        assert eve not in [full for full, _ in required_commits(tmp_path)], (
+            f"a commit dated the day before the baseline was demanded under {zone}"
+        )
+
+
+@pytest.mark.gate("G50")
+def test_positive_control_a_range_covers_only_a_real_ancestry(tmp_path: Path) -> None:
+    """A range covers what lies between its ends; a pair that is not an ancestry is not a range.
+
+    Birth incident (2026-09-16, KI-035): each end of a range is followed through the rewrite map
+    on its own, so the pairs tried include the old start with the new end. Those two sit on
+    histories with no commit in common, and ``git rev-list old..new`` then answers with the whole
+    new history -- a row silently covering every commit before its own start. Only a machine
+    without the pre-rewrite objects could tell, which is why a fresh clone is the reviewer.
+    """
+    subprocess.run(
+        ["git", "init", "-q"], cwd=tmp_path, check=True, env=_git_env(tmp_path), timeout=60
+    )
+    before = _commit(tmp_path, "tests/gates/test_before.py", "2026-09-16T09:00:00", "before")
+    first = _commit(tmp_path, "tests/gates/test_first.py", "2026-09-16T10:00:00", "the first")
+    last = _commit(tmp_path, "tests/gates/test_last.py", "2026-09-16T11:00:00", "the last")
+    subprocess.run(
+        ["git", "checkout", "-q", "--orphan", "as-it-was"],
+        cwd=tmp_path,
+        check=True,
+        env=_git_env(tmp_path),
+        timeout=60,
+    )
+    was_first = _commit(tmp_path, "tests/gates/test_wf.py", "2026-09-16T10:00:00", "the first was")
+    was_last = _commit(tmp_path, "tests/gates/test_wl.py", "2026-09-16T11:00:00", "the last was")
+
+    maps = tmp_path / "docs" / "reference"
+    maps.mkdir(parents=True, exist_ok=True)
+    (maps / "hash-remap-2026-09-16.tsv").write_text(
+        f"# the rewrite\n{was_first}\t{first}\tthe first\n{was_last}\t{last}\tthe last\n",
+        encoding="utf-8",
+    )
+
+    scope = f"{was_first[:7]}..{was_last[:7]}"
+    assert covered(tmp_path, scope, first), "the range's own start is covered"
+    assert covered(tmp_path, scope, last), "and its end"
+    assert not covered(tmp_path, scope, before), (
+        "a row covered a commit that precedes its own start, through an old start paired with a "
+        "new end"
+    )
