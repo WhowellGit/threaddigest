@@ -9,6 +9,12 @@ milestone: M1a-A
 **As of 2026-09-17.** M0 and M1a tranche A are built and green on `main`, and there is now something to open: the first web slice landed, so `make serve` shows the run history, one run's detail, and the digest for a day. The registered hooks sit in the path of every tool call and all five scripts are registered (`make check` prints the count). The round-one fixes, the twice-weekly cadence (D-30), KI-011, and the round-one fix panel's follow-ups have landed. Tranche B's offline half has landed too: the real Reddit adapter, the `probe` command, and the `doctor` auth ping, all tested without credentials; the probe day waits only on credentials. The plan is at version 2 (`docs/PLAN.md`, rewritten 2026-09-15 and corrected against the tree on 2026-09-16), with `docs/OVERVIEW.md` and `docs/THREADDIGEST_HARNESS.md` beside it. A git remote exists and is a backup, never the gate: nothing reaches it without `make check` through the pre-push hook, and the QNAP bare remote is still the plan when the hardware arrives (MB). Numbers live in the `make check` output, never here.
 
 ## In flight
+- The 2026-09-17 code panel's first fix round landed on the adapter and the port (KI-041 to
+  KI-043): a 429 whose `Retry-After` is an HTTP date backs off instead of stamping the source
+  errored, reversing a tranche B call; a comment tree holds each comment once however often
+  Reddit delivers it; a split `more` stub divides its hidden-comment count instead of
+  relabelling it. The anchor code N-08 retired went with them. Four fix rounds remain, in the
+  panel record's disposition.
 - Revision 0005 landed (D-39): a run row now records the resolved non-secret settings beside their
   fingerprint and the warnings it raised beside the invariants' verdicts, so the digest names the
   settings key that changed with both of its values and a run page names the warnings that made a

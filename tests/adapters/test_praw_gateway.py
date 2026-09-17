@@ -39,6 +39,7 @@ from threaddigest.adapters.reddit_praw import (
     CountingSession,
     PrawConfig,
     PrawGateway,
+    _half_built_rate_limit,
     _TreeBuilder,
     translate,
 )
@@ -512,6 +513,25 @@ def test_a_value_error_that_is_not_the_rate_limit_constructor_is_still_a_gateway
     """
     with pytest.raises(GatewayError, match="could not describe"):
         gateway_over.about("premiere")
+
+
+def test_a_value_error_from_another_constructor_in_that_file_is_not_mistaken_for_a_429() -> None:
+    """The narrowing's own control: the frame is identified by what it was building, too.
+
+    ``prawcore/exceptions.py`` holds exactly one constructor that can raise a ``ValueError``
+    today. If it grows a second, the handler must not hand that exception to the 429
+    translation, which would read a ``retry_after`` the object does not carry. The library
+    offers no such constructor to test against, so the frame is faked the only way that
+    produces a real one: compiling a function under that filename.
+    """
+    namespace: dict[str, Any] = {}
+    source = "def __init__(self):\n    raise ValueError('not a rate limit at all')\n"
+    exec(compile(source, "/somewhere/prawcore/exceptions.py", "exec"), namespace)
+
+    with pytest.raises(ValueError, match="not a rate limit") as caught:
+        namespace["__init__"](object())
+
+    assert _half_built_rate_limit(caught.value) is None
 
 
 def test_a_retry_after_is_read_the_same_way_whichever_form_it_arrives_in(
