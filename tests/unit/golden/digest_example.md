@@ -16,7 +16,7 @@
 
 - New posts in this workspace: 42 of 42 new posts this run (100%)
 
-### Top posts (ranked by distinct authors, then comments, then score)
+### Top posts of the last 7 days (ranked by distinct authors, then comments, then score)
 
 1. [Export hangs at 99% after the 26.1 update](https://www.reddit.com/r/premiere/comments/1abc1/x/) — r/premiere · 14 authors · 31 comments · score 88
 2. [Crash on launch \[M4 Max\] \*every\* time](https://www.reddit.com/r/premiere/comments/1abc2/x/) — r/premiere · 9 authors · 40 comments · score 120

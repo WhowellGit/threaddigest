@@ -322,6 +322,7 @@ def _workspace_section(
     return WorkspaceSection(
         name=name,
         slug=slug,
+        window_days=WINDOW_DAYS,
         new_posts=new_posts,
         top_posts=ranked[:TOP_POSTS],
         themes=[],

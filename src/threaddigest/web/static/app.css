@@ -137,6 +137,16 @@ tr.reasons td { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 
 p.verdict { margin: 0 0 10px; }
 .empty { color: var(--muted); }
+
+/* The digest page. `.empty` doubles as the note beside a section whose stage is not built:
+   it is the same thing said twice over -- there is nothing here, and here is why. */
+h3 { font-size: 13px; margin: 12px 0 4px; }
+h4 { font-size: 13px; font-weight: 400; margin: 8px 0 2px; }
+.lede { color: var(--muted); margin: 0 0 12px; max-width: 70em; }
+.posts { margin: 2px 0 8px; padding-left: 22px; }
+.posts li { margin: 2px 0; }
+.facts { display: block; color: var(--muted); }
+
 .pager a { font-weight: 700; }
 .back { margin-top: 16px; }
 

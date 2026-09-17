@@ -246,6 +246,11 @@ class WorkspaceSection(_Frozen):
 
     name: str = Field(min_length=1)
     slug: str = Field(min_length=1)
+    #: The discovery window ``top_posts`` is ranked over, in days. Declared here because the
+    #: list is a window's top posts, not an all-time list, and a heading that does not say so
+    #: invites a reader to take it as the latter; the untagged and rising sections carry the
+    #: same field for the same reason.
+    window_days: int = Field(default=7, ge=1)
     #: New posts visible in this workspace, of all new posts this run.
     new_posts: Count
     top_posts: list[PostItem]
@@ -622,7 +627,8 @@ _MARKDOWN_TEMPLATE: Final = """\
 
 - New posts in this workspace: {{ w.new_posts }}
 
-### Top posts (ranked by distinct authors, then comments, then score)
+### Top posts of the last {{ w.window_days }} days (ranked by distinct authors, then
+{{- " " }}comments, then score)
 
 {% for p in w.top_posts %}
 {{ loop.index }}. {{ p|md_post }}
@@ -786,7 +792,8 @@ body { font-family: system-ui, sans-serif; max-width: 60rem; margin: 2rem auto; 
 {% for w in m.workspaces %}
 <h2>Workspace: {{ w.name }}</h2>
 <p>New posts in this workspace: {{ w.new_posts }}</p>
-<h3>Top posts (ranked by distinct authors, then comments, then score)</h3>
+<h3>Top posts of the last {{ w.window_days }} days (ranked by distinct authors, then
+{{- " " }}comments, then score)</h3>
 {{ posts(w.top_posts, "No new posts.") }}
 {% for t in w.themes %}
 <h3>Theme {{ t.name }}: {{ t.matched }}</h3>

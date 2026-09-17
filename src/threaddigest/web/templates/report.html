@@ -1,0 +1,254 @@
+{# The digest for one day, in the site's chrome. Every number is printed through the `count`
+   filter, which takes a `core.digest.Count` and refuses anything else, so no figure can reach
+   this page without the population it came out of. A section whose stage is not built renders
+   its real denominator and a note saying what has not been collected; each note is a condition
+   on the model, never a typed milestone, so it disappears by itself when its stage lands. #}
+{% extends "base.html" %}
+{% from "_count.html" import counted %}
+
+{% macro note(text) -%}
+<p class="empty" data-note="{{ text }}">{{ text }}</p>
+{%- endmacro %}
+
+{% macro ranked(posts, empty_text) -%}
+{% if posts %}
+<ol class="posts">
+  {% for post in posts %}
+  <li class="post" data-post="{{ post.post_id }}">
+    <a href="{{ post.permalink }}">{{ post.title }}</a>
+    <span class="facts">r/{{ post.subreddit }} · {{ post.distinct_author_count }} distinct
+      {{ 'author' if post.distinct_author_count == 1 else 'authors' }} ·
+      {{ post.comment_count }} {{ 'comment' if post.comment_count == 1 else 'comments' }} ·
+      score {{ post.score }}</span>
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+{{ note(empty_text) }}
+{% endif %}
+{%- endmacro %}
+
+{% block content %}
+{% set s = model.summary %}
+<p class="lede">
+  Assembled from the database at {{ model.generated_at | when(zone) }}, when this page was opened,
+  and never written to a file: no saved copy can then quote a title its author deleted afterwards.
+</p>
+
+<section aria-labelledby="summary-heading" data-section="summary">
+  <h2 id="summary-heading">Run summary</h2>
+  <table class="counters">
+    <caption>A share prints the population it came out of; a total is a total.</caption>
+    <tbody>
+      <tr data-measure="Run">
+        <th scope="row">Run</th>
+        <td>
+          <a href="{{ run_url }}">#{{ s.run_id }}</a>
+          <span class="pill pill-{{ verdict }}">{{ s.status.value }}</span>
+          {{ s.trigger }}, {{ s.started_at | when(zone) }}, took {{ s.duration_seconds | duration }}
+        </td>
+      </tr>
+      <tr data-measure="Requests">
+        <th scope="row">Requests</th>
+        <td>{{ counted(s.api_requests) }}</td>
+      </tr>
+      <tr data-measure="New posts">
+        <th scope="row">New posts</th>
+        <td>{{ counted(s.posts_new) }}</td>
+      </tr>
+      <tr data-measure="Updated posts">
+        <th scope="row">Updated posts</th>
+        <td>{{ counted(s.posts_updated) }}</td>
+      </tr>
+      <tr data-measure="New comments">
+        <th scope="row">New comments</th>
+        <td>
+          {{ counted(s.comments_new) }}
+          {% if s.comments_new.of == 0 %}
+            {{ note("No comment tree was fetched, so nothing was seen for a comment to be new out of.") }}
+          {% endif %}
+        </td>
+      </tr>
+      <tr data-measure="Settings">
+        <th scope="row">Settings</th>
+        <td>
+          {% if s.previous_settings_fingerprint is none %}
+            First run of its kind: there is no earlier fingerprint to compare
+            <code>{{ s.settings_fingerprint }}</code> with.
+          {% else %}
+            Changed since the previous run: {{ counted(s.settings_changed) }}
+            (<code>{{ s.previous_settings_fingerprint }}</code> →
+            <code>{{ s.settings_fingerprint }}</code>).
+          {% endif %}
+          {% if not s.settings_changes %}
+            {{ note("The run row keeps only the fingerprint, never the settings, so a change cannot be resolved into the keys that changed.") }}
+          {% else %}
+          <ul class="problems">
+            {% for change in s.settings_changes %}
+            <li><code>{{ change.key }}</code>: <code>{{ change.previous }}</code> →
+              <code>{{ change.current }}</code></li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+{% for w in model.workspaces %}
+<section aria-labelledby="workspace-{{ w.slug }}" data-section="workspace" data-workspace="{{ w.slug }}">
+  <h2 id="workspace-{{ w.slug }}">Workspace: {{ w.name }}</h2>
+  <p>New posts in this workspace: {{ counted(w.new_posts) }}</p>
+
+  <h3 id="top-{{ w.slug }}" data-heading="top-posts">Top posts of the last {{ w.window_days }} days
+    (ranked by distinct authors, then comments, then score)</h3>
+  {{ ranked(w.top_posts, "No post was created in this workspace's window.") }}
+
+  <h3 id="themes-{{ w.slug }}">Themes</h3>
+  {% if w.themes %}
+    {% for theme in w.themes %}
+    <h4 data-theme="{{ theme.slug }}">{{ theme.name }}: {{ counted(theme.matched) }}</h4>
+    {{ ranked(theme.top_posts, "No post matched this theme this run.") }}
+    {% endfor %}
+  {% else %}
+    {{ note("No theme exists and nothing has been tagged, so every post below is untagged.") }}
+  {% endif %}
+
+  {% set u = w.untagged %}
+  <h3 id="untagged-{{ w.slug }}">Untagged posts with at least {{ u.min_distinct_authors }}
+    distinct authors, last {{ u.window_days }} days: {{ counted(u.qualifying) }}</h3>
+  {{ ranked(u.posts, "No untagged post reached the threshold.") }}
+  {% if u.qualifying.n == 0 and s.comments_new.of == 0 %}
+    {{ note("A distinct-author count is read from a post's comments, and no comment tree has been collected, so every post counts zero authors and none can reach the threshold.") }}
+  {% endif %}
+
+  {% set r = w.rising_phrases %}
+  <h3 id="rising-{{ w.slug }}">Rising title phrases, last {{ r.window_days }} days against the
+    trailing {{ r.baseline_weeks }} weeks</h3>
+  {% if r.phrases %}
+  <ul class="problems">
+    {% for phrase in r.phrases %}
+    <li data-phrase="{{ phrase.phrase }}">"{{ phrase.phrase }}": {{ counted(r.now(phrase)) }}
+      against {{ counted(r.baseline(phrase)) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ note("No phrase extractor has run; the title populations this section compares are counted for real, so only the list is missing.") }}
+  {% endif %}
+</section>
+{% endfor %}
+
+<section aria-labelledby="sources-heading" data-section="sources">
+  <h2 id="sources-heading">Sources: {{ counted(model.healthy_subreddits) }} swept without error</h2>
+  {% if not model.subreddits %}
+    {{ note("No source is enabled, so this run had nothing to sweep.") }}
+  {% else %}
+  <table class="sources">
+    <tbody>
+      {% for sub in model.subreddits %}
+      <tr class="source" data-source="{{ sub.name }}" data-healthy="{{ 'yes' if sub.healthy else 'no' }}">
+        <th scope="row">r/{{ sub.name }}</th>
+        <td>{{ sub.status.value }}{% for fact in sub.facts %} · {{ fact }}{% endfor %}
+          {%- if sub.last_error %} · error: <code>{{ sub.last_error }}</code>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p>Stale sources, not fetched for at least {{ stale_after_runs }} runs:
+    {{ counted(model.stale_subreddits) }}</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="backlog-heading" data-section="backlog">
+  <h2 id="backlog-heading">Comment-tree backlog</h2>
+  <p data-measure="Due posts harvested">Due posts whose tree was collected:
+    {{ counted(model.backlog.due_posts_harvested) }}.</p>
+  <p data-measure="Due posts queued">Still queued: {{ counted(model.backlog.remaining_due) }}.</p>
+  <p data-measure="Trees with more skipped">Trees left with unexpanded stubs:
+    {{ counted(model.backlog.trees_with_more_skipped) }}.</p>
+  {% if model.backlog.due_posts_harvested.of == 0 %}
+    {{ note("No post was due for a comment tree and none was fetched: the harvest stage did not run.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="gaps-heading" data-section="gaps">
+  <h2 id="gaps-heading">Gaps: {{ counted(model.gap_count) }}</h2>
+  {% if model.gaps %}
+  <ul class="problems">
+    {% for sub in model.gaps %}
+    <li data-gap="{{ sub.name }}"><span class="where">r/{{ sub.name }}</span>
+      the listing cap was reached before known territory, at
+      {{ sub.gap_suspected_at | when(zone) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ note("No source hit its listing cap before reaching posts already stored.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="errors-heading" data-section="errors">
+  <h2 id="errors-heading">Errors</h2>
+  {% if model.errors %}
+  <ul class="problems">
+    {% for problem in model.errors %}
+    <li><span class="where">{{ problem.where }}</span> {{ problem.message }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ note("This run recorded no error.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="warnings-heading" data-section="warnings">
+  <h2 id="warnings-heading">Warnings</h2>
+  {% if model.warnings %}
+  <ul class="problems">
+    {% for problem in model.warnings %}
+    <li><span class="where">{{ problem.where }}</span> {{ problem.message }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ note("This run recorded no warning.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="enums-heading" data-section="enums">
+  <h2 id="enums-heading">Upstream values we do not know:
+    {{ counted(model.unknown_enums.count) }}</h2>
+  {% if model.unknown_enums.values %}
+  <ul class="problems">
+    {% for value in model.unknown_enums.values %}
+    <li data-enum="{{ value.field }}={{ value.value }}">
+      <code>{{ value.field }}</code> = <code>{{ value.value }}</code>:
+      {{ counted(model.unknown_enums.share(value)) }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ note("Every value this run stored was one we already know; an unknown one is kept raw and counted, never coerced.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="compliance-heading" data-section="compliance">
+  {% set c = model.compliance %}
+  <h2 id="compliance-heading">Compliance</h2>
+  <p data-measure="Reconcile">Last complete reconcile:
+    {% if c.last_reconcile_age_hours is none %}
+      never
+    {% else %}
+      {{ c.last_reconcile_age_hours }} hours ago
+    {% endif %}
+    (the limit is {{ c.tier_max_age_hours }} hours for {{ c.reconcile_tier }}), which is
+    {{ 'overdue' if c.overdue else 'on time' }}.</p>
+  <p data-measure="Reconciled">Re-checked against Reddit this run:
+    {{ counted(c.reconciled) }}.</p>
+  <p data-measure="Scrubbed posts">Posts scrubbed: {{ counted(c.scrubbed_posts) }}; comments
+    scrubbed: {{ counted(c.scrubbed_comments) }}; account deletions applied:
+    {{ counted(c.account_deletions) }}.</p>
+  {% if c.last_reconcile_age_hours is none %}
+    {{ note("No reconcile has completed, so nothing stored has been re-checked against Reddit and no deletion has been applied.") }}
+  {% endif %}
+</section>
+
+<p class="back"><a href="{{ run_url }}">The run behind this digest</a></p>
+{% endblock %}

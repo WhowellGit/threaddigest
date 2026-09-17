@@ -693,7 +693,7 @@ def _serve_preconditions() -> Settings:
 def serve(
     port: int = typer.Option(8765, "--port", min=1, max=65535, help="TCP port on 127.0.0.1."),
 ) -> None:
-    """Serve the web UI on 127.0.0.1 (the run history and one run; the rest at M2)."""
+    """Serve the web UI on 127.0.0.1 (the run history, one run, the digest; the rest at M2)."""
     try:
         settings = _serve_preconditions()
         _refuse_a_server_under_pytest()

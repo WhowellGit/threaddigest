@@ -33,7 +33,7 @@ from starlette.responses import PlainTextResponse
 from starlette.testclient import TestClient
 from starlette.types import Receive, Scope, Send
 
-from tests.web.conftest import LOOPBACK_ORIGIN, History, database_at_head
+from tests.web.conftest import LOOPBACK_ORIGIN, REPORT_DATE, History, database_at_head
 from threaddigest.settings import Settings
 from threaddigest.web.app import build_templates, create_app
 from threaddigest.web.filters import count
@@ -144,7 +144,7 @@ def accessibility_problems(html: str) -> list[str]:
 def test_every_page_route_renders_on_a_seeded_database(
     client: TestClient, seeded_app: FastAPI, history: History
 ) -> None:
-    for url in page_urls(seeded_app, {"run_id": history.ok_pk}):
+    for url in page_urls(seeded_app, {"run_id": history.ok_pk, "report_date": REPORT_DATE}):
         response = client.get(url)
         assert response.status_code == 200, f"{url}: {response.status_code}"
         assert "Undefined" not in response.text, f"{url} rendered an undefined value"
@@ -155,7 +155,7 @@ def test_every_page_route_renders_on_an_empty_database(
     empty_client: TestClient, empty_app: FastAPI
 ) -> None:
     """The empty-state branch of every template is exercised, not only the populated one."""
-    for url in page_urls(empty_app, {"run_id": 1}):
+    for url in page_urls(empty_app, {"run_id": 1, "report_date": REPORT_DATE}):
         response = empty_client.get(url)
         # `/runs/1` has nothing to show on an empty database; 404 is the declared answer.
         assert response.status_code in {200, 404}, f"{url}: {response.status_code}"
@@ -170,7 +170,7 @@ def test_every_page_route_renders_on_an_empty_database(
 def test_every_page_keeps_the_accessibility_basics(
     client: TestClient, seeded_app: FastAPI, history: History
 ) -> None:
-    for url in page_urls(seeded_app, {"run_id": history.ok_pk}):
+    for url in page_urls(seeded_app, {"run_id": history.ok_pk, "report_date": REPORT_DATE}):
         problems = accessibility_problems(client.get(url).text)
         assert not problems, f"{url}: {problems}"
 
@@ -179,7 +179,7 @@ def test_an_empty_page_keeps_the_accessibility_basics(
     empty_client: TestClient, empty_app: FastAPI
 ) -> None:
     """An empty state is a page too, and loses landmarks most easily."""
-    for url in page_urls(empty_app, {"run_id": 1}):
+    for url in page_urls(empty_app, {"run_id": 1, "report_date": REPORT_DATE}):
         response = empty_client.get(url)
         if response.status_code == 200:
             problems = accessibility_problems(response.text)
@@ -225,7 +225,7 @@ def test_every_response_carries_the_content_safety_headers(
 ) -> None:
     """Pages, the stylesheet, a 404 and a refusal: every response, not only the happy ones."""
     urls = [
-        *page_urls(seeded_app, {"run_id": history.ok_pk}),
+        *page_urls(seeded_app, {"run_id": history.ok_pk, "report_date": REPORT_DATE}),
         "/static/app.css",
         f"/runs/{history.total_runs + 10_000}",
     ]

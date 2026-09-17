@@ -39,7 +39,7 @@ from threaddigest.db.engine import db_path_for, engine_for
 from threaddigest.settings import Settings
 from threaddigest.web import filters
 from threaddigest.web.middleware import HostCheck, SecurityHeaders
-from threaddigest.web.routes import runs
+from threaddigest.web.routes import reports, runs
 
 __all__ = ["STATIC_DIR", "STATIC_MOUNT", "TEMPLATES_DIR", "build_templates", "create_app"]
 
@@ -97,4 +97,5 @@ def create_app(*, settings: Settings, engine: Engine | None = None) -> FastAPI:
     app.add_middleware(SecurityHeaders)
     app.mount(STATIC_MOUNT, StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(runs.router)
+    app.include_router(reports.router)
     return app

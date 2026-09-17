@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -51,6 +51,11 @@ LOOPBACK_ORIGIN = "http://127.0.0.1:8765"
 #: so a failure here lines up against the digest's own fixtures.
 STARTED = int(datetime(2026, 9, 13, 6, 30, tzinfo=UTC).timestamp())
 FINISHED = int(datetime(2026, 9, 13, 6, 41, tzinfo=UTC).timestamp())
+
+#: The local day every planted run starts on, which is the date ``/reports/{date}`` answers
+#: for this history. The shipped ``display_timezone`` is UTC, so the local day is the UTC day;
+#: a test that needed another zone would have to say so when it built its settings.
+REPORT_DATE = date(2026, 9, 13)
 
 #: Enough dull rows that the four interesting runs fill the first page and a second one
 #: exists, so the pager has something to link to and "newest first" is visible.
