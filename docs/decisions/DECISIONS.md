@@ -609,6 +609,21 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   **Revisit when:** the probe day (P-20) shows what a real split stub's `count` says, which is
   the first evidence this rule has ever had.
 
+## 2026-09-17 (the cut list) — the freshness anchor's code follows the decision that killed it
+
+- **`new_head` and the anchor helpers are deleted from the port, the adapter and the fake.**
+  N-08 cut the freshness anchor on 2026-09-13, three days before the port method written for it
+  was built; the sweep is the live listing in the same run, so nothing ever called it, and N-20
+  forbids an abstraction with fewer than two concrete uses — this one had none. Gone with it:
+  the fake's `set_live_anchor` and its two subreddit fields, the synthetic anchor post, both
+  copies of the `NEW_HEAD_LIMIT` constant, the `new_head` crash-injection kind, and the seven
+  tests that existed only to exercise them. The cost of keeping it was not the lines: a port
+  method is a promise every future implementation must keep, and a fake that simulates a
+  mechanism the product does not have invites a service to be written against it. Adopted from
+  the 2026-09-17 code panel's cut list, which the panel record names. **Revisit when:** a
+  stale-work-list failure mode appears, which is N-08's own trigger — and then the anchor is
+  designed again from that evidence rather than restored from a deleted method.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
@@ -619,6 +634,7 @@ Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live docume
 | `per-run JSONL` | D-15 superseded (sidecar cut) | 2026-09-13 |
 | `raw_files` | D-15 superseded (sidecar cut) | 2026-09-13 |
 | `freshness anchor` | N-08 | 2026-09-13 |
+| `new_head` | N-08 (the port method, the adapter's, the fake's and the anchor helpers, deleted 2026-09-17) | 2026-09-17 |
 | `test-count floor` | N-09 | 2026-09-13 |
 | `kill rate` | N-10 | 2026-09-13 |
 | `stress scenario` | N-11 | 2026-09-13 |

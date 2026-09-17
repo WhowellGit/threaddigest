@@ -130,7 +130,7 @@ class _Items(_World):
             self._originals[fn] = copy.deepcopy(self._store(fn))
 
     def _listed(self, fn: str) -> bool:
-        """Present in listings, ``new_head`` and search."""
+        """Present in listings and search."""
         return self._state.get(fn, "live") == "live" and fn not in self._vanished
 
     def _consume_vanish(self, fn: str) -> bool:

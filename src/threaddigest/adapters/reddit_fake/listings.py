@@ -1,10 +1,8 @@
-"""``/new`` paging, the freshness anchor (cut from the product, N-08; the fake keeps the
-listing-side seam) and search: the listing side of the gateway.
+"""``/new`` paging and search: the listing side of the gateway.
 
 The setters at the top shape what a listing does (page lengths, overlap, sticky order,
-a frozen snapshot, the live anchor); the iterators below cut the underlying set into
-pages and then filter it, so a page can be short with a non-None ``after`` exactly as
-Reddit's is.
+a frozen snapshot); the iterators below cut the underlying set into pages and then
+filter it, so a page can be short with a non-None ``after`` exactly as Reddit's is.
 """
 
 from __future__ import annotations
@@ -14,20 +12,18 @@ from collections.abc import Iterator, Sequence
 
 from threaddigest.adapters.reddit_fake.recording import _Requests
 from threaddigest.adapters.reddit_fake.records import (
-    NEW_HEAD_LIMIT,
     PAGE_SIZE,
     SEARCH_CAP,
     SEARCH_WINDOWS,
-    _anchor_post,
     _bare,
     _pop_failure,
     _Sub,
 )
-from threaddigest.ports import GatewayError, Limits, Page, RawItem
+from threaddigest.ports import GatewayError, Limits, Page
 
 
 class _Listings(_Requests):
-    """What ``iter_new_pages``, ``new_head`` and ``search`` return, and how to bend it."""
+    """What ``iter_new_pages`` and ``search`` return, and how to bend it."""
 
     def set_page_size(self, sub: str, sizes: Sequence[int]) -> None:
         """Underlying page lengths per page (page 1 first); pages beyond the list use 100."""
@@ -54,8 +50,7 @@ class _Listings(_Requests):
     def freeze_listing(self, sub: str | None = None) -> None:
         """Snapshot ``/new`` for ``sub`` (all subreddits when None).
 
-        Posts added afterwards never appear in the listing until ``unfreeze_listing``;
-        ``new_head`` keeps reading the live store.
+        Posts added afterwards never appear in the listing until ``unfreeze_listing``.
         """
         for row in self._sub_rows(sub):
             row.frozen = self._sorted_post_ids(row)
@@ -63,23 +58,6 @@ class _Listings(_Requests):
     def unfreeze_listing(self, sub: str | None = None) -> None:
         for row in self._sub_rows(sub):
             row.frozen = None
-
-    def set_live_anchor(
-        self, sub: str, created_utc: float | None = None, *, fullname: str | None = None
-    ) -> None:
-        """Fix what ``new_head(sub)`` returns, independent of the (possibly frozen) listing.
-
-        Pass ``fullname`` to return that stored post, or ``created_utc`` for a synthetic post
-        at that time; neither clears the anchor.
-        """
-        row = self._sub_row(sub)
-        if fullname is not None:
-            self._resolve(fullname)
-            row.anchor_fullname = f"t3_{_bare(fullname)}"
-            row.anchor_created_utc = None
-        else:
-            row.anchor_fullname = None
-            row.anchor_created_utc = None if created_utc is None else float(created_utc)
 
     def set_info_order(self, shuffle: bool, seed: int = 0) -> None:
         """Return ``info()`` chunks in a seeded pseudo-random order instead of insertion order."""
@@ -101,24 +79,6 @@ class _Listings(_Requests):
     ) -> Iterator[Page]:
         idx = self._record("iter_new_pages", (name,), {"max_pages": max_pages, "after": after})
         return self._iter_listing(name, max_pages=max_pages, after=after, call_index=idx)
-
-    def new_head(self, name: str) -> RawItem | None:
-        self._record("new_head", (name,), {})
-        self._begin("new_head")
-        self._request(f"GET /r/{name}/new?limit={NEW_HEAD_LIMIT}")
-        sub = self._sub_for(name)
-        self._check_status(sub)
-        self._done("new_head")
-        if sub.anchor_fullname is not None:
-            return self._emit("post", self._posts[sub.anchor_fullname[3:]])
-        if sub.anchor_created_utc is not None:
-            return _anchor_post(sub, sub.anchor_created_utc)
-        listed = [pid for pid in self._sorted_post_ids(sub) if self._listed(f"t3_{pid}")]
-        for pid in listed[:NEW_HEAD_LIMIT]:
-            post = self._posts[pid]
-            if not post.get("stickied", False):
-                return self._emit("post", post)
-        return None
 
     def _iter_listing(
         self, name: str, *, max_pages: int, after: str | None, call_index: int

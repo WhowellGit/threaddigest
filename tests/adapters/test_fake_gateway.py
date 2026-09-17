@@ -452,7 +452,7 @@ class TestListing:
         again = next(seeded.iter_new_pages("premiere", max_pages=1))
         assert again.items[0]["title"] == "post 249"
 
-    def test_freeze_listing_hides_later_posts_but_not_from_new_head(
+    def test_freeze_listing_hides_later_posts_until_it_is_unfrozen(
         self, seeded: FakeRedditGateway
     ) -> None:
         seeded.freeze_listing()
@@ -460,9 +460,6 @@ class TestListing:
         pages = list(seeded.iter_new_pages("premiere", max_pages=10))
         assert "brand new" not in [t for p in pages for t in titles(p)]
         assert sum(len(p.items) for p in pages) == 250
-        head = seeded.new_head("premiere")
-        assert head is not None
-        assert head["title"] == "brand new"
         seeded.unfreeze_listing("premiere")
         assert titles(next(seeded.iter_new_pages("premiere", max_pages=1)))[0] == "brand new"
 
@@ -471,52 +468,6 @@ class TestListing:
         page = next(seeded.iter_new_pages("premiere", max_pages=1))
         seeded.delete(page.items[0]["name"])
         assert titles(next(seeded.iter_new_pages("premiere", max_pages=1)))[0] == "post 248"
-
-
-class TestNewHead:
-    def test_returns_newest_non_sticky_within_three(self, fake: FakeRedditGateway) -> None:
-        fake.add_post("premiere", title="old", created_utc=BASE)
-        fake.add_post("premiere", title="s1", created_utc=BASE + 1, stickied=True)
-        fake.add_post("premiere", title="s2", created_utc=BASE + 2, stickied=True)
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["title"] == "old"
-        assert fake.requests_made == 1
-
-    def test_three_stickies_or_empty_listing_give_none(self, fake: FakeRedditGateway) -> None:
-        fake.add_post("premiere", title="old", created_utc=BASE)
-        for i in range(3):
-            fake.add_post("premiere", title=f"s{i}", created_utc=BASE + 1 + i, stickied=True)
-        assert fake.new_head("premiere") is None
-        fake.add_subreddit("quiet")
-        assert fake.new_head("quiet") is None
-
-    def test_ignores_deleted_posts(self, fake: FakeRedditGateway) -> None:
-        fake.add_post("premiere", title="old", created_utc=BASE)
-        newest = fake.add_post("premiere", title="new", created_utc=BASE + 1)
-        fake.delete(newest)
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["title"] == "old"
-
-    def test_live_anchor_by_time_or_fullname(self, fake: FakeRedditGateway) -> None:
-        oldest = fake.add_post("premiere", title="oldest", created_utc=BASE)
-        fake.add_post("premiere", title="newest", created_utc=BASE + 1)
-        fake.set_live_anchor("premiere", BASE + 999_999)
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["created_utc"] == float(BASE + 999_999)
-        assert head["stickied"] is False
-        fake.set_live_anchor("premiere", fullname=oldest)
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["name"] == oldest
-        fake.set_live_anchor("premiere")
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["title"] == "newest"
-        with pytest.raises(KeyError):
-            fake.set_live_anchor("premiere", fullname="t3_missing")
 
 
 # ----------------------------------------------------------------------------------- tree
@@ -866,9 +817,6 @@ class TestInfo:
         assert ids["c2"] not in names(fake.fetch_tree(ids["post"], more_limit=0).comments)
         fake.vanish(ids["post"])
         assert names(next(fake.iter_new_pages("premiere", max_pages=1)).items) == [other]
-        head = fake.new_head("premiere")
-        assert head is not None
-        assert head["name"] == other
         assert names(next(fake.search("export", sort="new", time_filter="all")).items) == [other]
         with pytest.raises(GatewayError):
             fake.fetch_tree(ids["post"], more_limit=0)
@@ -1018,8 +966,8 @@ class TestFailures:
             next(seeded.iter_new_pages("premiere", max_pages=1))
         assert first.value.retry_after is None
         with pytest.raises(RateLimited):
-            seeded.new_head("premiere")
-        assert seeded.new_head("premiere") is not None
+            seeded.about("premiere")
+        assert seeded.about("premiere")["display_name"] == "premiere"
 
     def test_fail_next_applies_to_trees_and_info(self, fake: FakeRedditGateway) -> None:
         ids = tree_scenario(fake)
@@ -1082,9 +1030,7 @@ class TestFailures:
             seeded.about("premiere")
         with pytest.raises(exc):
             next(seeded.iter_new_pages("premiere", max_pages=1))
-        with pytest.raises(exc):
-            seeded.new_head("premiere")
-        assert seeded.requests_made == 3
+        assert seeded.requests_made == 2
         seeded.set_status("premiere", "ok")
         assert seeded.about("premiere")["display_name"] == "premiere"
 
@@ -1279,18 +1225,16 @@ class TestAccounting:
         assert fake.requests_made == 0
         fake.about("premiere")
         assert fake.requests_made == 1
-        fake.new_head("premiere")
-        assert fake.requests_made == 2
         list(fake.iter_new_pages("premiere", max_pages=10))  # 151 posts -> 2 pages
-        assert fake.requests_made == 4
+        assert fake.requests_made == 3
         fake.fetch_tree(ids["post"], more_limit=2)  # 1 + 2 expansions
-        assert fake.requests_made == 7
+        assert fake.requests_made == 6
         fake.info([ids["post"], ids["c1"], ids["c2"]])
-        assert fake.requests_made == 8
+        assert fake.requests_made == 7
         fake.limits()
-        assert fake.requests_made == 8
+        assert fake.requests_made == 7
         assert fake.requests[0] == "GET /r/premiere/about"
-        assert len(fake.requests) == 8
+        assert len(fake.requests) == 7
 
     def test_limits_none_until_first_request_then_derived_or_overridden(
         self, seeded: FakeRedditGateway
@@ -1307,26 +1251,24 @@ class TestAccounting:
     ) -> None:
         seeded.about("premiere")
         pages = seeded.iter_new_pages("premiere", max_pages=2)  # logged at call time, lazily run
-        seeded.new_head("premiere")
         seeded.info(["t3_a", "t3_b"])
         seeded.search("crash", sort="new", time_filter="week")
         seeded.limits()
         assert [(c.method, c.args, c.kwargs) for c in seeded.calls] == [
             ("about", ("premiere",), {}),
             ("iter_new_pages", ("premiere",), {"max_pages": 2, "after": None}),
-            ("new_head", ("premiere",), {}),
             ("info", (["t3_a", "t3_b"],), {}),
             ("search", ("crash",), {"sort": "new", "time_filter": "week", "max_pages": 3}),
             ("limits", (), {}),
         ]
-        assert [c.seq for c in seeded.calls] == [1, 2, 3, 4, 5, 6]
-        assert [c.cost for c in seeded.calls] == [1, 0, 1, 1, 0, 0]
+        assert [c.seq for c in seeded.calls] == [1, 2, 3, 4, 5]
+        assert [c.cost for c in seeded.calls] == [1, 0, 1, 0, 0]
         assert seeded.calls[0] == Call("about", ("premiere",), {}, 1, 1)
         assert seeded.calls[0] == ("about", ("premiere",), {}, 1, 1)
-        assert seeded.requests_made == 3  # neither iterator has been consumed
+        assert seeded.requests_made == 2  # neither iterator has been consumed
         list(pages)
         assert seeded.calls[1].cost == 2
-        assert seeded.requests_made == 5
+        assert seeded.requests_made == 4
 
     def test_count_and_fullnames_requested(self, fake: FakeRedditGateway) -> None:
         ids = tree_scenario(fake)

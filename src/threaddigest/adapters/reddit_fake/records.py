@@ -19,7 +19,6 @@ from threaddigest.ports import RawItem
 PAGE_SIZE = 100
 LISTING_CAP = 1000
 INFO_CHUNK = 100
-NEW_HEAD_LIMIT = 3
 RATE_WINDOW = 1000
 SEARCH_CAP = 250
 SEARCH_WINDOWS: dict[str, int | None] = {
@@ -31,7 +30,7 @@ SEARCH_WINDOWS: dict[str, int | None] = {
     "all": None,
 }
 STATUSES = ("ok", "forbidden", "not_found", "redirect", "quarantined")
-CRASH_KINDS = ("request", "page", "tree", "info", "about", "new_head", "search")
+CRASH_KINDS = ("request", "page", "tree", "info", "about", "search")
 SHAPE_KINDS = ("post", "comment", "subreddit")
 
 type ExcSpec = BaseException | type[BaseException]
@@ -86,8 +85,6 @@ class _Sub:
     status: str = "ok"
     redirect_path: str | None = None
     frozen: list[str] | None = None
-    anchor_created_utc: float | None = None
-    anchor_fullname: str | None = None
     sticky_first: bool = False
     page_sizes: list[int] = field(default_factory=list)
     overlap: int = 0
@@ -181,21 +178,3 @@ def _sub_dict(sub: _Sub) -> RawItem:
     }
     about.update(sub.about_extra)
     return about
-
-
-def _anchor_post(sub: _Sub, created_utc: float) -> RawItem:
-    return {
-        "id": "anchor",
-        "name": "t3_anchor",
-        "title": "live anchor",
-        "selftext": "",
-        "author": "anchor",
-        "created_utc": created_utc,
-        "created": created_utc,
-        "is_self": True,
-        "stickied": False,
-        "subreddit": sub.display_name,
-        "subreddit_id": sub.fullname,
-        "num_comments": 0,
-        "removed_by_category": None,
-    }

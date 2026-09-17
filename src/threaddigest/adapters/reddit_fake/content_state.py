@@ -108,7 +108,7 @@ class _ContentState(_Items):
         self._dropped.add(fn)
 
     def ban_subreddit(self, sub: str, *, info_returns: bool = True) -> None:
-        """Listing/about/new_head raise ``SubredditNotFound``; ``info()`` on its items per flag."""
+        """Listing and about raise ``SubredditNotFound``; ``info()`` on its items per flag."""
         row = self._sub_row(sub)
         row.status = "not_found"
         row.info_returns = info_returns

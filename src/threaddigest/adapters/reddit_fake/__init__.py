@@ -16,7 +16,7 @@ to ``clock.now()``); without a clock it is required.
 
 Behaviour summary
 -----------------
-* **One world.** Listing, ``new_head``, tree, ``info()`` and search all read the same store,
+* **One world.** Listing, tree, ``info()`` and search all read the same store,
   so ``delete``/``remove``/``restore``/``edit`` show on every path at once, unless a listing
   is explicitly frozen (``freeze_listing``) or an item hidden (``hidden=True``/``unhide``,
   ``vanish``, ``drop_from_tree``).
@@ -57,8 +57,8 @@ Behaviour summary
   callback)`` runs a callback when it begins (e.g. advance the fake clock). Kinds are
   ``CRASH_KINDS``.
 * **Accounting**: ``requests_made`` counts simulated round-trips (1 per page, 1 + expansions
-  per tree, ceil(n/100) per ``info``, 1 per ``about``, 1 per ``new_head``, 1 per search
-  page); ``requests`` lists them as ``"GET ..."`` strings; ``calls`` records every gateway
+  per tree, ceil(n/100) per ``info``, 1 per ``about``, 1 per search page); ``requests`` lists
+  them as ``"GET ..."`` strings; ``calls`` records every gateway
   method call as ``Call(method, args, kwargs, cost, seq)`` where ``cost`` is the number of
   requests that call made so far (a lazy iterator's cost grows as it is consumed).
 
@@ -97,7 +97,6 @@ from threaddigest.adapters.reddit_fake.records import (
     CRASH_KINDS,
     INFO_CHUNK,
     LISTING_CAP,
-    NEW_HEAD_LIMIT,
     PAGE_SIZE,
     SEARCH_CAP,
     SHAPE_KINDS,
@@ -130,7 +129,6 @@ __all__ = [
     "CRASH_KINDS",
     "INFO_CHUNK",
     "LISTING_CAP",
-    "NEW_HEAD_LIMIT",
     "PAGE_SIZE",
     "SEARCH_CAP",
     "SHAPE_KINDS",

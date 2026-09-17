@@ -173,13 +173,6 @@ class RedditGateway(Protocol):
         """
         ...
 
-    def new_head(self, name: str) -> RawItem | None:
-        """The newest non-stickied post in ``/r/{name}/new`` fetching at most 3 items (one request).
-
-        Returns None when the listing is empty or its head is all stickies.
-        """
-        ...
-
     def fetch_tree(self, post_id: str, *, more_limit: int) -> TreeResult:
         """Fetch the comment tree of a post, expanding up to ``more_limit`` ``more`` stubs.
 

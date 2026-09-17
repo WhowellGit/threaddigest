@@ -66,10 +66,9 @@ from threaddigest.ports import (
     TreeResult,
 )
 
-# Reddit's own wire constants. ``adapters.reddit_fake`` holds the same four numbers for the
+# Reddit's own wire constants. ``adapters.reddit_fake`` holds the same three numbers for the
 # simulated side; the contract suite (AD-04) is what proves the two agree, on the probe day.
 PAGE_SIZE: Final = 100
-NEW_HEAD_LIMIT: Final = 3
 INFO_CHUNK: Final = 100
 MORE_CHUNK: Final = 100
 
@@ -550,13 +549,6 @@ class PrawGateway:
         self, name: str, *, max_pages: int, after: str | None = None
     ) -> Iterator[Page]:
         return self._pages(f"r/{name}/new", {}, max_pages=max_pages, after=after)
-
-    def new_head(self, name: str) -> RawItem | None:
-        items, _ = _page_of(self._get(f"r/{name}/new", {"limit": NEW_HEAD_LIMIT}))
-        for item in items:
-            if not item.get("stickied", False):
-                return item
-        return None
 
     def search(
         self, query: str, *, sort: str, time_filter: str, max_pages: int = 3

@@ -866,21 +866,6 @@ def test_new_pages_stop_at_max_pages_with_a_resumable_cursor(
     _round_trips(http, gateway, 2)
 
 
-def test_new_head_skips_stickies_and_is_none_when_there_is_nothing_else(
-    http: responses.RequestsMock, gateway: PrawGateway
-) -> None:
-    _token(http)
-    http.get(NEW_URL, json=_listing([_post("s", stickied=True), _post("a")]))
-    http.get(NEW_URL, json=_listing([_post("s", stickied=True)]))
-
-    head = gateway.new_head("premiere")
-    assert head is not None
-    assert head["id"] == "a"
-    assert "limit=3" in http.calls[1].request.url
-
-    assert gateway.new_head("premiere") is None
-
-
 def test_info_asks_for_a_hundred_fullnames_per_request(
     http: responses.RequestsMock, gateway: PrawGateway
 ) -> None:
