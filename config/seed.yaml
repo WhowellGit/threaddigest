@@ -1,7 +1,10 @@
 subreddits:
   - premiere
-  - VideoEditing
+  - PremierePro
   - editors
+  - VideoEditing
+  - AfterEffects
+  - aivideo
 themes:
   - name: Crashes
     match: [crash, crashes, crashed, crashing, freeze, freezes, frozen, hang, hangs]

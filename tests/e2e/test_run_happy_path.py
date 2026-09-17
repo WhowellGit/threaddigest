@@ -76,9 +76,9 @@ def test_first_run_writes_the_definition_of_done(
     by_source = {}
     for row in rs_rows:
         by_source.setdefault(row["subreddit_pk"], []).append(row)
-    # exactly one TERMINAL row (stop_reason not NULL) per seeded source, of the three.
+    # exactly one TERMINAL row (stop_reason not NULL) per seeded source, of the six (D-37).
     terminal_rows = [row for row in rs_rows if row["stop_reason"] is not None]
-    assert len({row["subreddit_pk"] for row in terminal_rows}) == 3
+    assert len({row["subreddit_pk"] for row in terminal_rows}) == 6
     for row in terminal_rows:
         assert row["stop_reason"] in {"exhausted", "cap"}
         assert row["error"] is None
@@ -133,8 +133,9 @@ def test_crash_between_pages_commits_earlier_pages_and_rerun_completes(
     whose counters equal what is on disk.
 
     **Not asserted: a ``stop_reason IS NULL`` row.** The panel asked for one, and the demo
-    fixture cannot produce it: every seeded source fits in a single ``/new`` page (39 posts for
-    the first), so the source that completes before the crash writes its TERMINAL row at
+    fixture cannot produce it: every seeded source but premiere fits in a single ``/new`` page
+    (20 posts for the smallest, alphabetically first), so the source that completes before the
+    crash writes its TERMINAL row at
     section 6.3's end-of-loop and the source the crash lands in has written nothing yet. The
     claim SW-04 actually makes -- an earlier page's writes are committed and survive an
     uncaught crash -- is what the counters below pin, and it fails against a widened

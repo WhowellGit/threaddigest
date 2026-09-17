@@ -466,7 +466,14 @@ def test_db_init_creates_the_schema_and_seeds_the_default_workspace(
             rows = repo.enabled_subreddits(conn, workspace_pk)
     finally:
         engine.dispose()
-    assert {row.name_lower for row in rows} == {"premiere", "videoediting", "editors"}
+    assert {row.name_lower for row in rows} == {
+        "premiere",
+        "premierepro",
+        "editors",
+        "videoediting",
+        "aftereffects",
+        "aivideo",
+    }
 
     init_rows = [row for row in _read_runs(db_path) if row["kind"] == "db_init"]
     assert len(init_rows) == 1
@@ -497,7 +504,7 @@ def test_db_init_is_idempotent(
             rows = repo.enabled_subreddits(conn, workspace_pk)
     finally:
         engine.dispose()
-    assert len(rows) == 3  # not doubled
+    assert len(rows) == 6  # not doubled
 
     init_rows = [row for row in _read_runs(db_path) if row["kind"] == "db_init"]
     assert len(init_rows) == 2

@@ -128,17 +128,25 @@ def test_apply_seed_with_no_seed_path_reads_the_shipped_config_file(
     engine: Engine, now: int
 ) -> None:
     """The default is the real ``config/seed.yaml`` -- the file ``db init`` actually reads
-    (§10.3 step 7) and ``config/seed.yaml``'s three subreddits (§11.7's demo-fixture coupling)."""
+    (§10.3 step 7) and ``config/seed.yaml``'s six subreddits (D-37; §11.7's demo-fixture
+    coupling)."""
     with engine.connect() as conn:
         workspace_pk = repo.default_workspace_pk(conn)
 
     with engine.begin() as conn:
         added = seed.apply_seed(conn, workspace_pk=workspace_pk, now=now)
 
-    assert added == 3
+    assert added == 6
     with engine.connect() as conn:
         rows = repo.enabled_subreddits(conn, workspace_pk)
-    assert {row.name_lower for row in rows} == {"premiere", "videoediting", "editors"}
+    assert {row.name_lower for row in rows} == {
+        "premiere",
+        "premierepro",
+        "editors",
+        "videoediting",
+        "aftereffects",
+        "aivideo",
+    }
 
 
 def test_apply_seed_rejects_an_empty_subreddit_list(

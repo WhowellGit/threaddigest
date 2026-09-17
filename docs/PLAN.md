@@ -24,7 +24,7 @@ It is not a search engine over Reddit, not a bridge to any other system, not a p
 
 | Choice | Decision |
 |---|---|
-| Communities (workspace one) | r/premiere, r/VideoEditing, r/editors; optional r/AfterEffects, r/DavinciResolve; names are case-insensitive (D-01) |
+| Communities (workspace one) | r/premiere, r/PremierePro, r/editors, r/VideoEditing, r/AfterEffects, r/aivideo, plus a private test subreddit reserved for the probe day; names are case-insensitive (D-01 superseded by D-37, 2026-09-16) |
 | Themes | Three concepts: subreddit **sources** polled completely; **themes**, named keyword or regex rule groups tagging posts locally; **saved Reddit-wide searches** as a third source type at M3 (D-02) |
 | Ranking | Distinct authors first, then comment count, then score, then a stable id; never raw post count; one function shared by digest, theme pages, and export; identity coverage printed beside every ranked list (D-09) |
 | Deleted or removed content | Scrub text and author, keep the id row as a tombstone; deleted text survives nowhere (D-04; bounds in DECISIONS § 2) |

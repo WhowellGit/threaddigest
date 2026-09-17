@@ -59,7 +59,7 @@ def db_at_head(cli_runner: CliRunner, isolated_data_dir: Path) -> Path:
     """Bring the isolated data directory to head through the documented first-run sequence:
     an actual ``db init`` invocation through the same ``CliRunner`` (section 19.10).
 
-    Returns the data directory, already at head with the three seeded subreddits, so a
+    Returns the data directory, already at head with the six seeded subreddits (D-37), so a
     test that only needs ``run`` to work can depend on this fixture instead of repeating
     the sequence.
     """

@@ -17,15 +17,18 @@ running this script twice and comparing them.
 
 The corpus, in the order it is built (ids are allocated in that order by the fake):
 
-===========  =====================================================================
-premiere     one stickied rules post an hour before the block; 98 ordinary posts;
-             a poll (``post_hint`` the collector does not know) between ordinary
-             posts 89 and 90; one themed post whose text a ``config/seed.yaml``
-             theme matches
-VideoEditing a crosspost of premiere's themed post, then 99 ordinary posts
-editors      one author-deleted post (it must drop out of ``/new``), then 39
-             ordinary posts
-===========  =====================================================================
+============  =====================================================================
+premiere      one stickied rules post an hour before the block; 98 ordinary posts;
+              a poll (``post_hint`` the collector does not know) between ordinary
+              posts 89 and 90; one themed post whose text a ``config/seed.yaml``
+              theme matches
+VideoEditing  a crosspost of premiere's themed post, then 99 ordinary posts
+editors       one author-deleted post (it must drop out of ``/new``), then 39
+              ordinary posts
+PremierePro   25 ordinary posts, no special content
+AfterEffects  20 ordinary posts, no special content
+aivideo       30 ordinary posts, no special content
+============  =====================================================================
 
 Usage::
 
@@ -69,12 +72,23 @@ BASE_UTC: Final = 1_757_700_000
 #: Seconds between consecutive posts of one source.
 POST_INTERVAL: Final = 60
 
-#: The three seeded sources, in ``config/seed.yaml``'s order.
+#: The six seeded sources, in ``config/seed.yaml``'s order (D-37). Three carry the
+#: hand-tuned content described above (the sticky/poll/theme block, the crosspost, the
+#: deleted post); the three added under D-37 -- PremierePro, AfterEffects, aivideo --
+#: carry only a plain block of ordinary posts, appended after the original three so
+#: their ids and bytes are unchanged.
 SOURCES: Final = (
     Source("premiere", "t5_10001", 120_000, "premiere post", 98, 9, "pu", BASE_UTC),
-    Source("VideoEditing", "t5_10002", 80_000, "video editing post", 99, 11, "vu", 1_757_900_000),
+    Source("PremierePro", "t5_10004", 90_000, "premiere pro post", 25, 6, "pp", 1_758_300_000),
     Source("editors", "t5_10003", 15_000, "editors post", 39, 5, "eu", 1_758_100_100),
+    Source("VideoEditing", "t5_10002", 80_000, "video editing post", 99, 11, "vu", 1_757_900_000),
+    Source("AfterEffects", "t5_10005", 40_000, "after effects post", 20, 4, "ae", 1_758_500_000),
+    Source("aivideo", "t5_10006", 60_000, "ai video post", 30, 7, "av", 1_758_700_000),
 )
+
+#: The three original sources, which carry the hand-tuned content above; every other
+#: source in :data:`SOURCES` gets a plain block of ordinary posts only.
+_SPECIAL_SOURCES: Final = frozenset({"premiere", "videoediting", "editors"})
 
 #: The pinned rules post, an hour before premiere's ordinary block. It is the oldest post
 #: of the largest source, so it lands alone on that source's second ``/new`` page.
@@ -178,16 +192,28 @@ def _add_deleted_post(fake: FakeRedditGateway, source: Source) -> None:
 
 
 def build_gateway() -> FakeRedditGateway:
-    """The corpus as a live :class:`FakeRedditGateway`, built in id-allocation order."""
+    """The corpus as a live :class:`FakeRedditGateway`, built in id-allocation order.
+
+    Looked up by name rather than unpacked positionally, because D-37 put the three
+    special sources at positions 0, 2 and 3 of :data:`SOURCES` (``config/seed.yaml``'s
+    order), not the first three: a positional unpack would silently pair the wrong
+    source with the wrong block.
+    """
     fake = FakeRedditGateway()
     for source in SOURCES:
         fake.add_subreddit(source.name, t5=source.t5, subscribers=source.subscribers)
-    premiere, video_editing, editors = SOURCES
+    by_name = {source.name.lower(): source for source in SOURCES}
+    premiere = by_name["premiere"]
+    video_editing = by_name["videoediting"]
+    editors = by_name["editors"]
     themed = _add_premiere(fake, premiere)
     fake.add_crosspost(video_editing.name, themed, created_utc=CROSSPOST_UTC)
     _add_ordinary_posts(fake, video_editing)
     _add_deleted_post(fake, editors)
     _add_ordinary_posts(fake, editors)
+    for source in SOURCES:
+        if source.name.lower() not in _SPECIAL_SOURCES:
+            _add_ordinary_posts(fake, source)
     return fake
 
 

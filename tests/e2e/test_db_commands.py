@@ -84,7 +84,7 @@ def test_db_init_is_idempotent(cli_runner, isolated_data_dir: Path, table_rows) 
     assert len(runs) == 2
     assert all(row["kind"] == "db_init" for row in runs)
     assert all(row["status"] == "ok" for row in runs)
-    assert len(table_rows("subreddits")) == 3
+    assert len(table_rows("subreddits")) == 6
 
 
 def _run_pks(data_dir: Path) -> list[int]:
@@ -199,7 +199,7 @@ def test_db_init_on_a_data_dir_with_no_locks_directory_succeeds(
     assert result.exit_code == 0, result.output
     assert (isolated_data_dir / "locks").is_dir()
     assert [row["kind"] for row in table_rows("runs")] == ["db_init"]
-    assert len(table_rows("subreddits")) == 3
+    assert len(table_rows("subreddits")) == 6
 
 
 def test_db_upgrade_with_no_database_exits_78_and_fabricates_nothing(
