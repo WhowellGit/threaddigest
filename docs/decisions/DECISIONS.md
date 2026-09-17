@@ -458,6 +458,51 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   page wording, because the page is not where the gap is. **Revisit when:** either migration is
   written; neither is worth a migration of its own.
 
+## 2026-09-17 (the run row) — both follow-ups get a migration of their own
+
+- **D-39, revision 0005: the run row records its settings and its warnings (Wes, 2026-09-17).** The
+  entry above parked D-38's two follow-ups on later milestones — the settings keys with M2's
+  curation migration, the warnings column with M1b's comment stage — on the reasoning that neither
+  was worth a migration of its own. Wes ruled the other way on 2026-09-17: both now, in one
+  revision, because the two pages that exist today are the ones the gaps disfigure, and every run
+  recorded in the meantime would have carried a number where a name belongs. `runs.settings_json`
+  holds the resolved non-secret settings and `runs.warnings_json` a list of `{name, detail}`
+  objects, shaped like `violations_json` so one reader parses both. **What that buys:** the
+  digest's settings line names the key and both values (`static.budget.per_run_requests: 1500 → 7`
+  on the live check that landed it) instead of reporting that a fingerprint moved, and a run page
+  lists the warnings that made a run amber instead of counting them. **Revisit when:** never for
+  the columns themselves; the wording of the not-recorded line is worth revisiting once no row
+  from before this revision is left in any database that matters.
+- **One serialization, so a row's fingerprint is the hash of the row's own settings.**
+  `settings.settings_json` is now the single rendering of the non-secret mapping, and
+  `settings_fingerprint` hashes exactly those bytes. The alternative — serializing once for the
+  column and once for the hash — would have made the row's two settings facts agree by convention
+  rather than by construction, which is the kind of agreement that lasts until the first
+  refactor. A test asserts the equality on a real row. **Revisit when:** a second consumer needs a
+  different rendering, which would be the moment to ask why.
+- **`[]` and NULL say different things, in both new columns and in the digest model.** `[]` in
+  `warnings_json` means the run looked and had no warning; NULL that the row recorded nothing at
+  all — a row written before this revision, or one a later run's stale sweep stamped. The digest's
+  `RunSummary.settings_changes` follows the same rule as a list or `None`, and both renderings and
+  the report page have a branch that says "which keys changed is not recorded" rather than
+  printing a zero that reads as "nothing changed". This is `violations_json`'s own distinction
+  (§14.1) applied twice more, deliberately, rather than a new convention. **Revisit when:** a
+  third column wants it, at which point it is worth a named helper instead of a documented habit.
+- **A new column may not be named on the run-row insert or on the heartbeat (KI-039).** Built the
+  way the brief specified — the settings on `repo.insert_run` — the change broke every
+  `db upgrade` against an existing database, inside the insert and before the backup that makes
+  the command recoverable, because `db upgrade` opens its run row on the file it is *about to*
+  migrate. The deviation from the brief: the insert and the heartbeat keep to revision 0001's
+  columns, the settings are written by `repo.record_run_settings` in the insert's own transaction
+  when the database is at head, and the heartbeat's warning flush is gated on
+  `RunContext.schema_at_head`. The rule is now stated in the plan's schema-revisions paragraph, in
+  the runbook's migration checklist, and in the docstring of each of the three writes, and a test
+  writes and beats on a revision-0001 database with the reverse direction as its control. **Lesson,
+  the class the earlier project called a rule with no enforcer:** the constraint had held for four
+  revisions by luck, because every column the insert named happened to predate them all.
+  **Revisit when:** the oldest database `db upgrade` must accept stops being revision 0001, which
+  is the moment the control's fixture changes.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

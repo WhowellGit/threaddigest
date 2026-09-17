@@ -518,6 +518,34 @@ def test_a_run_whose_settings_were_not_recorded_says_so_rather_than_nothing_chan
     assert summary.previous_settings_fingerprint == "0a1b" * 4, "the two rows still differ"
 
 
+@pytest.mark.parametrize(
+    "payload", ["{not json", '"a bare string"'], ids=["unreadable", "not-an-object"]
+)
+def test_a_settings_column_that_will_not_parse_reads_as_not_recorded(
+    payload: str,
+    engine: Engine,
+    settings: Settings,
+    plant_finished_run: PlantFinishedRun,
+    clock_at_report: FakeClock,
+) -> None:
+    """The same treatment the other JSON columns get: a row that will not parse must not take
+    the digest down, and must not read as "nothing changed" either."""
+    plant_finished_run(
+        started_at=STARTED - 3600,
+        finished_at=FINISHED - 3600,
+        settings_fingerprint="0a1b" * 4,
+        settings_json=payload,
+    )
+    plant_finished_run(settings_fingerprint="9f2c" * 4, settings_json=_SETTINGS_AFTER)
+
+    model = report.assemble_digest(
+        engine, settings=settings, report_date=REPORT_DATE, clock=clock_at_report
+    )
+
+    assert model.summary.settings_changes is None
+    assert "which keys changed is not recorded" in render_markdown(model)
+
+
 def test_assemble_digest_compares_against_the_previous_run_of_the_same_kind(
     engine: Engine,
     settings: Settings,
