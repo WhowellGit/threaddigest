@@ -753,7 +753,7 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
 
 ## 2026-09-18 (renumber tool) — a renumber is a mirrors sweep, not a collision guard
 
-- **D-42, the known-issue renumber tool corrects a renumber; it does not prevent a collision
+- **D-44, the known-issue renumber tool corrects a renumber; it does not prevent a collision
   (main session, 2026-09-18).** The incident
   (`docs/reference/reviews/2026-09-17-renumber-sweep-incident.md`): two agents in separate
   worktrees each claimed the same next-free `KI-` id on 2026-09-17, and the hand renumber that
@@ -769,7 +769,7 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   Declined because it would change every brief written under this working agreement (an id would
   not be citable until the work landed, which is not how a brief cites the row it is fixing), for
   a collision judged rare enough that a correct sweep is the cheaper fix. Stated plainly: this
-  tool does not prevent a collision, it only makes the correction complete once one has happened.
+  tool does not prevent a collision, it only makes the correction complete once one has happened. And the collision is not confined to known-issue ids: this entry was itself written as `D-42`, which the comment-tree stage had already claimed in another worktree, so it landed as `D-44` after a hand correction. Decision numbers, known-issue ids and review-register rows are allocated the same way and collide the same way; the tool covers the first of the three, and the other two are still corrected by hand.
   **Revisit when:** a renumber is needed often enough that the sweep itself becomes the
   bottleneck, at which point assigning ids at landing time is worth the brief churn.
 
