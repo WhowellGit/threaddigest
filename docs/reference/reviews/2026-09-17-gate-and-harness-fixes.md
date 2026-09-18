@@ -1,6 +1,6 @@
 # Review record: the gate and harness fixes of the 2026-09-17 code panel (2026-09-17)
 
-**Scope.** `edc3111..f9644ef`, one commit. Review-required surfaces moved: `tests/gates/`
+**Scope.** `ddb66a1..7159872`, one commit. Review-required surfaces moved: `tests/gates/`
 (`test_routing_rows_resolve.py`, `test_layering.py`, `test_code_health.py`,
 `test_no_imported_identifiers.py`, and the new `test_no_write_outside_data_dir.py`) and
 `CLAUDE.md` (the irreversible-few list, the banned-API rule row, and PR-protocol step 5).
