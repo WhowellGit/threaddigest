@@ -6,6 +6,12 @@ replaced by recorders on PATH and ``threaddigest`` by a stub module on PYTHONPAT
 reaches Notification Center, ~/Library/LaunchAgents, or the real data directory.
 
 macOS-only by design: a missing ``plutil`` is a failure with a clear message, never a skip.
+
+**What this module does not prove.** The stub on ``PYTHONPATH`` supplies the ``__main__``
+module the wrapper's ``-m threaddigest`` needs, so every test here passes whether or not the
+real package has one: these are tests of the wrapper's plumbing, never of the entry point it
+calls. ``tests/deploy/test_entry_point.py`` runs the real interpreter against the real package
+for that (KI-045, the 2026-09-17 code panel's seat B finding B1).
 """
 
 from __future__ import annotations
