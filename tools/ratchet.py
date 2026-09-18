@@ -8,6 +8,7 @@ Usage (from the repo root; the Makefile wraps these):
     uv run python tools/ratchet.py bump
     uv run python tools/ratchet.py loosen KEY=<family>.<key>[=<value>] REASON="<why>" \
         [HARD_AFTER=YYYY-MM-DD]
+    uv run python tools/ratchet.py approve KEY=<family>.<key> [DAYS=14]
 
 Families, one file each under ``.ratchets/`` (``key=value`` lines, sorted, LF, trailing
 newline). Direction says which way a value may move without approval.
@@ -89,6 +90,21 @@ against direction; it exits 1 when a kept value is outside the slack, i.e. when 
 ``loosen`` can make the tree green. ``loosen`` writes one value, refuses anything looser
 than the measurement, and appends a ledger row under ``## Loosenings`` in GUARDS.md; with
 ``HARD_AFTER`` and the value the file already holds it only stamps the expiry date.
+
+``approve`` is the third step, and the one a person takes (KI-056, 2026-09-18). Comparison
+3 keeps reporting a loosening until the loosened value is itself on main, and it could not
+get there: the merge guard wants the green stamp ``make check`` writes only after a green
+comparison, so the first real loosening had no way to land. ``approve`` reads the move
+waiting on this tree (the value on main against the value here), refuses unless ``loosen``
+has already put its reason in the ledger, prints the move with that reason, and asks for a
+line of confirmation typed at a terminal -- refusing outright when stdin is not one, so the
+agent that wrote the loosening cannot also permit it. What it writes is one small file per
+key beside the floors, naming the key, the two values, and a date after which it stops
+covering anything (fourteen days by default, ninety at most). A comparison finds it and
+reports APPROVED instead of LOOSENING; a move to any other value, or a date gone by, is a
+loosening again. ``bump`` removes an approval once it has expired, and anything it cannot
+read as one, because the ledger row is the permanent record and a permission that covers
+nothing is litter on an enforcement surface.
 """
 
 from __future__ import annotations
@@ -104,7 +120,7 @@ import subprocess
 import sys
 import tokenize
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
@@ -121,6 +137,9 @@ CODE_HEALTH_JSON = Path(".build") / "code_health.json"
 DOC_POLICY_JSON = Path(".build") / "doc_policy.json"
 MAIN_REF_ENV = "RATCHET_MAIN_REF"
 DEFAULT_MAIN_REFS = ("main", "origin/main")
+APPROVALS_DIR = Path(RATCHET_DIR) / "approvals"
+APPROVAL_DAYS = 14
+MAX_APPROVAL_DAYS = 90
 
 EXIT_OK = 0
 EXIT_RED = 1
@@ -811,6 +830,124 @@ def main_family_values(root: Path, ref: str, family: str) -> dict[str, Number] |
     return values
 
 
+# --------------------------------------------------------------------------- approvals
+
+
+@dataclass(frozen=True)
+class Approval:
+    """One operator approval: this key may move from ``frm`` to ``to``, until ``expires``.
+
+    Birth incident, 2026-09-18 (KI-056): the loosening comparison reads the floors here
+    against the floors committed on main, so a loosening keeps firing until the loosened
+    value is itself on main -- and it could not get there, because the merge guard wants the
+    green stamp ``make check`` writes only after a green comparison. The approval is the way
+    through, and it is deliberately narrow: it names one key and one move, it is written only
+    by ``approve`` (which a person drives at a terminal), and it stops covering anything once
+    it expires, so a permission cannot outlive the change it was granted for.
+    """
+
+    key: str
+    frm: Number
+    to: Number
+    granted: dt.date
+    expires: dt.date
+
+
+def approval_path(root: Path, spec: Spec) -> Path:
+    return root / APPROVALS_DIR / f"{spec.name}.txt"
+
+
+def render_approval(spec: Spec, approval: Approval) -> str:
+    return (
+        f"key={approval.key}\n"
+        f"from={spec.fmt(approval.frm)}\n"
+        f"to={spec.fmt(approval.to)}\n"
+        f"granted={approval.granted.isoformat()}\n"
+        f"expires={approval.expires.isoformat()}\n"
+    )
+
+
+def read_approval(root: Path, spec: Spec) -> Approval | None:
+    """Fail closed: anything that is not a readable approval for this key is no approval."""
+    path = approval_path(root, spec)
+    if not path.is_file():
+        return None
+    try:
+        raw = parse_family_text(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    granted = parse_date(raw.get("granted", ""))
+    expires = parse_date(raw.get("expires", ""))
+    if granted is None or expires is None or raw.get("key") != spec.name:
+        return None
+    try:
+        return Approval(spec.name, spec.parse(raw["from"]), spec.parse(raw["to"]), granted, expires)
+    except (KeyError, ValueError):
+        return None
+
+
+def write_approval(root: Path, spec: Spec, approval: Approval) -> Path:
+    path = approval_path(root, spec)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(render_approval(spec, approval))
+    os.replace(tmp, path)
+    return path
+
+
+def clear_spent_approvals(root: Path, today: dt.date | None = None) -> None:
+    """``bump`` sweeps approvals that have expired, and anything there it cannot read.
+
+    An approval that covers nothing is litter on an enforcement surface, which is the thing
+    this project is built to avoid; the ledger row under ``## Loosenings`` is the permanent
+    record, so removing the permission loses no history. Both branches are announced.
+    """
+    directory = root / APPROVALS_DIR
+    if not directory.is_dir():
+        return
+    now = today or dt.date.today()
+    for path in sorted(directory.glob("*.txt")):
+        spec = spec_by_name(path.stem)
+        approval = read_approval(root, spec) if spec is not None else None
+        if approval is None:
+            path.unlink()
+            print(f"SPENT     {path.stem:<34} removed; not a readable approval for a known key")
+        elif now > approval.expires:
+            path.unlink()
+            print(
+                f"SPENT     {path.stem:<34} approval removed, expired "
+                f"{approval.expires.isoformat()}; the GUARDS.md row is the record"
+            )
+
+
+def ledger_reason(root: Path, spec: Spec, frm: Number, to: Number) -> str | None:
+    """The reason cell of the last ``## Loosenings`` row for exactly this move, or None.
+
+    The reason is read rather than retyped so the operator approves against what the ledger
+    will say, not against a second description of it (one home per fact).
+    """
+    path = root / LEDGER_PATH
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    if LEDGER_HEADING not in text:
+        return None
+    section = text.split(LEDGER_HEADING, 1)[1].split("\n## ", 1)[0]
+    found: str | None = None
+    for line in section.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        # Cells 1 to 3 are Key, From and To, all of them before the reason, so a reason
+        # carrying an escaped pipe cannot shift the columns this match reads.
+        if len(cells) >= 5 and [cells[1], cells[2], cells[3]] == [
+            spec.name,
+            spec.fmt(frm),
+            spec.fmt(to),
+        ]:
+            found = cells[4]
+    return found
+
+
 # --------------------------------------------------------------------------- compare
 
 
@@ -937,6 +1074,42 @@ def compare_family_file(
     return findings, values
 
 
+def _judge_loosening(
+    root: Path, spec: Spec, frm: Number, to: Number, ref: str, today: dt.date | None = None
+) -> Finding:
+    """A loosening is red until an approval on file names this exact move and is still live."""
+    move = f"{spec.fmt(frm)} on {ref} -> {spec.fmt(to)} here"
+    rel = (APPROVALS_DIR / f"{spec.name}.txt").as_posix()
+    approval = read_approval(root, spec)
+    if approval is None:
+        return Finding(
+            "LOOSENING",
+            spec.name,
+            f"{move}; needs approval and a GUARDS.md row (make ratchet-loosen, then "
+            f"make ratchet-approve KEY={spec.name})",
+        )
+    if (approval.frm, approval.to) != (frm, to):
+        return Finding(
+            "LOOSENING",
+            spec.name,
+            f"{move}; the approval in {rel} is for {spec.fmt(approval.frm)} -> "
+            f"{spec.fmt(approval.to)}, not this move; re-approve",
+        )
+    if (today or dt.date.today()) > approval.expires:
+        return Finding(
+            "LOOSENING",
+            spec.name,
+            f"{move}; the approval in {rel} expired {approval.expires.isoformat()}; "
+            f"re-approve with make ratchet-approve KEY={spec.name}",
+        )
+    return Finding(
+        "APPROVED",
+        spec.name,
+        f"{move}; approved {approval.granted.isoformat()}, expires "
+        f"{approval.expires.isoformat()} ({rel})",
+    )
+
+
 def compare_family_main(
     root: Path, family: str, values: dict[str, Number], ref: str
 ) -> list[Finding]:
@@ -949,16 +1122,11 @@ def compare_family_main(
         if spec.key not in on_main:
             continue
         if spec.key not in values:
+            # A removed key has no "to" value, so no approval can name the move; the way
+            # back is to restore the key with bump, not to approve its absence.
             findings.append(Finding("LOOSENING", spec.name, f"present on {ref}, removed here"))
         elif spec.against(values[spec.key], on_main[spec.key]):
-            findings.append(
-                Finding(
-                    "LOOSENING",
-                    spec.name,
-                    f"{spec.fmt(on_main[spec.key])} on {ref} -> {spec.fmt(values[spec.key])} here; "
-                    "needs approval and a GUARDS.md row (make ratchet-loosen)",
-                )
-            )
+            findings.append(_judge_loosening(root, spec, on_main[spec.key], values[spec.key], ref))
     return findings
 
 
@@ -988,6 +1156,7 @@ def exit_code(findings: Iterable[Finding]) -> int:
 
 def bump(root: Path, measurement: Measurement) -> int:
     rc = EXIT_OK
+    clear_spent_approvals(root)
     for family in FAMILIES:
         current = read_family_values(root, family)
         dates = read_family_dates(root, family)
@@ -1151,6 +1320,131 @@ def loosen(root: Path, measurement: Measurement, request: LoosenRequest) -> int:
     return EXIT_OK
 
 
+# --------------------------------------------------------------------------- approve
+
+
+@dataclass(frozen=True)
+class ApproveRequest:
+    name: str
+    days: int = APPROVAL_DAYS
+
+
+def parse_approve_args(tokens: list[str]) -> ApproveRequest:
+    """Parse ``KEY=family.key`` and an optional ``DAYS=<n>`` (any order)."""
+    name: str | None = None
+    days = APPROVAL_DAYS
+    for token in tokens:
+        head, sep, rest = token.partition("=")
+        if not sep:
+            fail(f"ratchet: unexpected argument {token!r}")
+        if head.upper() == "KEY":
+            name = rest.strip()
+        elif head.upper() == "DAYS":
+            try:
+                days = int(rest.strip())
+            except ValueError:
+                fail(f"ratchet: DAYS={rest.strip()!r} is not a whole number of days")
+        elif "." in head and name is None:
+            name = token.strip()
+        else:
+            fail(f"ratchet: unexpected argument {token!r}")
+    if not name:
+        fail("ratchet: approve needs KEY=<family>.<key>")
+    if not 1 <= days <= MAX_APPROVAL_DAYS:
+        fail(f"ratchet: DAYS must be between 1 and {MAX_APPROVAL_DAYS}, not {days}")
+    return ApproveRequest(name, days)
+
+
+def typed_at_a_terminal(prompt: str) -> str:
+    """Read the confirmation from a person, and refuse when nobody is at the keyboard.
+
+    The whole value of this step is that the agent doing the work cannot also grant the
+    permission for it. Nothing here is a security boundary -- a determined process can open a
+    pseudo-terminal -- but a pipe on stdin is what an agent's shell actually has, so the
+    refusal puts the approval where Wes asked for it: with him (2026-09-18).
+    """
+    if not sys.stdin.isatty():
+        fail(
+            "ratchet: approve reads its confirmation from a terminal and stdin is not one. "
+            "Run `make ratchet-approve KEY=<key>` yourself in a terminal; an agent cannot "
+            "approve its own loosening."
+        )
+    return input(prompt)
+
+
+def _pending_move(root: Path, spec: Spec, ref: str) -> tuple[Number, Number]:
+    """The move awaiting approval for this key, or a refusal naming why there is none."""
+    on_main = main_family_values(root, ref, spec.family)
+    here = read_family_values(root, spec.family)
+    if on_main is None or spec.key not in on_main:
+        fail(f"ratchet: {spec.name} has no committed value on {ref}; nothing to approve against")
+    if spec.key not in here:
+        fail(f"ratchet: {spec.name} is missing from {RATCHET_DIR}/{spec.family}.txt")
+    frm, to = on_main[spec.key], here[spec.key]
+    if not spec.against(to, frm):
+        fail(
+            f"ratchet: {spec.name} is {spec.fmt(to)} here and {spec.fmt(frm)} on {ref}, which is "
+            "not a loosening; there is nothing to approve"
+        )
+    return frm, to
+
+
+def _approval_summary(
+    spec: Spec, frm: Number, to: Number, ref: str, reason: str, expires: dt.date, phrase: str
+) -> str:
+    return "\n".join(
+        [
+            "",
+            "A loosening on this tree is waiting for your approval.",
+            "",
+            f"  key       {spec.name} ({spec.bound}, direction {spec.direction})",
+            f"  moves     {spec.fmt(frm)} on {ref}  ->  {spec.fmt(to)} here",
+            f"  reason    {reason}",
+            f"  approval  this move only, until {expires.isoformat()}",
+            "",
+            "Approving lets `make check` go green on this tree, which is what lets the tree be",
+            "merged into main. It does not approve any later move of the same key.",
+            "",
+            "Type this line exactly to approve, or anything else to cancel:",
+            "",
+            f"    {phrase}",
+            "",
+        ]
+    )
+
+
+def approve(root: Path, request: ApproveRequest, confirm: Callable[[str], str]) -> int:
+    spec = spec_by_name(request.name)
+    if spec is None:
+        known = ", ".join(s.name for s in SPECS)
+        fail(f"ratchet: unknown key {request.name!r}; known keys: {known}")
+    ref = resolve_main_ref(root, None)
+    if ref is None:
+        fail("ratchet: approve compares against the committed floors; 'none' cannot be approved")
+    frm, to = _pending_move(root, spec, ref)
+    reason = ledger_reason(root, spec, frm, to)
+    if reason is None:
+        fail(
+            f"ratchet: {LEDGER_PATH.as_posix()} has no Loosenings row for {spec.name} "
+            f"{spec.fmt(frm)} -> {spec.fmt(to)}; run make ratchet-loosen "
+            f'KEY={spec.name} REASON="<why>" first, so the reason is on the record before '
+            "anyone approves it"
+        )
+    granted = dt.date.today()
+    expires = granted + dt.timedelta(days=request.days)
+    phrase = f"approve {spec.name} {spec.fmt(frm)} -> {spec.fmt(to)}"
+    print(_approval_summary(spec, frm, to, ref, reason, expires, phrase))
+    if confirm("> ").strip() != phrase:
+        fail("ratchet: approval cancelled; nothing was written")
+    path = write_approval(root, spec, Approval(spec.name, frm, to, granted, expires))
+    print(
+        f"APPROVED  {spec.name:<34} {spec.fmt(frm)} -> {spec.fmt(to)} until "
+        f"{expires.isoformat()}; wrote {path.relative_to(root).as_posix()}"
+    )
+    print("Stage it (git add) before make check, or no green stamp can name the tree.")
+    return EXIT_OK
+
+
 # --------------------------------------------------------------------------- cli
 
 
@@ -1198,12 +1492,20 @@ def build_parser() -> argparse.ArgumentParser:
         "loosen", help='KEY=<family>.<key>[=<value>] REASON="<why>" [HARD_AFTER=YYYY-MM-DD]'
     )
     loosen_p.add_argument("assignments", nargs="+")
+    approve_p = sub.add_parser(
+        "approve", help="KEY=<family>.<key> [DAYS=14]; a person types the confirmation"
+    )
+    approve_p.add_argument("assignments", nargs="+")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     root: Path = args.root.resolve()
+    # Approving reads the floors and the ledger, never the measurement, so it runs without
+    # the analyser reports the other commands depend on: the operator's step is one command.
+    if args.command == "approve":
+        return approve(root, parse_approve_args(args.assignments), typed_at_a_terminal)
     coverage_json: Path = args.coverage_json or root / COVERAGE_JSON
     code_health_json: Path = args.code_health_json or root / CODE_HEALTH_JSON
     doc_policy_json: Path = args.doc_policy_json or root / DOC_POLICY_JSON
@@ -1226,12 +1528,12 @@ def main(argv: list[str] | None = None) -> int:
         rc = exit_code(findings)
         counts = {
             s: sum(1 for f in findings if f.status == s)
-            for s in ("OK", "RED", "STALE", "LOOSENING", "RELAXED", "EXPIRED")
+            for s in ("OK", "RED", "STALE", "LOOSENING", "APPROVED", "RELAXED", "EXPIRED")
         }
         print(
             f"ratchet: {counts['OK']} ok, {counts['RED']} red, {counts['STALE']} stale, "
-            f"{counts['LOOSENING']} loosening, {counts['RELAXED']} relaxed, "
-            f"{counts['EXPIRED']} expired -> exit {rc}"
+            f"{counts['LOOSENING']} loosening, {counts['APPROVED']} approved, "
+            f"{counts['RELAXED']} relaxed, {counts['EXPIRED']} expired -> exit {rc}"
         )
         return rc
     if args.command == "bump":

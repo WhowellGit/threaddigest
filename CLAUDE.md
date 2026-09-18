@@ -47,6 +47,7 @@ that only goes down.
 | Every bug fix starts with a failing test and a `docs/runbook/KNOWN_ISSUES.md` row pointing at it | `tests/gates/test_known_issues_cite_collected_tests.py` (a row's node id must name a test that exists); that a fix has a row at all is review of the PR body; the `harden` skill is the checklist |
 | Every schema change ships a migration, a prior-revision fixture DB in `tests/fixtures/db/`, and an updated `src/threaddigest/db/schema.sql` | schema snapshot test; pytest-alembic models == DDL; `make schema`; the committed fixtures are upgraded by `tests/db/test_alembic.py`; that a new revision adds its own fixture is review |
 | Never hand-edit `.ratchets/` or the hook settings | hard-block hook; `tools/ratchet.py` is the only writer; floors are compared three ways on every `make check`, so a stale or hand-edited floor is red |
+| A loosening lands only when Wes has approved it at a terminal: the approval names one key and the two values it moves between, expires, and is refused when nobody is at the keyboard | `make ratchet-approve` (`tools/ratchet.py`), whose approvals live inside `.ratchets/` and so inherit the hard-block hook; `tests/gates/test_ratchet.py`; `tests/gates/test_hooks.py` |
 | Never touch the production DB by hand | `tests/gates/test_data_dir_isolation.py`: tests run in a temp `DATA_DIR` and settings refuse the default dir under pytest; a destructive operation takes a recorded fresh backup first (`tests/services/test_migrate_service.py`); the typed confirmation is review until the mutating commands land |
 | Never store or log credentials | gitleaks in `.pre-commit-config.yaml` (allowlist in `.gitleaks.toml`: the ratchet address only); `.env` is gitignored (`.gitignore`); validation errors hide their input (KI-003's regression test); the M2 config export must exclude secrets (review until built) |
 | Report results by pasting the `make check` block, never by describing it | review of the PR body against the pasted-block section of the PR template; CI is the authority, not the message |
@@ -108,7 +109,10 @@ that only goes down.
    `core/deletion`, or `db/repo`.
 4. Ratchets move only through `make ratchet-bump` (tighter) or
    `make ratchet-loosen KEY=… REASON="…"` (a loosening pauses for approval and lands a
-   `GUARDS.md` row).
+   `GUARDS.md` row). What ends the pause is `make ratchet-approve KEY=…`, which Wes runs in a
+   terminal and an agent cannot run at all: it prints the move and the ledger's reason for it,
+   takes a typed confirmation, and records an approval for that one move that expires. Stage the
+   approval before `make check`, or the check writes no stamp and the merge is refused (KI-056).
 5. Land with `git merge --ff-only` into `main` once the gate is green: stage everything, run
    `make ratchet-bump` before `make check`, so the floors sit at the measured values and headroom
    is spent, not banked, then run
@@ -119,7 +123,11 @@ that only goes down.
    surface (migrations, scrub, deletion, the upsert repository, gates, hooks, this file; the ratchet files left the list on 2026-09-14, being gated already by
    their writer tool, the hook, and the three-way compare)
    lands with a row in `docs/reference/reviews/REGISTER.md`, or the register gate is red. Every fixed bug lands a
-   `KNOWN_ISSUES.md` row and every settled choice a `DECISIONS.md` entry.
+   `KNOWN_ISSUES.md` row and every settled choice a `DECISIONS.md` entry. A reference number —
+   a known-issue id, a decision number, a guard id — is grepped for and claimed in the commit
+   that lands the work, never reserved in a brief, because two worktrees cannot see each other's
+   uncommitted rows and four ids collided that way (D-46). Citing an id that already exists is
+   unaffected.
 
 ## Operator surface
 
@@ -184,4 +192,4 @@ workflow's `meta.description`. Full table: `docs/PLAN.md` § Review harness → 
 ## Commands
 
 `make setup` · `make check` · `make test` · `make run` · `make serve` · `make schema` · `make ratchet-bump` ·
-`make ratchet-loosen KEY=… REASON="…"`
+`make ratchet-loosen KEY=… REASON="…"` · `make ratchet-approve KEY=…` (Wes, at a terminal)

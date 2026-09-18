@@ -70,7 +70,7 @@ SED_WRITE = re.compile(r"(^|[;{}\s/])([wW])\s+(\S+)")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 WRAPPERS = {"command", "exec", "time", "nice", "nohup", "sudo", "env", "builtin"}
 FILE_TOOLS = {"Edit", "Write", "MultiEdit"}
-RATCHET_TARGETS = {"ratchet-bump", "ratchet-loosen"}
+RATCHET_TARGETS = {"ratchet-bump", "ratchet-loosen", "ratchet-approve"}
 READ_ONLY = {
     "cat", "less", "more", "head", "tail", "grep", "egrep", "fgrep", "rg", "diff", "cmp",
     "wc", "ls", "stat", "file", "md5", "md5sum", "shasum", "sha256sum", "sort", "uniq",

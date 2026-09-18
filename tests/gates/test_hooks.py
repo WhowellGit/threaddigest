@@ -337,6 +337,10 @@ FILE_ROWS: list[tuple[str, str, int]] = [
     ("MultiEdit", ".claude/settings.json", 2),
     ("Write", "{project}/.claude/settings.json", 2),
     ("Edit", "sub/../.ratchets/skips.txt", 2),
+    # KI-056: a loosening approval is a file in the same protected directory, so the hook
+    # that keeps hands off the floors keeps them off the permissions too, with no new guard.
+    ("Write", ".ratchets/approvals/code_health.dead_code.txt", 2),
+    ("Edit", "{project}/.ratchets/approvals/coverage.line_percent.txt", 2),
     # case variants name the same paths on a case-insensitive filesystem (external round one)
     ("Write", ".Ratchets/coverage.txt", 2),
     ("Write", ".RATCHETS/x.txt", 2),
@@ -378,6 +382,9 @@ BASH_ROWS: list[tuple[str, int]] = [
     ('make ratchet-loosen KEY=coverage.line_percent REASON="dropped dead code"', 0),
     ("uv run python tools/ratchet.py bump && cat .ratchets/tests.txt", 0),
     ("uv run python tools/ratchet.py loosen KEY=skips.count=1 REASON='#12 flaky'", 0),
+    # KI-056: approve is the ratchet tool too, so the hook lets it through and the refusal
+    # that matters -- no terminal, no approval -- is the tool's own, not this hook's.
+    ("make ratchet-approve KEY=code_health.dead_code && ls .ratchets/approvals", 0),
     ("jq . .claude/settings.json", 0),
     ("sed -n 1p .ratchets/coverage.txt", 0),
     ("echo hello", 0),

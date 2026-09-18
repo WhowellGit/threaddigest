@@ -773,6 +773,53 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   **Revisit when:** a renumber is needed often enough that the sweep itself becomes the
   bottleneck, at which point assigning ids at landing time is worth the brief churn.
 
+- **D-45, an approved loosening is a file a person writes at a terminal, not a judgement
+  (Wes, 2026-09-18).** The gap (KI-056): the loosening comparison reads the floors on this tree
+  against the floors committed on `main`, so it fires until the loosened value is itself on
+  `main` — and the merge guard will not let anything reach `main` without the green stamp
+  `make check` writes only after a green comparison. The first loosening that was not a birth
+  relaxation therefore could not land at all. Three ways out were considered. **Not adopted:**
+  the agent writes the green stamp by hand, which would hollow out the guard the stamp exists to
+  serve, and the guard has a birth incident behind it. **Not adopted now:** the continuous-
+  integration job the runbook has listed as planned, where the approval is a click on the remote;
+  it is the stronger mechanism, because the remote is outside this machine, but it approves after
+  a push rather than before a merge and so does not unblock the local landing this gap blocks.
+  **Adopted:** `make ratchet-approve KEY=<key>`, which records one approval per key — the key,
+  the value on `main`, the value here, the day it was granted and the day it stops covering
+  anything — as a small file inside `.ratchets/`, where the enforcement hook already refuses every
+  hand edit. Four properties make it worth the code. It is **narrow**: an approval names one move,
+  so loosening further afterwards is a new move and red again. It is **bounded**: fourteen days by
+  default and ninety at most, and `bump` removes it once spent, so a permission cannot outlive the
+  change it was granted for or sit around authorising a future repeat. It is **attached to the
+  reason**: the command refuses unless `make ratchet-loosen` has already written the reason into
+  the guards ledger, and it prints that reason rather than a second description of it, so the
+  operator approves against what the record will say. And it is **the one step an agent cannot
+  take**: the confirmation is a line typed at a terminal and the command refuses when stdin is not
+  one. Said plainly, because the hooks have never claimed more than they hold (G23): this is not a
+  security boundary, a process can open a pseudo-terminal, and a determined agent could write the
+  file. What it is, is the difference between a permission somebody granted and a permission the
+  work granted itself. **Revisit when:** the planned approval job on the remote is built, at which
+  point the two can be compared and this one may become the local half of a two-sided gate; or the
+  first time a loosening is genuinely urgent and nobody is at a keyboard.
+
+- **D-46, a reference number is claimed when the work lands, not when the brief is written
+  (Wes, 2026-09-18).** This reverses the "considered and not adopted" half of D-44 on Wes's
+  instruction, four collisions after that entry judged the prevention too expensive: three
+  known-issue ids and one decision number, the last of them D-44's own, which was written as
+  `D-42`. The cause is structural and will not improve on its own — parallel worktrees cannot see
+  each other's uncommitted trees, so two agents grepping for the next free number find the same
+  one — and the cost of the collision is not the renumber but the stale citations a renumber
+  leaves, which is what `tools/renumber_known_issue.py` was built to sweep. The rule now: a brief
+  describes the work and never allocates the id; the number is grepped for and claimed in the
+  commit that lands the work, in the same change that writes the row. A brief may still *cite* an
+  id that already exists, which is the case D-44 worried about and is unaffected, because an
+  existing id is not being allocated. The renumber tool stays: allocation at landing time narrows
+  the window to the seconds between the grep and the commit rather than closing it, so a collision
+  is rarer but not impossible, and the tool is still how one is corrected.
+  **Revisit when:** a collision happens anyway despite landing-time allocation, which would mean
+  the window itself needs closing (a reserved-id file, or ids allocated by a tool) rather than the
+  timing.
+
 ## 2026-09-17 (the gates) — a gate asks nothing of the machine it runs on
 
 - **D-42, a gate resolves against the tree, never against the filesystem.** The routing gate

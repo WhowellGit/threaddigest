@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import pty
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,7 @@ pytestmark = pytest.mark.gate("G08 G09 G10 G11 G51")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RATCHET = REPO_ROOT / "tools" / "ratchet.py"
+RATCHETS = ".ratchets"
 LEDGER = Path("docs") / "runbook" / "GUARDS.md"
 
 # A tiny project whose structural counts are known. Everything below is data inside a
@@ -613,3 +615,187 @@ def test_compare_is_red_when_prose_exemptions_accrete(project: Path) -> None:
         "HIT       exempted_identifier docs/PLAN.md:124 `adapters/reddit_praw.py` [doc-policy]"
         in proc.stdout
     )
+
+
+# --------------------------------------------------- loosening approval (G08-G11, G51)
+#
+# Birth incident, 2026-09-18 (KI-056): the first real loosening could not land. The compare
+# reads the floors here against the floors committed on main, so a loosening keeps firing
+# until the loosened value is itself on main -- and it cannot reach main, because the merge
+# guard wants the green stamp that `make check` writes only after a green compare. The way
+# out is an approval a person grants at a terminal, recorded beside the floors, which the
+# compare reads and which covers exactly one move for a bounded time.
+
+PHRASE = "approve coverage.line_percent 80.00 -> 75.00"
+APPROVAL = Path(RATCHETS) / "approvals" / "coverage.line_percent.txt"
+
+
+def pending_loosening(project: Path) -> None:
+    """A tree whose coverage floor is 75.00 against main's 80.00, with its ledger row."""
+    ratchet(project, "bump")
+    commit_as_main(project)
+    write_coverage(project, 75.0)
+    proc = ratchet(project, "loosen", "KEY=coverage.line_percent", "REASON=a real reason (#9)")
+    assert proc.returncode == 0, proc.stderr
+
+
+def write_approval(project: Path, granted: dt.date, expires: dt.date, to: str = "75.00") -> Path:
+    """An approval file as the tool would have written it, for the controls about dates.
+
+    Written directly rather than through the tool because the tool cannot be made to grant an
+    approval that is already expired, which is exactly the state these controls need.
+    """
+    path = project / APPROVAL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"key=coverage.line_percent\nfrom=80.00\nto={to}\n"
+        f"granted={granted.isoformat()}\nexpires={expires.isoformat()}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def ratchet_tty(root: Path, *args: str, typed: str) -> subprocess.CompletedProcess[str]:
+    """Run the tool with a real terminal on stdin and type ``typed`` into it.
+
+    The approval step refuses to run without a terminal, which is the point of it: a shell an
+    agent drives has a pipe on stdin, a person at a keyboard has a pseudo-terminal. That
+    refusal has its own control below; this helper is the other half, proving the path works
+    when a person walks it.
+    """
+    controller, follower = pty.openpty()
+    try:
+        os.write(controller, (typed + "\n").encode())
+        return subprocess.run(
+            [sys.executable, str(RATCHET), "--root", str(root), *args],
+            stdin=follower,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=root,
+            timeout=120,
+        )
+    finally:
+        os.close(follower)
+        os.close(controller)
+
+
+def test_a_loosening_stays_red_until_it_is_approved(project: Path) -> None:
+    pending_loosening(project)
+
+    proc = ratchet(project, "compare", "--main-ref", "main")
+
+    assert proc.returncode == 3, proc.stdout
+    assert "LOOSENING coverage.line_percent" in proc.stdout
+    assert "make ratchet-approve KEY=coverage.line_percent" in proc.stdout
+    assert not (project / APPROVAL).exists()
+
+
+def test_an_approved_loosening_is_green_and_names_the_approval(project: Path) -> None:
+    pending_loosening(project)
+
+    granted = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed=PHRASE)
+
+    assert granted.returncode == 0, granted.stdout + granted.stderr
+    assert PHRASE in granted.stdout  # the operator is shown the line they must type
+    assert "a real reason (#9)" in granted.stdout  # and the ledger's reason for the move
+    today = dt.date.today()
+    assert (project / APPROVAL).read_text(encoding="utf-8") == (
+        f"key=coverage.line_percent\nfrom=80.00\nto=75.00\ngranted={today.isoformat()}\n"
+        f"expires={(today + dt.timedelta(days=14)).isoformat()}\n"
+    )
+
+    proc = ratchet(project, "compare", "--main-ref", "main")
+
+    assert proc.returncode == 0, proc.stdout
+    assert "APPROVED  coverage.line_percent" in proc.stdout
+    assert "LOOSENING" not in proc.stdout
+
+
+def test_approve_refuses_without_a_terminal(project: Path) -> None:
+    """The control for the rule an agent must not be able to break: no terminal, no approval."""
+    pending_loosening(project)
+
+    proc = ratchet(project, "approve", "KEY=coverage.line_percent")
+
+    assert proc.returncode == 1
+    assert "terminal" in proc.stderr
+    assert not (project / APPROVAL).exists()
+    assert ratchet(project, "compare", "--main-ref", "main").returncode == 3
+
+
+def test_approve_refuses_a_confirmation_that_is_not_the_phrase(project: Path) -> None:
+    pending_loosening(project)
+
+    proc = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed="yes")
+
+    assert proc.returncode == 1
+    assert "cancelled" in proc.stderr
+    assert not (project / APPROVAL).exists()
+
+
+def test_approve_refuses_when_no_loosening_is_pending(project: Path) -> None:
+    ratchet(project, "bump")
+    commit_as_main(project)
+
+    proc = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed=PHRASE)
+
+    assert proc.returncode == 1
+    assert "not a loosening" in proc.stderr
+    assert not (project / APPROVAL).exists()
+
+
+def test_approve_refuses_when_the_ledger_has_no_row_for_it(project: Path) -> None:
+    pending_loosening(project)
+    (project / LEDGER).unlink()
+
+    proc = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed=PHRASE)
+
+    assert proc.returncode == 1
+    assert "make ratchet-loosen" in proc.stderr
+    assert not (project / APPROVAL).exists()
+
+
+def test_an_approval_does_not_authorise_a_different_value(project: Path) -> None:
+    """An approval names one move; loosening further afterwards is a new move, not a covered one."""
+    pending_loosening(project)
+    granted = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed=PHRASE)
+    assert granted.returncode == 0, granted.stderr
+    write_coverage(project, 70.0)
+    further = ratchet(project, "loosen", "KEY=coverage.line_percent", "REASON=further (#9)")
+    assert further.returncode == 0, further.stderr
+
+    proc = ratchet(project, "compare", "--main-ref", "main")
+
+    assert proc.returncode == 3, proc.stdout
+    assert "LOOSENING coverage.line_percent" in proc.stdout
+    assert "is for 80.00 -> 75.00, not this move" in proc.stdout
+
+
+def test_an_expired_approval_does_not_authorise(project: Path) -> None:
+    pending_loosening(project)
+    stale = dt.date.today() - dt.timedelta(days=1)
+    write_approval(project, stale - dt.timedelta(days=14), stale)
+
+    proc = ratchet(project, "compare", "--main-ref", "main")
+
+    assert proc.returncode == 3, proc.stdout
+    assert f"expired {stale.isoformat()}" in proc.stdout
+
+
+def test_bump_removes_a_spent_approval_and_keeps_a_live_one(project: Path) -> None:
+    pending_loosening(project)
+    stale = dt.date.today() - dt.timedelta(days=1)
+    path = write_approval(project, stale - dt.timedelta(days=14), stale)
+
+    spent = ratchet(project, "bump")
+
+    assert "SPENT     coverage.line_percent" in spent.stdout
+    assert not path.exists()
+
+    granted = ratchet_tty(project, "approve", "KEY=coverage.line_percent", typed=PHRASE)
+    assert granted.returncode == 0, granted.stderr
+    kept = ratchet(project, "bump")
+
+    assert "SPENT" not in kept.stdout
+    assert path.exists()

@@ -16,8 +16,8 @@ RATCHET := $(UV) run python tools/ratchet.py
 CODE_HEALTH := $(BUILD_DIR)/code_health.json
 DOC_POLICY := $(BUILD_DIR)/doc_policy.json
 
-.PHONY: help setup hooks check test test-live run serve fixture schema ratchet-bump ratchet-loosen plan-html \
-        memory-check memory-export code-health
+.PHONY: help setup hooks check test test-live run serve fixture schema ratchet-bump ratchet-loosen \
+        ratchet-approve plan-html memory-check memory-export code-health
 
 help:
 	@echo "make setup            install uv if missing, Python 3.13, all dependency groups, .env, pre-commit hooks"
@@ -32,6 +32,8 @@ help:
 	@echo "make ratchet-bump     tighten ratchet floors to the measured values"
 	@echo "make ratchet-loosen   KEY=<key> REASON=\"<why>\" [HARD_AFTER=YYYY-MM-DD]  loosen one floor"
 	@echo "                      (lands a GUARDS.md row; HARD_AFTER turns it red again on that date)"
+	@echo "make ratchet-approve  KEY=<key> [DAYS=14]  approve the loosening waiting on this tree"
+	@echo "                      (you type the confirmation at a terminal; an agent cannot)"
 	@echo "make memory-check     audit this machine's Claude Code memory (also runs at the end of check)"
 	@echo "make memory-export    snapshot that memory into the private home, add-or-update only"
 
@@ -117,6 +119,15 @@ ratchet-loosen: code-health doc-policy
 	@if [ -z "$(KEY)" ] || [ -z "$(REASON)" ]; then \
 	  echo 'usage: make ratchet-loosen KEY=<key> REASON="<why>"' >&2; exit 2; fi
 	$(RATCHET) loosen KEY=$(KEY) REASON="$(REASON)" $(if $(HARD_AFTER),HARD_AFTER=$(HARD_AFTER),)
+
+# The operator's step, and the only one an agent cannot take: `approve` reads its
+# confirmation from a terminal and refuses a pipe (KI-056). It needs no analyser report --
+# it compares the committed floors with the ones here -- so it does not depend on
+# code-health or doc-policy, and a person runs one command.
+ratchet-approve:
+	@if [ -z "$(KEY)" ]; then \
+	  echo 'usage: make ratchet-approve KEY=<key> [DAYS=14]' >&2; exit 2; fi
+	$(RATCHET) approve KEY=$(KEY) $(if $(DAYS),DAYS=$(DAYS),)
 
 schema:
 	$(UV) run python -m threaddigest.db.schema_dump
