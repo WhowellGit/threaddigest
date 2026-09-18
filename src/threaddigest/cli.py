@@ -887,13 +887,19 @@ def _emit_capture(
         path = probe_service.save(
             capture, data_dir=settings.data_dir, name=save_fixture, blank_bodies=blank_bodies
         )
-    except probe_service.FixtureExistsError as exc:
+    except (probe_service.FixtureExistsError, probe_service.UnsafeFixtureTargetError) as exc:
+        # Both are "the operator gave a value this command cannot honour", which is what
+        # ConfigError names and what exits 78: a name that would write outside
+        # <data_dir>/probe (KI-047) and a name whose file is already there.
         raise ConfigError(str(exc)) from exc
     typer.echo(f"wrote {path}")
     typer.echo(probe_service.promotion_command(path, save_fixture))
 
 
-_SAVE_FIXTURE_HELP: Final = "Save the scrubbed capture under <data_dir>/probe/<name>.json."
+_SAVE_FIXTURE_HELP: Final = (
+    "Save the scrubbed capture under <data_dir>/probe/<name>.json. NAME is one segment of "
+    "letters, digits, '.', '_' and '-': a path is refused (exit 78)."
+)
 _BLANK_BODIES_HELP: Final = "Blank selftext/body/selftext_html/body_html before saving."
 
 

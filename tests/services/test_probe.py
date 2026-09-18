@@ -227,6 +227,39 @@ def test_cli_a_second_save_fixture_with_the_same_name_is_refused_at_78(
     assert saved.read_bytes() == original
 
 
+@pytest.mark.parametrize(
+    "name", ["../../escape", "../tests/fixtures/json/captures/promoted_by_accident", "sub/dir"]
+)
+def test_cli_a_save_fixture_name_that_is_a_path_exits_78_and_writes_nothing(
+    cli_runner: CliRunner, isolated_data_dir: Path, demo_fixture_path: Path, name: str
+) -> None:
+    """KI-047: the refusal reaches the operator as the configuration error it is (exit 78).
+
+    The service raises ``UnsafeFixtureTargetError``; ``cli`` translates it into ``ConfigError``
+    at the same seam ``FixtureExistsError`` takes, so a traversing or absolute name is a clean
+    refusal naming the value, never a traceback and never a write. The confinement itself is
+    proven in ``tests/gates/test_data_dir_isolation.py``; this is the exit code and the file.
+    """
+    result = cli_runner.invoke(
+        cli.app,
+        [
+            "probe",
+            "--gateway",
+            "fake",
+            "--fixture",
+            str(demo_fixture_path),
+            "about",
+            "r/premiere",
+            "--save-fixture",
+            name,
+        ],
+    )
+
+    assert result.exit_code == int(ExitCode.CONFIG), result.output
+    assert "--save-fixture" in result.output
+    assert not (isolated_data_dir / "probe").exists(), "a refusal created the probe directory"
+
+
 def test_cli_gateway_praw_is_refused_under_pytest_with_no_file_written(
     cli_runner: CliRunner, isolated_data_dir: Path
 ) -> None:
