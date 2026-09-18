@@ -218,7 +218,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G41 | Guard firings ledger | CI | M0 | P2 | planned | |
 | G42 | Weekly enforcement audit | CI | M0–M1 | P2 | planned | deferrable to M1 |
 | G43 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
-| G44 | Routing pointers resolve | gate | M1a | P1 | changed | `tests/gates/test_routing_rows_resolve.py`; found two dangling pointers on its first run; resolution moved from the filesystem to the tree on 2026-09-17 (KI-045) after the gate flipped green/red/red across three identical runs on one commit |
+| G44 | Routing pointers resolve | gate | M1a | P1 | changed | `tests/gates/test_routing_rows_resolve.py`; found two dangling pointers on its first run; resolution moved from the filesystem to the tree on 2026-09-17 (KI-051) after the gate flipped green/red/red across three identical runs on one commit |
 | G45 | Status-page contract | gate | M1a | P1 | shipped | `tests/gates/test_status_page.py`; stamp, cap, headings, no restated counts |
 | G46 | No sleeping under pytest | gate | M1a | P2 | shipped | `tests/gates/test_no_sleep_under_pytest.py` (id assigned 2026-09-14) |
 | G47 | Memory snapshot and one memory home | gate | M1a | P1 | shipped | `tools/memory_snapshot.py` check + diff in `make check`; `tests/gates/test_memory_snapshot.py` |
