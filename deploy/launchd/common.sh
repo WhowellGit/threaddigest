@@ -52,3 +52,62 @@ refuse_if_tcc_protected() {
     exit 78
   fi
 }
+
+# How many THREADDIGEST_* keys the last load_env exported; empty when there was no such file.
+# The caller reports it, because load_env itself must not log: run.sh's log file lives at a
+# path this parse decides (KI-049), so the count is written after the file is open.
+ENV_KEYS_LOADED=""
+
+# load_env <file>: export the THREADDIGEST_* assignments of a dotenv file. The file is parsed
+# line by line, never sourced, so it cannot run commands; keys must be plain identifiers;
+# values are never printed. One pair of surrounding quotes is stripped, nothing else.
+# Shared by run.sh (the job's environment) and install.sh (which needs the data directory to
+# render the plists' log paths), so the two cannot come to read .env differently.
+load_env() {
+  local file="$1" line key value count=0
+  ENV_KEYS_LOADED=""
+  [ -f "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}" # left-trim
+    line="${line#export }"
+    case "$line" in
+      THREADDIGEST_*=*) ;;
+      *) continue ;;
+    esac
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      *[!A-Z0-9_]*) continue ;; # not an identifier: skip rather than guess
+    esac
+    case "$value" in
+      \"*\")
+        value="${value#\"}"
+        value="${value%\"}"
+        ;;
+      \'*\')
+        value="${value#\'}"
+        value="${value%\'}"
+        ;;
+    esac
+    export "$key=$value"
+    count=$((count + 1))
+  done <"$file"
+  ENV_KEYS_LOADED="$count"
+}
+
+# data_dir_of <root>: the data directory this checkout resolves to, from THREADDIGEST_DATA_DIR
+# (exported by the caller's environment, or by load_env out of .env) and falling back to
+# <root>/data, which is what `settings.default_data_dir()` returns. A relative value is
+# resolved against <root>, not the caller's working directory: launchd's WorkingDirectory is
+# the checkout and a log path must not depend on who started the job. `~/` is expanded the way
+# `Settings` expands it. One definition for both readers -- run.sh's job log and install.sh's
+# rendered plists -- so the wrapper and the plists cannot disagree about where logs go.
+data_dir_of() {
+  local root="$1" value="${THREADDIGEST_DATA_DIR:-}"
+  case "$value" in
+    "") printf '%s\n' "$root/data" ;;
+    /*) printf '%s\n' "$value" ;;
+    "~/"*) printf '%s\n' "$(canonical_home)/${value#\~/}" ;;
+    *) printf '%s\n' "$root/$value" ;;
+  esac
+}

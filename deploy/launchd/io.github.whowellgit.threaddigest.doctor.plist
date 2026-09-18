@@ -30,10 +30,14 @@
 	<key>WorkingDirectory</key>
 	<string>__ROOT__</string>
 
+	<!-- __LOG_DIR__ is the second placeholder install.sh substitutes: the resolved data
+	     directory's `logs` folder (THREADDIGEST_DATA_DIR from .env when set, else
+	     __ROOT__/data/logs). launchd opens these before the wrapper runs, so they are
+	     rendered at install time; move the data directory and run install.sh again (KI-049). -->
 	<key>StandardOutPath</key>
-	<string>__ROOT__/data/logs/launchd-doctor.stdout.log</string>
+	<string>__LOG_DIR__/launchd-doctor.stdout.log</string>
 	<key>StandardErrorPath</key>
-	<string>__ROOT__/data/logs/launchd-doctor.stderr.log</string>
+	<string>__LOG_DIR__/launchd-doctor.stderr.log</string>
 
 	<key>ProcessType</key>
 	<string>Background</string>

@@ -108,17 +108,23 @@ def _bash(script: Path, *args: str, env: dict[str, str]) -> subprocess.Completed
     return _run(["/bin/bash", str(script), *args], env=env)
 
 
-def _render(label: str, root: Path, dest_dir: Path) -> Path:
-    """Substitute ``__ROOT__`` the way install.sh does and return the rendered copy."""
+def _render(label: str, root: Path, dest_dir: Path, log_dir: Path | None = None) -> Path:
+    """Substitute both placeholders the way install.sh does and return the rendered copy.
+
+    ``__LOG_DIR__`` is separate from ``__ROOT__`` because the log directory follows the
+    resolved data directory, which an operator may move out of the checkout (KI-049).
+    """
     text = (LAUNCHD_DIR / f"{label}.plist").read_text(encoding="utf-8")
-    assert "__ROOT__" in text, f"{label}.plist has no __ROOT__ placeholder to substitute"
+    for placeholder in ("__ROOT__", "__LOG_DIR__"):
+        assert placeholder in text, f"{label}.plist has no {placeholder} to substitute"
     dest = dest_dir / f"{label}.plist"
-    dest.write_text(text.replace("__ROOT__", str(root)), encoding="utf-8")
+    rendered = text.replace("__LOG_DIR__", str(log_dir or root / "data" / "logs"))
+    dest.write_text(rendered.replace("__ROOT__", str(root)), encoding="utf-8")
     return dest
 
 
-def _load(label: str, root: Path, dest_dir: Path) -> dict[str, object]:
-    with _render(label, root, dest_dir).open("rb") as fh:
+def _load(label: str, root: Path, dest_dir: Path, log_dir: Path | None = None) -> dict[str, object]:
+    with _render(label, root, dest_dir, log_dir).open("rb") as fh:
         data = plistlib.load(fh)
     assert isinstance(data, dict)
     return data
@@ -194,7 +200,11 @@ class FakeDeploy:
         return data
 
     def log(self, job: str) -> str:
-        return (self.root / "data" / "logs" / f"launchd-{job}.log").read_text(encoding="utf-8")
+        return self.log_in(self.root / "data" / "logs", job)
+
+    def log_in(self, directory: Path, job: str) -> str:
+        """The job log under a named directory: where it lands is the subject of KI-049."""
+        return (directory / f"launchd-{job}.log").read_text(encoding="utf-8")
 
 
 def _fake_deploy(tmp_path: Path, root_rel: str, *, venv: bool = True) -> FakeDeploy:
@@ -435,6 +445,91 @@ def test_env_file_is_loaded_without_echoing_values(deploy: FakeDeploy) -> None:
     assert "http://127.0.0.1:9999/runs" in osascript[osascript.index("--") + 1]
 
 
+# --- KI-049: the log directory follows the resolved data directory ----------------------------
+
+
+def test_the_job_log_follows_a_relocated_data_directory_from_the_env_file(
+    deploy: FakeDeploy, tmp_path: Path
+) -> None:
+    """``LOG_DIR`` used to be set forty lines before ``.env`` was parsed, so a relocated data
+    directory could not be honoured even in principle (panel finding B6). ``doctor``'s
+    ``data_dir_outside_tcc`` check actively pushes an operator to relocate it, and the whole
+    stdout and stderr of the scheduled run then landed outside the resolved directory.
+    """
+    relocated = tmp_path / "elsewhere" / "threaddigest-data"
+    (deploy.root / ".env").write_text(f"THREADDIGEST_DATA_DIR={relocated}\n", encoding="utf-8")
+
+    result = _bash(deploy.launchd / "run.sh", "run", env=deploy.env(0))
+
+    assert result.returncode == 0, result.stderr
+    log = deploy.log_in(relocated / "logs", "run")
+    assert "[run] exit 0" in log
+    assert f"log directory: {relocated / 'logs'}" in log
+    assert not (deploy.root / "data" / "logs").exists(), (
+        "the wrapper still created a log directory inside the checkout"
+    )
+
+
+def test_a_relative_data_directory_in_the_env_file_is_resolved_against_the_repo_root(
+    deploy: FakeDeploy,
+) -> None:
+    """A relative value cannot depend on the caller's working directory: launchd's own
+    ``WorkingDirectory`` is the checkout, so the checkout is the base the wrapper uses."""
+    (deploy.root / ".env").write_text("THREADDIGEST_DATA_DIR=var/data\n", encoding="utf-8")
+
+    result = _bash(deploy.launchd / "run.sh", "run", env=deploy.env(0))
+
+    assert result.returncode == 0, result.stderr
+    assert "[run] exit 0" in deploy.log_in(deploy.root / "var" / "data" / "logs", "run")
+
+
+def test_the_job_log_defaults_under_the_checkout_without_an_env_file(deploy: FakeDeploy) -> None:
+    """The negative control: nothing relocated, nothing moved. ``$ROOT/data/logs`` as before."""
+    result = _bash(deploy.launchd / "run.sh", "doctor", env=deploy.env(0))
+
+    assert result.returncode == 0, result.stderr
+    assert "[doctor] doctor ok" in deploy.log_in(deploy.root / "data" / "logs", "doctor")
+
+
+def test_the_env_line_is_logged_after_the_log_file_exists(deploy: FakeDeploy) -> None:
+    """The ordering the fix turns on: the ``.env`` count is a log line, and the log's own path
+    depends on what ``.env`` said, so the count is logged after the file is opened -- never by
+    a ``log`` call that would have written to the pre-relocation path.
+    """
+    relocated = deploy.root / "relocated"
+    (deploy.root / ".env").write_text(
+        f"THREADDIGEST_DATA_DIR={relocated}\nTHREADDIGEST_UI_URL=http://127.0.0.1:9999\n",
+        encoding="utf-8",
+    )
+
+    result = _bash(deploy.launchd / "run.sh", "run", env=deploy.env(0))
+
+    assert result.returncode == 0, result.stderr
+    log = deploy.log_in(relocated / "logs", "run")
+    lines = [line for line in log.splitlines() if "] " in line]
+    assert "exported 2 THREADDIGEST_* key(s)" in lines[0], lines[:3]
+    assert f"log directory: {relocated / 'logs'}" in lines[1], lines[:3]
+
+
+@pytest.mark.parametrize("label", LABELS)
+def test_the_plists_log_paths_are_rendered_from_the_log_directory(
+    tmp_path: Path, label: str
+) -> None:
+    """launchd's own pre-wrapper output follows the same rule, substituted at install time.
+
+    ``StandardOutPath``/``StandardErrorPath`` are written by launchd before the wrapper has
+    opened its log, so they cannot be computed at run time; they are rendered from the same
+    resolved directory instead, which is why the placeholder is separate from ``__ROOT__``.
+    """
+    log_dir = tmp_path / "relocated" / "logs"
+    data = _load(label, REPO_ROOT, tmp_path, log_dir=log_dir)
+
+    job = label.rsplit(".", 1)[1]
+    assert data["StandardOutPath"] == str(log_dir / f"launchd-{job}.stdout.log")
+    assert data["StandardErrorPath"] == str(log_dir / f"launchd-{job}.stderr.log")
+    assert str(REPO_ROOT / "data" / "logs") not in str(data["StandardOutPath"])
+
+
 # --- install / uninstall ----------------------------------------------------------------------
 
 
@@ -450,8 +545,20 @@ def test_install_dry_run_prints_substituted_paths_and_writes_nothing(tmp_path: P
     assert not (record / "launchctl.args").exists(), "a dry run called launchctl"
     out = result.stdout
     assert "__ROOT__" not in out
+    assert "__LOG_DIR__" not in out
     assert str(LAUNCHD_DIR / "run.sh") in out
-    assert str(REPO_ROOT / "data" / "logs" / "launchd-run.stdout.log") in out
+    # The log directory is whatever this checkout's .env and environment resolve to (KI-049),
+    # so the assertion is on the script's own agreement with itself rather than on a literal
+    # path: the directory it announces is the directory it renders into both plists.
+    announced = next(
+        line.split(":", 1)[1].strip()
+        for line in out.splitlines()
+        if line.startswith("log directory:")
+    )
+    for label in LABELS:
+        job = label.rsplit(".", 1)[1]
+        for stream in ("stdout", "stderr"):
+            assert f"{announced}/launchd-{job}.{stream}.log" in out, announced
     uid = os.getuid()
     for label in LABELS:
         # plutil lints the rendered copy in install.sh's scratch dir, before anything is written.
@@ -459,6 +566,33 @@ def test_install_dry_run_prints_substituted_paths_and_writes_nothing(tmp_path: P
         assert f"write {LAUNCH_AGENTS / label}.plist" in out
         assert f"launchctl bootstrap gui/{uid} {LAUNCH_AGENTS / label}.plist" in out
     assert f"launchctl print gui/{uid}/{RUN_LABEL}" in out
+
+
+def test_install_renders_the_log_paths_from_the_env_files_data_directory(
+    tmp_path: Path,
+) -> None:
+    """KI-049's install-time half, on a fake repo whose .env is fully controlled.
+
+    launchd opens ``StandardOutPath``/``StandardErrorPath`` before the wrapper runs, so they
+    are rendered rather than resolved at run time; they must still name the relocated
+    directory, or the wrapper's log and launchd's own output part company.
+    """
+    fake = _fake_deploy(tmp_path, "repos/insightminer")
+    relocated = tmp_path / "elsewhere" / "data"
+    (fake.root / ".env").write_text(f"THREADDIGEST_DATA_DIR={relocated}\n", encoding="utf-8")
+
+    result = _bash(fake.launchd / "install.sh", "--dry-run", env=fake.env())
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    out = result.stdout
+    assert f"log directory:  {relocated / 'logs'}" in out
+    for label in LABELS:
+        job = label.rsplit(".", 1)[1]
+        assert str(relocated / "logs" / f"launchd-{job}.stdout.log") in out
+        assert str(relocated / "logs" / f"launchd-{job}.stderr.log") in out
+    # A plist *value*, not a comment: the doctor template documents the fallback path.
+    assert f"<string>{fake.root / 'data' / 'logs'}" not in out
+    assert not (fake.root / "data").exists(), "a dry run created a log directory"
 
 
 def test_install_refuses_a_tcc_protected_root_even_in_dry_run(tmp_path: Path) -> None:

@@ -10,7 +10,8 @@
 #   - the project's virtualenv interpreter is used by absolute path (stock python3 is 3.9);
 #   - the job runs under `caffeinate -i` when available, so a closed lid cannot strand a run;
 #   - THREADDIGEST_* settings are loaded from .env without their values ever being printed;
-#   - every wrapper line is timestamped in data/logs/launchd-<job>.log next to the job's output;
+#   - every wrapper line is timestamped in <data_dir>/logs/launchd-<job>.log next to the job's
+#     output, where <data_dir> is THREADDIGEST_DATA_DIR from .env or $ROOT/data (KI-049);
 #   - the job's exit code is mapped to an operator action and then passed through unchanged.
 #
 # Exit code map (the CLI's codes, docs/PLAN.md):
@@ -48,50 +49,33 @@ if [ ! -x "$PY" ]; then
   exit 78 # EX_CONFIG
 fi
 
-LOG_DIR="$ROOT/data/logs"
-mkdir -p "$LOG_DIR"
-LOG="$LOG_DIR/launchd-$JOB.log"
-
 # log <text>: one timestamped line to the job log and to stdout (launchd's StandardOutPath).
 # A logging failure (disk full) is reported by tee on stderr and never aborts the job itself.
+# Never called before $LOG is set, a few lines below.
 log() {
   printf '%s [%s] %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$JOB" "$*" | tee -a "$LOG" || true
 }
 
-# load_env <file>: export the THREADDIGEST_* assignments of a dotenv file. The file is parsed
-# line by line, never sourced, so it cannot run commands; keys must be plain identifiers;
-# values are never printed. One pair of surrounding quotes is stripped, nothing else.
-load_env() {
-  local file="$1" line key value count=0
-  [ -f "$file" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    line="${line#"${line%%[![:space:]]*}"}" # left-trim
-    line="${line#export }"
-    case "$line" in
-      THREADDIGEST_*=*) ;;
-      *) continue ;;
-    esac
-    key="${line%%=*}"
-    value="${line#*=}"
-    case "$key" in
-      *[!A-Z0-9_]*) continue ;; # not an identifier: skip rather than guess
-    esac
-    case "$value" in
-      \"*\")
-        value="${value#\"}"
-        value="${value%\"}"
-        ;;
-      \'*\')
-        value="${value#\'}"
-        value="${value%\'}"
-        ;;
-    esac
-    export "$key=$value"
-    count=$((count + 1))
-  done <"$file"
-  log ".env: exported $count THREADDIGEST_* key(s) from $file (values are never logged)"
-}
-load_env "$ROOT/.env"
+# .env first, then the log directory: the log lives under the *resolved* data directory, and
+# .env is where a relocation is declared (KI-049). It used to be the other way round --
+# LOG_DIR was `$ROOT/data/logs`, set forty lines before this parse -- so an operator who moved
+# the data directory, which `doctor`'s data_dir_outside_tcc check actively pushes them to do,
+# had the scheduled run's whole output written outside it. load_env logs nothing for this
+# reason; the count it records is reported below, once the file it would be written to exists.
+ENV_FILE="$ROOT/.env"
+load_env "$ENV_FILE"
+
+LOG_DIR="$(data_dir_of "$ROOT")/logs"
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/launchd-$JOB.log"
+
+if [ -n "$ENV_KEYS_LOADED" ]; then
+  log ".env: exported $ENV_KEYS_LOADED THREADDIGEST_* key(s) from $ENV_FILE (values are never logged)"
+fi
+# Where this log is, on the operator's first line of it: the plists' StandardOutPath is
+# rendered at install time and can be stale if the data directory moved afterwards, so the
+# wrapper says which directory it resolved rather than leaving it to be inferred.
+log "log directory: $LOG_DIR"
 
 UI_URL="${THREADDIGEST_UI_URL:-http://127.0.0.1:8765}"
 

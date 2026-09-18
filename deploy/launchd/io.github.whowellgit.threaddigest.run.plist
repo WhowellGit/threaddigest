@@ -44,11 +44,17 @@
 	<string>__ROOT__</string>
 
 	<!-- Anything the wrapper prints before its own log is open (a TCC refusal, a missing
-	     virtualenv, a bash syntax error) lands here. The job log is data/logs/launchd-run.log. -->
+	     virtualenv, a bash syntax error) lands here. The job log itself is
+	     <log dir>/launchd-run.log, written by run.sh. __LOG_DIR__ is the second placeholder
+	     install.sh substitutes: the resolved data directory's `logs` folder, which is
+	     THREADDIGEST_DATA_DIR from .env when that is set and __ROOT__/data otherwise. launchd
+	     opens these two files before the wrapper runs, so they cannot be computed at run time;
+	     they are rendered at install time instead, and moving the data directory afterwards
+	     means running install.sh again (KI-049; deploy/launchd/README.md says so). -->
 	<key>StandardOutPath</key>
-	<string>__ROOT__/data/logs/launchd-run.stdout.log</string>
+	<string>__LOG_DIR__/launchd-run.stdout.log</string>
 	<key>StandardErrorPath</key>
-	<string>__ROOT__/data/logs/launchd-run.stderr.log</string>
+	<string>__LOG_DIR__/launchd-run.stderr.log</string>
 
 	<key>ProcessType</key>
 	<string>Background</string>

@@ -5,10 +5,16 @@
 #   deploy/launchd/install.sh --dry-run  print every step and the substituted paths; change nothing
 #
 # For each of io.github.whowellgit.threaddigest.run and io.github.whowellgit.threaddigest.doctor: substitute
-# `__ROOT__` in deploy/launchd/<label>.plist with this repository's absolute path, `plutil -lint`
-# the rendered copy, write it to ~/Library/LaunchAgents, `launchctl bootout` any loaded version
+# `__ROOT__` in deploy/launchd/<label>.plist with this repository's absolute path and
+# `__LOG_DIR__` with the resolved data directory's `logs` folder, `plutil -lint` the rendered
+# copy, write it to ~/Library/LaunchAgents, `launchctl bootout` any loaded version
 # (errors ignored), then `launchctl bootstrap gui/$UID <plist>`. Refuses to install from a
 # TCC-protected folder, where launchd would be silently denied access. Independent of `make`.
+#
+# The log directory comes from THREADDIGEST_DATA_DIR in .env, the same one run.sh resolves
+# (common.sh's data_dir_of), so launchd's pre-wrapper output and the job log land together
+# (KI-049). launchd reads the rendered plist, so a data directory moved after installation
+# needs this script run again; the wrapper's own log path always follows .env.
 #
 # Must stay /bin/bash 3.2 compatible.
 set -euo pipefail
@@ -47,6 +53,11 @@ AGENTS_DIR="$HOME/Library/LaunchAgents"
 DOMAIN="gui/$(id -u)"
 LABELS="io.github.whowellgit.threaddigest.run io.github.whowellgit.threaddigest.doctor"
 
+# .env decides where logs go, so it is read before anything is rendered (KI-049). Values are
+# never printed; only the resolved directory is, which is a path and not a credential.
+load_env "$ROOT/.env"
+LOG_DIR="$(data_dir_of "$ROOT")/logs"
+
 # say <text>: describe a step; prefixed in dry-run mode so the transcript reads honestly.
 say() {
   if [ "$DRY_RUN" = 1 ]; then
@@ -56,11 +67,13 @@ say() {
   fi
 }
 
-# render <src> <dest>: substitute __ROOT__ with bash's own expansion, so any character in the
-# path (spaces, `|`, `&`) is literal; sed would need escaping for each of them.
+# render <src> <dest>: substitute __ROOT__ and __LOG_DIR__ with bash's own expansion, so any
+# character in either path (spaces, `|`, `&`) is literal; sed would need escaping for each of
+# them. __LOG_DIR__ goes first: it is the longer path and may itself contain __ROOT__.
 render() {
   local content
   content="$(<"$1")"
+  content="${content//__LOG_DIR__/$LOG_DIR}"
   printf '%s\n' "${content//__ROOT__/$ROOT}" >"$2"
 }
 
@@ -85,14 +98,15 @@ echo "repo root:      $ROOT"
 echo "interpreter:    $PY"
 echo "launchd domain: $DOMAIN"
 echo "agents dir:     $AGENTS_DIR"
+echo "log directory:  $LOG_DIR"
 if [ "$DRY_RUN" = 1 ]; then
   echo "mode:           dry run (nothing is written or loaded)"
 fi
 echo
 
-say "mkdir -p $ROOT/data/logs   (launchd needs the directory for StandardOutPath)"
+say "mkdir -p $LOG_DIR   (launchd needs the directory for StandardOutPath)"
 if [ "$DRY_RUN" = 0 ]; then
-  mkdir -p "$ROOT/data/logs"
+  mkdir -p "$LOG_DIR"
 fi
 
 for label in $LABELS; do
@@ -101,11 +115,20 @@ for label in $LABELS; do
   dest="$AGENTS_DIR/$label.plist"
 
   echo "== $label"
+  for placeholder in __ROOT__ __LOG_DIR__; do
+    if ! grep -Fq "$placeholder" "$src"; then
+      echo "install.sh: $src contains no $placeholder placeholder; nothing would be substituted" >&2
+      exit 1
+    fi
+  done
   render "$src" "$rendered"
   plutil -lint "$rendered" # the rendered copy, i.e. what launchd will read; a bad plist stops here
+  # Both substituted paths, because the log directory may sit outside the checkout when the
+  # data directory has been relocated (KI-049) and those two files are where a job that fails
+  # before the wrapper's own log is open reports itself.
   echo "substituted paths:"
-  if ! grep -F "$ROOT" "$rendered" | sed 's/^[[:space:]]*/    /'; then
-    echo "install.sh: $src contains no __ROOT__ placeholder; nothing was substituted" >&2
+  if ! grep -F -e "$ROOT" -e "$LOG_DIR" "$rendered" | sed 's/^[[:space:]]*/    /'; then
+    echo "install.sh: $rendered names neither $ROOT nor $LOG_DIR; substitution did nothing" >&2
     exit 1
   fi
 
@@ -135,10 +158,10 @@ verify (look for "state =" and "last exit code ="; a fresh install shows no exit
   launchctl print $DOMAIN/io.github.whowellgit.threaddigest.doctor
 trigger a run now instead of waiting for Monday or Thursday 06:30:
   launchctl kickstart $DOMAIN/io.github.whowellgit.threaddigest.run
-logs:
-  $ROOT/data/logs/launchd-run.log       timestamped wrapper lines plus the run's output
-  $ROOT/data/logs/launchd-doctor.log    the hourly staleness check
-  $ROOT/data/logs/launchd-*.std*.log    anything printed before the wrapper opened its log
+logs (under the resolved data directory; re-run this script after moving it):
+  $LOG_DIR/launchd-run.log       timestamped wrapper lines plus the run's output
+  $LOG_DIR/launchd-doctor.log    the hourly staleness check
+  $LOG_DIR/launchd-*.std*.log    anything printed before the wrapper opened its log
 remove:
   $SCRIPT_DIR/uninstall.sh
 EOF

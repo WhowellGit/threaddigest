@@ -7,8 +7,8 @@ notifications.
 
 | Agent (Label) | When | Command | Log |
 |---|---|---|---|
-| `io.github.whowellgit.threaddigest.run` | 06:30 Monday and Thursday | `.venv/bin/python -m threaddigest run` | `data/logs/launchd-run.log` |
-| `io.github.whowellgit.threaddigest.doctor` | every hour at :15 | `.venv/bin/python -m threaddigest doctor --alert-if-stale 5d` | `data/logs/launchd-doctor.log` |
+| `io.github.whowellgit.threaddigest.run` | 06:30 Monday and Thursday | `.venv/bin/python -m threaddigest run` | `<data dir>/logs/launchd-run.log` |
+| `io.github.whowellgit.threaddigest.doctor` | every hour at :15 | `.venv/bin/python -m threaddigest doctor --alert-if-stale 5d` | `<data dir>/logs/launchd-doctor.log` |
 
 Twice a week, Monday and Thursday, is the cadence (D-30, 2026-09-15): Wes reads on his own
 rhythm, the target subreddits produce far fewer than 1,000 posts between runs, so the listing
@@ -25,7 +25,7 @@ overdue (a missed run doubles the gap past five days).
 |---|---|
 | `run.sh` | The wrapper launchd runs (`run.sh run` or `run.sh doctor`). Details below. |
 | `common.sh` | Helpers shared by the three scripts: repo-root resolution and the TCC check. Sourced, never executed. |
-| `io.github.whowellgit.threaddigest.run.plist`, `io.github.whowellgit.threaddigest.doctor.plist` | Templates. `__ROOT__` stands for the repository's absolute path; `install.sh` substitutes it. launchd never reads these copies. |
+| `io.github.whowellgit.threaddigest.run.plist`, `io.github.whowellgit.threaddigest.doctor.plist` | Templates. `__ROOT__` stands for the repository's absolute path and `__LOG_DIR__` for the resolved data directory's `logs` folder; `install.sh` substitutes both. launchd never reads these copies. |
 | `install.sh` | Renders, lints, writes and bootstraps both agents. `--dry-run` prints every step and changes nothing. |
 | `uninstall.sh` | Unloads both agents and removes their rendered plists. Logs and data are untouched. `--dry-run` supported. |
 
@@ -53,14 +53,14 @@ false); the first run is the next calendar entry.
 launchctl print gui/$UID/io.github.whowellgit.threaddigest.run      # "state = waiting", program, run interval
 launchctl print gui/$UID/io.github.whowellgit.threaddigest.doctor
 launchctl kickstart gui/$UID/io.github.whowellgit.threaddigest.run  # trigger a run now, same environment launchd uses
-tail -f data/logs/launchd-run.log
+tail -f "$(deploy/launchd/install.sh --dry-run | sed -n 's/^log directory:  //p')/launchd-run.log"
 ```
 
 After a kickstart, `launchctl print` shows `last exit code = N` and the log ends with a
 timestamped `[run] exit N` line followed by the mapped action. `launchctl print` output is
 also where a plist mistake surfaces: a job that never gets a `runs` count or shows
 `last exit code = 78` before `run.sh` logged anything is refusing to start (see
-`data/logs/launchd-run.stderr.log`, where the wrapper's pre-log messages go).
+`launchd-run.stderr.log` in the log directory, where the wrapper's pre-log messages go).
 
 ### Missed-interval catch-up after sleep
 
@@ -69,7 +69,7 @@ missed entries coalesce into one run; nothing is lost, only delayed, because the
 queue and watermark are idempotent). To see it happen:
 
 1. Note the next run (Monday or Thursday 06:30) and put the Mac to sleep (or close the lid) before it.
-2. Wake it after 06:30. Within a few seconds `data/logs/launchd-run.log` gains a
+2. Wake it after 06:30. Within a few seconds the log directory's `launchd-run.log` gains a
    `[run] start:` line stamped with the wake time, not 06:30, and `launchctl print` shows the
    new `last exit code`.
 3. `log show --last 1h --predicate 'process == "launchd" AND eventMessage CONTAINS "threaddigest"'`
@@ -119,7 +119,25 @@ sets no locale.
 
 `THREADDIGEST_*` lines in `$ROOT/.env` are exported to the job. The file is parsed (keys
 validated as identifiers, one pair of surrounding quotes stripped), never sourced, and the
-log records only how many keys were loaded. Nothing in `data/logs/` ever contains a value.
+log records only how many keys were loaded. No log file ever contains a value.
+
+### Where the logs go, and the one thing to remember when moving the data directory
+
+Both logs live under the **resolved data directory**: `$THREADDIGEST_DATA_DIR/logs` when
+`.env` sets it, `$ROOT/data/logs` otherwise. `run.sh` parses `.env` before it opens its log
+and prints the directory it resolved on the log's own first lines, so the wrapper always
+follows a relocation (KI-049; it used to set the directory forty lines before reading `.env`,
+which put the whole scheduled output outside the resolved directory for anyone who took
+`doctor`'s advice to move the data directory off a TCC-protected volume).
+
+launchd's own `StandardOutPath`/`StandardErrorPath` are different: launchd opens those two
+files itself, before the wrapper starts, so they cannot be resolved at run time. `install.sh`
+renders them from the same directory (`__LOG_DIR__`, using `common.sh`'s `data_dir_of`, the
+one definition both scripts read), which means **after moving the data directory, run
+`deploy/launchd/install.sh` again** — otherwise the wrapper's log moves and launchd's
+pre-wrapper output stays behind at the old path. `install.sh` prints `log directory:` in its
+header and in its closing summary, and `--dry-run` shows the rendered paths without writing
+anything.
 
 ## The TCC note: where the repo may live
 
