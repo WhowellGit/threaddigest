@@ -19,21 +19,29 @@ Any port passes. The attack is on the *name*: a browser that has been talked int
 launder that. Refusing ``127.0.0.1:9999`` would only break an operator who put the server on
 another port.
 
-**Response headers (spec row UI-05, half of it).** ``Content-Security-Policy: default-src
-'self'`` is the cheap defence in depth behind the markdown surface: no external script,
-style, image or connection, so a string that survives sanitizing still has nowhere to send
-what it reads. ``X-Content-Type-Options: nosniff`` stops a browser from deciding that a
-stored body is really HTML, and ``Referrer-Policy: no-referrer`` keeps local URLs out of the
-``Referer`` of every deep link into reddit.com. The other half of UI-05 -- the scan that
-every ``|safe`` operand is a sanitized ``*_html`` column -- arrives with the first template
-that renders stored content; nothing here renders any.
+**Response headers (spec row UI-05, half of it).** ``Content-Security-Policy`` is the cheap
+defence in depth behind the markdown surface: ``default-src 'self'`` means no external
+script, style, image or connection, so a string that survives sanitizing still has nowhere to
+send what it reads. ``default-src`` is only the *fetch* fallback, though, and four directives
+do not fall back to it at all, so they are stated as well (KI-050, the 2026-09-17 code panel's
+seat B finding B7): ``frame-ancestors 'none'``, without which the pages were frameable by any
+origin; ``base-uri 'none'``; ``form-action 'self'``; and ``object-src 'none'``. The whole
+policy is :data:`CONTENT_SECURITY_POLICY`, which says why each is there.
+``X-Content-Type-Options: nosniff`` stops a browser from deciding that a stored body is
+really HTML, and ``Referrer-Policy: no-referrer`` keeps local URLs out of the ``Referer`` of
+every deep link into reddit.com. The other half of UI-05 -- the scan that every ``|safe``
+operand is a sanitized ``*_html`` column -- arrives with the first template that renders
+stored content; nothing here renders any.
 
 **What is deliberately NOT here yet.** The same-origin check on state-changing requests
 (``Sec-Fetch-Site`` with the ``Origin``/``Referer`` fallback on plain HTTP, UI-21) and basic
-auth behind ``THREADDIGEST_UI_PASSWORD`` (UI-24) land with the first POST. This slice has no
-POST and no route that writes, so the loopback bind plus this Host check is the whole
-perimeter. A CSRF check written now would guard nothing, and could not be tested against a
-real mutation, which is the kind of mechanism that rots.
+auth behind ``THREADDIGEST_UI_PASSWORD`` (UI-24) land with the first POST. A CSRF check
+written now would guard nothing, and could not be tested against a real mutation, which is
+the kind of mechanism that rots. So this module is **not** the whole perimeter, and the
+docstring used to say it was: the loopback bind, the Host check and these headers are what
+holds while every route is a read (proven, not assumed: seat B drove hand-made scopes and
+found no state-changing route). The missing pieces are named above because M2's "Run now" and
+"Cancel" arrive inside this same header, and that is when the sentence has to change again.
 """
 
 from __future__ import annotations
@@ -45,6 +53,7 @@ from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 __all__ = [
+    "CONTENT_SECURITY_POLICY",
     "HOST_REFUSED_MESSAGE",
     "HOST_REFUSED_STATUS",
     "LOOPBACK_HOSTS",
@@ -69,10 +78,29 @@ HOST_REFUSED_MESSAGE: Final = (
     "something else, so it was refused without being served.\n"
 )
 
+#: The policy, one directive per line, joined below. ``default-src`` is the fetch-directive
+#: fallback and covers script, style, image, font, media and connection; the other four are
+#: **not** fetch directives and do not fall back to it, so a policy of ``default-src 'self'``
+#: alone left every page frameable by any origin (KI-050): ``frame-ancestors`` is the header
+#: half of clickjacking defence (and the successor to ``X-Frame-Options``), ``base-uri`` stops
+#: an injected ``<base>`` from re-pointing every relative URL on the page, ``form-action``
+#: bounds where a form may post -- M2's "Run now" and "Cancel" land inside this header -- and
+#: ``object-src 'none'`` retires plugin content, which ``default-src`` would otherwise allow
+#: from this origin. Each appears exactly once: in CSP the first occurrence of a directive
+#: wins and a later one is ignored, so a duplicate is a quiet way to believe a policy that is
+#: not in force (``tests/web/test_app.py`` asserts both the set and the absence of repeats).
+CONTENT_SECURITY_POLICY: Final = "; ".join((
+    "default-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "object-src 'none'",
+))  # fmt: skip
+
 #: Applied to every response, including a refusal and a static file. ``setdefault`` leaves a
 #: header a route set for itself alone.
 SECURITY_HEADERS: Final[tuple[tuple[str, str], ...]] = (
-    ("content-security-policy", "default-src 'self'"),
+    ("content-security-policy", CONTENT_SECURITY_POLICY),
     ("x-content-type-options", "nosniff"),
     ("referrer-policy", "no-referrer"),
 )

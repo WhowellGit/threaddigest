@@ -239,6 +239,62 @@ def test_every_response_carries_the_content_safety_headers(
         assert refused.headers.get(name) == value, f"a refusal is missing {name}"
 
 
+#: Every directive the policy must carry, and its value. ``frame-ancestors``, ``base-uri``,
+#: ``form-action`` and ``object-src`` do **not** fall back to ``default-src``: a policy of
+#: ``default-src 'self'`` alone leaves the pages frameable by any origin, which is what the
+#: 2026-09-17 code panel found (seat B, finding B7; KI-050). Written out here rather than read
+#: from ``SECURITY_HEADERS``, so this test states the contract instead of echoing the code.
+REQUIRED_CSP_DIRECTIVES: Mapping[str, str] = {
+    "default-src": "'self'",
+    "frame-ancestors": "'none'",
+    "base-uri": "'none'",
+    "form-action": "'self'",
+    "object-src": "'none'",
+}
+
+
+def _policy(header: str) -> dict[str, str]:
+    """A ``Content-Security-Policy`` header as ``{directive: value}``."""
+    parsed: dict[str, str] = {}
+    for part in header.split(";"):
+        name, _, value = part.strip().partition(" ")
+        if name:
+            parsed[name.lower()] = value.strip()
+    return parsed
+
+
+def test_the_policy_carries_every_directive_default_src_does_not_cover(
+    client: TestClient, history: History
+) -> None:
+    """A page, a static file and a refusal: the policy is the same on all three.
+
+    The directives are asserted by name and value, so a policy that lost one of them -- or
+    that was never given one -- is red here even though the header is still sent.
+    """
+    responses = [
+        client.get("/runs"),
+        client.get(f"/runs/{history.ok_pk}"),
+        client.get("/static/app.css"),
+        client.get("/runs", headers={"host": "evil.example"}),
+    ]
+    for response in responses:
+        header = response.headers.get("content-security-policy")
+        assert header is not None, response.request.url
+        assert _policy(header) == dict(REQUIRED_CSP_DIRECTIVES), header
+
+
+def test_the_policy_is_one_definition_with_no_duplicate_directive() -> None:
+    """The constant the middleware sends is the contract above, spelled once each.
+
+    A repeated directive is not an error in CSP -- the first occurrence wins and the second is
+    ignored -- so a duplicate would be a silent way to believe a policy that is not in force.
+    """
+    policy = dict(SECURITY_HEADERS)["content-security-policy"]
+    assert _policy(policy) == dict(REQUIRED_CSP_DIRECTIVES)
+    names = [part.strip().split(" ")[0] for part in policy.split(";") if part.strip()]
+    assert len(names) == len(set(names)), policy
+
+
 def test_the_pages_load_no_external_asset_and_run_no_inline_script(
     client: TestClient, history: History
 ) -> None:
