@@ -64,6 +64,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 __all__ = [
+    "ALLOW_REAL_DATA_DIR",
     "SANCTIONED_ENVIRONMENT_VARIABLES",
     "BudgetSettings",
     "CommentsSettings",
@@ -84,7 +85,12 @@ __all__ = [
 ]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_ALLOW_REAL_DATA_DIR = "THREADDIGEST_ALLOW_REAL_DATA_DIR"
+#: The one opt-in that lets a process use the real data directory: read from ``os.environ``
+#: rather than declared as a field (it is a test and ops escape hatch, not a setting). Public
+#: because the refusal has two homes -- this module under pytest, and
+#: ``tools/make_demo_fixture.py``, which refuses to write a fabricated corpus into the real
+#: directory (KI-048) -- and one literal is what keeps them the same escape hatch.
+ALLOW_REAL_DATA_DIR: Final = "THREADDIGEST_ALLOW_REAL_DATA_DIR"
 _STATIC_KEY = "static"
 
 #: The ``THREADDIGEST_*`` variables that are deliberately **not** fields of
@@ -94,7 +100,7 @@ _STATIC_KEY = "static"
 SANCTIONED_ENVIRONMENT_VARIABLES: Final[frozenset[str]] = frozenset({
     # The data-directory refusal's opt-in, read from `os.environ` a few lines below rather
     # than declared as a field (it is a test/ops escape hatch, not a setting).
-    _ALLOW_REAL_DATA_DIR,
+    ALLOW_REAL_DATA_DIR,
     # `deploy/launchd/run.sh`'s health-check URL: the launchd job's own variable, exported
     # to the job from `.env` and never read by this module.
     "THREADDIGEST_UI_URL",
@@ -314,13 +320,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _refuse_real_data_dir_under_pytest(self) -> Settings:
-        if not _pytest_is_loaded() or os.environ.get(_ALLOW_REAL_DATA_DIR):
+        if not _pytest_is_loaded() or os.environ.get(ALLOW_REAL_DATA_DIR):
             return self
         if self.data_dir == default_data_dir().resolve():
             msg = (
                 f"refusing to use the real data directory {self.data_dir} while pytest is "
                 "loaded. Set THREADDIGEST_DATA_DIR to a temp directory (the autouse fixture "
-                f"in tests/conftest.py does this) or set {_ALLOW_REAL_DATA_DIR}=1 to opt in."
+                f"in tests/conftest.py does this) or set {ALLOW_REAL_DATA_DIR}=1 to opt in."
             )
             raise DataDirRefused(msg)
         return self

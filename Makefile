@@ -24,7 +24,7 @@ help:
 	@echo "make hooks            install the pre-commit hooks into this checkout (nothing else)"
 	@echo "make check            ruff format, ruff check, mypy strict, import-linter, pytest+coverage, ratchets"
 	@echo "make test             uv run pytest"
-	@echo "make fixture          generate the demo corpus into data/demo.json (generated, never committed)"
+	@echo "make fixture          generate the demo corpus into .build/demo.json (generated, never committed)"
 	@echo "make run              fixture, db init, then run --gateway fake against .build/run-data"
 	@echo "make serve            web UI on http://127.0.0.1:8765 against the same .build/run-data"
 	@echo "make schema           regenerate src/threaddigest/db/schema.sql from the migrations"
@@ -132,11 +132,13 @@ test-live:  ## the opt-in live suite (tranche B): needs .env credentials; the ne
 # explicit and NOT the default ./data, because `--gateway fake` is refused against the real
 # data directory (D-10 / CF-02) and a developer smoke run must never touch collected data.
 RUN_DATA_DIR ?= $(BUILD_DIR)/run-data
-# Generated, never committed (data/ is git-ignored): `make fixture` is the only producer,
-# and `make run` regenerates it so a demo never collects from a stale corpus.
-RUN_FIXTURE ?= data/demo.json
+# Generated, never committed: `make fixture` is the only producer, and `make run` regenerates
+# it so a demo never collects from a stale corpus. It lands in the build directory, not in
+# `data/`: the corpus is fabricated, and `data/` is where collected data lives (KI-048). The
+# generator refuses a path inside the real data directory, so this line and that check agree.
+RUN_FIXTURE ?= $(BUILD_DIR)/demo.json
 
-fixture:
+fixture: | $(BUILD_DIR)
 	$(UV) run python tools/make_demo_fixture.py $(RUN_FIXTURE)
 
 run: fixture | $(BUILD_DIR)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -22,10 +22,15 @@ import yaml
 from tools.make_demo_fixture import (
     EXPECTED_POSTS,
     SOURCES,
+    build_demo_fixture,
     check_corpus,
+    day_start_utc,
+    refuses_real_data_dir,
 )
 
 from threaddigest.services.report import WINDOW_DAYS
+from threaddigest.settings import ALLOW_REAL_DATA_DIR, DataDirRefused, default_data_dir
+from tools import make_demo_fixture
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "tools" / "make_demo_fixture.py"
@@ -126,3 +131,88 @@ def test_check_corpus_rejects_a_corpus_that_disagrees_with_the_constants() -> No
 
     with pytest.raises(ValueError, match="generated corpus is"):
         check_corpus({**honest, "posts": [{}] * (EXPECTED_POSTS - 1)})
+
+
+# --- KI-048: a fabricated corpus never lands in the real data directory ------------------------
+
+
+def _stand_in_default_dir(monkeypatch: pytest.MonkeyPatch, root: Path) -> Path:
+    """A temp directory standing in for ``<repo>/data``.
+
+    The refusal is asserted against a stand-in, never against the real directory (the rule
+    ``tests/e2e/test_data_dir_writes.py`` states for its own control): if this guard ever
+    regresses, the test that notices must not be the one that wrote a fabricated 316-post
+    corpus into the operator's data tree. The real path is covered by the pure predicate
+    below, which cannot write anything at all.
+    """
+    stand_in = root / "repo" / "data"
+    stand_in.mkdir(parents=True)
+    monkeypatch.setattr(make_demo_fixture, "default_data_dir", lambda: stand_in)
+    return stand_in
+
+
+def test_the_generator_refuses_to_write_into_the_default_data_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`make fixture` used to write ``data/demo.json``, beside the operator's own database.
+
+    ``default_data_dir()`` is ``<repo>/data`` and this generator creates its target's parent,
+    so a fabricated corpus was written into the live data tree -- which future tooling
+    (backups, exports, retention) has no reason to treat as foreign -- while the resolved data
+    directory of the run that reads it is ``.build/run-data``, so the write was outside the
+    resolved directory as well (panel finding B4). The refusal is keyed on the path, not on
+    pytest, so it holds for `make fixture` in a plain shell too.
+    """
+    monkeypatch.delenv(ALLOW_REAL_DATA_DIR, raising=False)
+    stand_in = _stand_in_default_dir(monkeypatch, tmp_path)
+    base = day_start_utc(date.fromisoformat(PINNED_BASE))
+
+    with pytest.raises(DataDirRefused, match=ALLOW_REAL_DATA_DIR):
+        build_demo_fixture(stand_in / "demo.json", base=base)
+    # A deeper path under the same directory is the same refusal, and the nested directory is
+    # not created on the way to finding that out.
+    with pytest.raises(DataDirRefused):
+        build_demo_fixture(stand_in / "fixtures" / "demo.json", base=base)
+
+    assert sorted(path.name for path in stand_in.rglob("*")) == []
+
+
+def test_the_real_data_directory_is_refused_by_the_predicate_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real path, checked by the half of the guard that cannot write: a pure predicate."""
+    monkeypatch.delenv(ALLOW_REAL_DATA_DIR, raising=False)
+    assert refuses_real_data_dir(default_data_dir() / "demo.json") is True
+    assert refuses_real_data_dir(default_data_dir() / "nested" / "demo.json") is True
+    assert refuses_real_data_dir(REPO_ROOT / ".build" / "demo.json") is False
+
+
+def test_the_generator_writes_anywhere_else_without_the_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The negative control: the refusal is about one directory, not about writing at all."""
+    monkeypatch.delenv(ALLOW_REAL_DATA_DIR, raising=False)
+    _stand_in_default_dir(monkeypatch, tmp_path)
+
+    written = build_demo_fixture(
+        tmp_path / "build" / "demo.json", base=day_start_utc(date.fromisoformat(PINNED_BASE))
+    )
+
+    assert written.is_file()
+
+
+def test_the_opt_in_variable_lifts_the_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same escape hatch the settings refusal takes, named by the same one literal."""
+    monkeypatch.setenv(ALLOW_REAL_DATA_DIR, "1")
+    assert refuses_real_data_dir(default_data_dir() / "demo.json") is False
+
+
+def test_the_makefile_target_writes_into_the_build_directory() -> None:
+    """The fix's other half: ``RUN_FIXTURE`` names ``.build/``, which is git-ignored scratch.
+
+    Read out of the Makefile rather than restated, so a target that moves back into ``data/``
+    is red here even though the generator would also refuse it.
+    """
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assignment = next(line for line in makefile.splitlines() if line.startswith("RUN_FIXTURE ?="))
+    assert assignment == "RUN_FIXTURE ?= $(BUILD_DIR)/demo.json", assignment

@@ -4,9 +4,10 @@
 The corpus is **generated, never committed**. It used to live in git as
 ``tests/fixtures/json/demo.json`` (13,586 lines, 416 KB): a file no reviewer reads, that
 every branch re-diffs, and whose contents nothing explained. This script is its only
-producer. ``make fixture`` writes it to ``data/demo.json`` (``data/`` is git-ignored) for
-``make run``; ``tests/conftest.py`` builds it once per pytest session into a temp
-directory. The two callers share this module, so there is one definition of "the demo
+producer. ``make fixture`` writes it to ``.build/demo.json`` for ``make run``;
+``tests/conftest.py`` builds it once per pytest session into a temp directory. It used to be
+written to ``data/demo.json``, inside the real data directory, which :func:`build_demo_fixture`
+now refuses (KI-048). The two callers share this module, so there is one definition of "the demo
 corpus" rather than one per consumer.
 
 Determinism is structural, not statistical: nothing here draws from ``random``, and the
@@ -51,11 +52,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Final, NamedTuple
 
 from threaddigest.adapters.reddit_fake import FakeRedditGateway
+from threaddigest.settings import ALLOW_REAL_DATA_DIR, DataDirRefused, default_data_dir
 
 
 class Source(NamedTuple):
@@ -304,12 +307,39 @@ def check_corpus(data: dict[str, object]) -> None:
         raise ValueError(msg)
 
 
+def refuses_real_data_dir(path: Path) -> bool:
+    """Would writing the corpus to ``path`` put it inside the real data directory?
+
+    A pure predicate, so the rule can be asserted against the real path by a test that
+    cannot write anything. ``THREADDIGEST_ALLOW_REAL_DATA_DIR`` lifts it, the same escape
+    hatch ``Settings`` takes and named by the same one literal.
+    """
+    if os.environ.get(ALLOW_REAL_DATA_DIR):
+        return False
+    return path.expanduser().resolve().is_relative_to(default_data_dir().resolve())
+
+
 def build_demo_fixture(path: Path, *, base: int | None = None) -> Path:
     """Write the corpus to ``path`` (creating its directory) and return the path.
 
     ``base`` defaults to :func:`default_base_utc`, so a caller that does not care -- the
     pytest session fixture, ``make fixture`` -- gets a corpus anchored on today.
+
+    A path inside the real data directory is refused before anything is created (KI-048):
+    this corpus is fabricated, and the data directory is where the operator's collected data
+    lives, which future tooling -- backups, exports, retention -- has no reason to treat as
+    foreign. ``make fixture`` wrote ``data/demo.json`` until 2026-09-17 and now writes into
+    ``.build/``; the refusal is keyed on the path rather than on pytest, so it holds in a
+    plain shell too.
     """
+    if refuses_real_data_dir(path):
+        msg = (
+            f"refusing to write the generated demo corpus to {path}, which is inside the real "
+            f"data directory {default_data_dir()}: the corpus is fabricated and that directory "
+            f"holds collected data. Write it under .build/ (what `make fixture` does) or set "
+            f"{ALLOW_REAL_DATA_DIR}=1 to opt in."
+        )
+        raise DataDirRefused(msg)
     path.parent.mkdir(parents=True, exist_ok=True)
     build_gateway(base=default_base_utc() if base is None else base).to_fixture(path)
     check_corpus(json.loads(path.read_text(encoding="utf-8")))
@@ -320,7 +350,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("path", type=Path, help="where to write the corpus, e.g. data/demo.json")
+    parser.add_argument(
+        "path",
+        type=Path,
+        help="where to write the corpus, e.g. .build/demo.json; a path inside the real "
+        "data directory is refused",
+    )
     parser.add_argument(
         "--base",
         type=date.fromisoformat,
@@ -331,7 +366,12 @@ def main() -> None:
     )
     args = parser.parse_args()
     base = None if args.base is None else day_start_utc(args.base)
-    written = build_demo_fixture(args.path, base=base)
+    try:
+        written = build_demo_fixture(args.path, base=base)
+    except DataDirRefused as exc:
+        # `make fixture` is an operator-facing line: the refusal is a usage error with the
+        # reason, not a traceback (argparse exits 2 and prints to stderr).
+        parser.error(str(exc))
     print(f"wrote {written}: {EXPECTED_POSTS} posts across {len(SOURCES)} subreddits")
 
 
