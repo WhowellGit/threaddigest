@@ -6,13 +6,13 @@ verified-at: M1b
 ---
 # Panel fix round B: deployment and data safety (2026-09-17)
 
-Scope `f1ab4fd..90e1e26` on branch `panel-fix-b`. Seven commits, one per finding plus the cut
+Scope `4f03faf..9328e85` on branch `panel-fix-b`. Seven commits, one per finding plus the cut
 list. Source: `docs/reference/reviews/2026-09-17-code-panel-seat-B.md` findings B1–B4, B6, B7
 and § 4; the round's summary record is `2026-09-17-code-panel-since-baseline.md`. B5 (the
 permalink join in `db/repo.py`) is not in this round: another agent holds that file, and it
 lands with the digest fixes.
 
-Reviewed surface: `tests/gates/test_data_dir_isolation.py` (commit `7250a1b`), which is why
+Reviewed surface: `tests/gates/test_data_dir_isolation.py` (commit `c225750`), which is why
 this record exists. In-family review by the session that made the change under a bounded
 brief, tests before the code, each behaviour watched red before the fix existed; not an
 independent seat, which is this round's weakness.
