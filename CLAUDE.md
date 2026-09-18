@@ -8,7 +8,7 @@ This file applies to every agent and human working in the repo.
 
 Rules whose late arrival is unrecoverable, so they sit here at the top and in every agent's path:
 
-1. Never write outside the resolved data directory; tests and the fake gateway never touch the default one (`tests/gates/test_data_dir_isolation.py`, `tests/gates/test_no_bypass.py`).
+1. Never write outside the resolved data directory; tests and the fake gateway never touch the default one (`tests/gates/test_data_dir_isolation.py`, `tests/gates/test_no_write_outside_data_dir.py`, `tests/gates/test_no_bypass.py`).
 2. Never commit a secret, another system's identifier, or an attribution trailer: history keeps them (gitleaks in pre-commit; `tests/gates/test_no_imported_identifiers.py`; `tools/hooks/no_bypass_git.sh`).
 3. Never run an unbounded fetch: every run has a budget and the hard cap holds (`tests/gates/test_no_bypass.py`).
 4. Never hand-edit the enforcement surfaces (`.ratchets/`, the hooks, the hook settings) or bypass a gate (`tools/hooks/enforcement_files_script_only.sh`, `tools/hooks/no_bypass_git.sh`).
@@ -53,7 +53,7 @@ that only goes down.
 | A new guard needs a birth incident, a positive control in `tests/gates/`, a `docs/runbook/GUARDS.md` row, and a check whether an existing guard can be widened | `gate` marker; `tests/gates/` review; GUARDS.md quarterly review |
 | No new abstraction without two concrete uses | review |
 | Four layers only: `web \| cli` > `services` > `db \| adapters` > `ports` > `core`; `praw` only in `adapters/reddit_praw.py` (tranche B) | import-linter contracts in `.importlinter`; `tests/gates/test_layering.py` |
-| `create_engine`, `text()`, `sqlite3.connect` only inside `db/`; `mock.patch` only in `tests/adapters/`; `encoding=` on every text open | ruff `TID251`, `PLW1514` |
+| `create_engine`, `text()`, `sqlite3.connect` only inside `db/`; `mock.patch` only in `tests/adapters/`; `encoding=` on every text open; no module imported by string (`importlib.import_module`, `__import__`), because a chokepoint contract reads import statements and a string is not one | ruff `TID251`, `PLW1514`; `tests/gates/test_layering.py` for the two spellings ruff cannot reach |
 | Never import another system's identifiers, attribution trailers, or model names into tracked text, or a term on the operator's private list | `tests/gates/test_no_imported_identifiers.py`; `tools/private_terms.py`, which reads the list from the private folder beside the memory snapshot and names a match by its ordinal, never its text (the repository is public); `tools/hooks/no_bypass_git.sh` refuses a commit whose message carries a trailer |
 | Every rule in this table names an enforcer that exists, or says review; review-only rules are a ceiling that only goes down | `tests/gates/test_rules_name_their_enforcer.py`; `.ratchets/review_only_rules.txt` |
 | Generated data is produced by a script and never committed; one green commit per module | `tools/make_demo_fixture.py`; `.pre-commit-config.yaml` (large-file check); review for commit size |
@@ -110,6 +110,8 @@ that only goes down.
    `make ratchet-loosen KEY=… REASON="…"` (a loosening pauses for approval and lands a
    `GUARDS.md` row).
 5. Land with `git merge --ff-only` into `main` once the gate is green: stage everything, run
+   `make ratchet-bump` before `make check`, so the floors sit at the measured values and headroom
+   is spent, not banked, then run
    `make check`, which stamps the tree it passed on, commit, then merge; the hook refuses any
    tree without that stamp (a merge commit on `main` is refused); push `main` to `origin` when Wes
    asks for it and not otherwise, never force-push it; a push runs `make check` through the

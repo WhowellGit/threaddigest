@@ -422,8 +422,32 @@ def test_positive_control_no_list_checks_nothing_and_says_so(
     """The CI and fresh-clone case: no private folder, so nothing is checked and it is said."""
     root, paths = _tree(tmp_path / "unchecked", "# s\n\nthe quokka-lantern note\n")
     absent = tmp_path / "no-private-folder"
+    assert not absent.exists(), "the note-and-pass case is a missing FOLDER, not a missing list"
     assert check(root, paths, absent) == []
     assert capsys.readouterr().out.strip() == NO_LIST.format(path=list_path(absent))
+
+
+@pytest.mark.gate("G35")
+def test_positive_control_a_private_folder_with_no_list_is_red(tmp_path: Path) -> None:
+    """Tightened 2026-09-17, one of the two tightenings this check's own landing record named
+    as available (`docs/reference/reviews/2026-09-17-private-term-list.md`).
+
+    The note-and-pass case answers one question -- is this a machine that holds the operator's
+    private material? -- and a folder that exists with no list in it answers it yes: the list
+    was moved, renamed or deleted. Borrowing CI's green there is the silent skip in the one
+    place it matters. The other tightening the record named, a per-commit stage, was not taken:
+    `make check` runs this check at the pre-push stage and that stays the gate.
+    """
+    root, paths = _tree(tmp_path / "folder-no-list", "# s\n\nthe quokka-lantern note\n")
+    empty_home = tmp_path / "private-but-empty"
+    empty_home.mkdir()
+
+    with pytest.raises(SystemExit, match="the list was moved or renamed"):
+        check(root, paths, empty_home)
+
+    # ... and the same folder with its list back is green-or-red on the text, as before.
+    list_path(empty_home).write_text(PLACEHOLDER_TERMS, encoding="utf-8")
+    assert check(root, paths, empty_home) == ["docs/SUSPECT.md:3: private term (pattern 1)"]
 
 
 @pytest.mark.gate("G35")

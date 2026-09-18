@@ -839,7 +839,10 @@ def _home_value(root: Path, home: str) -> str | None:
         return "" if data is None else str(data)
     if kind == "python":
         module, _, name = rest.partition(":")
-        return str(getattr(importlib.import_module(module), name))
+        # The one dynamic import in the tree, and the reason TID251's ban carries an exception
+        # here rather than a whole-path one: a live-facts row names its code home as a dotted
+        # `module:attribute` in a document, so the module to read is data, not a literal.
+        return str(getattr(importlib.import_module(module), name))  # noqa: TID251
     msg = f"unknown fact home {home!r}"
     raise ValueError(msg)
 

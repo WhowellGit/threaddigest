@@ -151,6 +151,14 @@ extend-immutable-calls = ["typer.Option", "typer.Argument", "fastapi.Depends", "
 "sqlalchemy.text".msg = "Raw SQL lives inside threaddigest.db only; go through the repository or threaddigest.db.engine."
 "sqlite3.connect".msg = "Open the database through threaddigest.db.engine, never sqlite3 directly."
 "unittest.mock.patch".msg = "Do not patch internals: test through the fake gateway (threaddigest.adapters.reddit_fake) and a real temp DB. Allowed only under tests/adapters/."
+# Dynamic imports (2026-09-17, code panel finding C-3(b)): `importlib.import_module("praw")`
+# inside `services/collect.py` passed every gate, because G05's chokepoint is a scan of static
+# import statements and import-linter reads the same. There is no legitimate dynamic import in
+# `src/`: the one in the tree is tools/doc_policy.py, reading a code default by dotted name, and
+# it carries a narrow `# noqa: TID251` with that reason rather than a whole-path exemption.
+# `__import__` cannot be banned here (ruff resolves import paths, not builtins), so the twin is
+# tests/gates/test_layering.py's AST scanner, which also covers the paths lifted below.
+"importlib.import_module".msg = "Import at module level. A dynamic import walks around the chokepoint contracts (G05): a string is not an import statement, so neither import-linter nor the praw scanner can see it. If a real case appears, name it here with its reason."
 
 # Ruff can only lift TID251 as a whole per path, not per banned name. db/ and tests/db/ are
 # lifted for create_engine/text/sqlite3; tests/adapters/ for mock.patch. Review keeps the split.

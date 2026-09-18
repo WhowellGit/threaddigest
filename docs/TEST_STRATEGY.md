@@ -183,10 +183,10 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | ID | Name | Layer | Phase | Pri | Status | Reason if cut/changed |
 |---|---|---|---|---|---|---|
 | G01 | Exception-policy lint | gate | M0 | P1 | planned | |
-| G02 | Banned APIs (`TID251`) | gate | M0 | P1 | planned | |
+| G02 | Banned APIs (`TID251`) | gate | M0 | P1 | changed | widened 2026-09-17 (KI-046) to `importlib.import_module`, with one line-level exception in `tools/doc_policy.py`; `__import__` and the per-file lifts are covered by the AST scan `tests/gates/test_layering.py::test_no_module_in_the_package_imports_by_string` |
 | G03 | mypy strict, `dmypy` whole tree in pre-commit | gate | M0 | P1 | planned | |
 | G04 | Layering (import-linter) | gate | M0 | P1 | planned | |
-| G05 | External-package chokepoints | gate | M0 | P1 | planned | |
+| G05 | External-package chokepoints | gate | M0 | P1 | changed | a dynamic import walked past the whole chokepoint (KI-046): both contracts and both scanners read import statements, and a module named by a string is not one; `tests/gates/test_layering.py::test_ruff_bans_a_dynamic_import_planted_in_a_copy_of_a_services_module` is the lint half's control |
 | G06 | Network block | gate | M0 | P1 | changed | extended across the subprocess seam (B4); a `Popen` child is not blocked by the plugin |
 | G07 | Warnings are errors | gate | M0 | P1 | planned | |
 | G08 | Static skip/xfail ratchet | gate | M0 | P1 | planned | |
@@ -200,7 +200,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G16 | Models == DDL | gate | M0 | P1 | planned | |
 | G17 | Per-revision fixture DBs | gate | M1a | P2 | shipped | "FTS count == live count" is measured via `posts_fts_docsize`, never `count(*) FROM posts_fts` (DB panel verification); tests/db/test_alembic.py::test_revision_fixture_upgrades_clean, ::test_fixture_set_equals_non_head_revisions, ::test_every_table_seeded_in_each_fixture |
 | G18 | Runtime schema fingerprint | runtime | M1a | P1 | shipped | warning on `doctor` and `/system`, ordinary tables only; never refuses (A9); tests/services/test_doctor.py::test_check_schema_fingerprint_is_ok_at_head, ::test_schema_fingerprint_mismatch_is_a_warning_not_an_error |
-| G19 | DATA_DIR isolation | gate | M0 | P1 | changed | across the subprocess seam (B4) |
+| G19 | DATA_DIR isolation | gate | M0 | P1 | changed | across the subprocess seam (B4); widened 2026-09-17 (KI-047) with the half that was review-only until then -- an autouse fixture fails any test that opens a path for writing outside its temp tree, proven by `tests/gates/test_no_write_outside_data_dir.py::test_positive_control_a_planted_write_outside_the_temp_tree_is_red` |
 | G20 | TCC path and interpreter | gate/runtime | M0, M1d | P1 | planned | |
 | G21 | Size caps | gate | M0 | P1 | changed | `C901` and `PLR0915` only (plan); the file-length test and `PLR0913` not adopted |
 | G22 | Cross-platform | gate | M0, M1 | P1 | planned | |
@@ -218,7 +218,7 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | G41 | Guard firings ledger | CI | M0 | P2 | planned | |
 | G42 | Weekly enforcement audit | CI | M0–M1 | P2 | planned | deferrable to M1 |
 | G43 | Settings-drift check | CI | M0 | P2 | planned | deferrable to M1; agent token drops `administration`/`workflows` after M0 |
-| G44 | Routing pointers resolve | gate | M1a | P1 | shipped | `tests/gates/test_routing_rows_resolve.py`; found two dangling pointers on its first run |
+| G44 | Routing pointers resolve | gate | M1a | P1 | changed | `tests/gates/test_routing_rows_resolve.py`; found two dangling pointers on its first run; resolution moved from the filesystem to the tree on 2026-09-17 (KI-045) after the gate flipped green/red/red across three identical runs on one commit |
 | G45 | Status-page contract | gate | M1a | P1 | shipped | `tests/gates/test_status_page.py`; stamp, cap, headings, no restated counts |
 | G46 | No sleeping under pytest | gate | M1a | P2 | shipped | `tests/gates/test_no_sleep_under_pytest.py` (id assigned 2026-09-14) |
 | G47 | Memory snapshot and one memory home | gate | M1a | P1 | shipped | `tools/memory_snapshot.py` check + diff in `make check`; `tests/gates/test_memory_snapshot.py` |

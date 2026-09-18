@@ -215,3 +215,82 @@ def test_a_missing_analyzer_is_red_not_zero(project: Path, tmp_path: Path) -> No
     assert proc.returncode != 0
     assert "analyzer 'complexipy' not found" in proc.stderr
     assert not (project / ".build" / "code_health.json").exists()
+
+
+# --- A10: a use from a test is not a use of production code (2026-09-17 code panel) ----------
+
+#: A production module whose public helper nothing in `src/` calls.
+REACHED_ONLY_FROM_A_TEST = '''"""A module with one helper no production code calls."""
+
+
+def reached_only_from_a_test(x: int) -> int:
+    return x + 1
+'''
+
+#: The test that reaches it, and a dead helper of its own, so the harness pass is watched too.
+REACHING_TEST = '''"""The only caller."""
+from threaddigest.lonely import reached_only_from_a_test
+
+
+def test_it() -> None:
+    assert reached_only_from_a_test(1) == 2
+
+
+def never_called_from_anywhere() -> None:
+    """Dead inside the test tree: the harness pass must still count this."""
+'''
+
+#: The same shape inside the in-repo test double, which is measured in the harness pass, so a
+#: use from a test *is* a use there: the fake's scenario API is what tests are meant to drive.
+FAKE_BUILDER = '''"""Stands in for adapters/reddit_fake: driven from tests by design."""
+
+
+def add_post(title: str) -> str:
+    return title
+
+
+def builder_no_test_drives() -> None:
+    """Dead even by the harness pass's lenient rule: nothing calls it at all."""
+'''
+
+FAKE_USING_TEST = '''"""Drives the double."""
+from threaddigest.adapters.reddit_fake.builders import add_post
+
+
+def test_double() -> None:
+    assert add_post("t") == "t"
+'''
+
+
+def test_a_source_symbol_reached_only_from_a_test_counts_as_dead(project: Path) -> None:
+    """A10's positive control, in both directions at once.
+
+    Before 2026-09-17 the tool handed ``src``, ``tests`` and ``tools`` to vulture in one pass,
+    so a reference from a test counted as a use and a production symbol no production code
+    called read as used -- the budget module's public API was the panel's example, every method
+    of it exercised by a property test and called by nothing. The product pass now scans ``src``
+    alone, so such a symbol is counted; the harness pass still scans everything and keeps the
+    ``tests/``, ``tools/`` and test-double findings, so nothing that was counted before stopped
+    being counted.
+    """
+    for name in ("knotty.py", "huge.py", "dup_a.py", "dup_b.py"):
+        (project / PACKAGE / name).unlink()
+    (project / PACKAGE / "lonely.py").write_text(REACHED_ONLY_FROM_A_TEST, encoding="utf-8")
+    (project / "tests" / "test_lonely.py").write_text(REACHING_TEST, encoding="utf-8")
+    fake = project / PACKAGE / "adapters" / "reddit_fake"
+    fake.mkdir(parents=True)
+    (fake / "builders.py").write_text(FAKE_BUILDER, encoding="utf-8")
+    (project / "tests" / "test_double.py").write_text(FAKE_USING_TEST, encoding="utf-8")
+
+    proc = run_tool(project)
+    assert proc.returncode == 0, proc.stderr
+    hits = sorted(str(hit) for hit in report(project)["hits"] if str(hit).startswith("dead_code "))
+
+    assert "unused function reached_only_from_a_test" in "\n".join(hits), hits
+    # The harness pass still counts dead code in the test tree ...
+    assert "unused function never_called_from_anywhere" in "\n".join(hits), hits
+    # ... and in the double, where nothing calls it at all ...
+    assert "unused function builder_no_test_drives" in "\n".join(hits), hits
+    # ... while the double's API that a test does drive is not dead: that is what it is for.
+    assert "unused function add_post" not in "\n".join(hits), hits
+    assert report(project)["values"]["dead_code"] == 3, hits

@@ -773,6 +773,67 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   **Revisit when:** a renumber is needed often enough that the sweep itself becomes the
   bottleneck, at which point assigning ids at landing time is worth the brief churn.
 
+## 2026-09-17 (the gates) — a gate asks nothing of the machine it runs on
+
+- **D-42, a gate resolves against the tree, never against the filesystem.** The routing gate
+  (G44) resolved a pointer with `Path.exists`, so on one unmodified commit three identical suite
+  runs gave green, red, red: a memory note names the gitignored build directory, which exists
+  only after something has generated it. The gate now resolves a pointer against what
+  `git ls-files` reports plus a declared allowlist of generated directories, and its controls
+  assert the same verdict with those directories absent and present, and with the private memory
+  home absent and present. The amendment the code panel's record states — a gate may ask nothing
+  of the machine it runs on — is settled here for every gate, not only this one; it is the same
+  family as KI-032 and KI-035. **Revisit when:** a gate genuinely needs a fact about the host,
+  which is the moment to ask whether it is a gate or a doctor check.
+- **A rule with two halves gets two enforcers.** Irreversible rule 1 said "never write outside
+  the resolved data directory" and only the settings half was mechanical: the panel planted a
+  live write to a hard-coded path and the suite sent it thirty-seven lines with every gate green.
+  The second half is an autouse fixture that wraps the Python-level open paths and fails the test
+  on a write outside its temp tree. What it cannot see is named rather than implied: SQLite's own
+  file opens, which are the settings half's business, and a subprocess's writes, which the
+  run-level snapshot in `tests/e2e/test_data_dir_writes.py` still covers. **Revisit when:** the
+  allow-list needs a fourth entry, which is the moment to ask what is writing there and why.
+- **A dynamic import is a chokepoint bypass, so it is banned rather than reviewed.** `praw`
+  confinement (G05) is a scan of import statements, and a string is not one:
+  `importlib.import_module("praw")` inside a service passed ruff, mypy, import-linter and both
+  scanners. The name is banned by ruff `TID251`, with the tree's one legitimate use — reading a
+  live-fact's code home by dotted name — carrying a line-level exception rather than a
+  whole-path one. `__import__` cannot be expressed as a banned import path, and `TID251` can only
+  be lifted per file as a whole, so the twin is an AST scan of the package in
+  `tests/gates/test_layering.py`. **Revisit when:** a plugin loader is wanted, which is the
+  moment to give it one named module rather than an exemption.
+- **A guard scans a shape; KI-039's did not.** The rule that `db upgrade`'s pre-migration
+  statements may name no column newer than the oldest database they can meet was guarded by a
+  hand-written list of the two functions that had bitten, while the command issues four. The
+  shape guard runs the real command against every committed fixture database, oldest first,
+  parametrised from `tests/fixtures/db/` — which the working agreement already requires to hold
+  a fixture per revision — so a new head-model column named anywhere in that prefix is red. The
+  narrower control stays where it was born, because it fails with the offending function in the
+  traceback. **Revisit when:** the fixture directory stops being the set of databases the command
+  can meet, which would mean a revision landed without its fixture.
+- **Dead code is measured over the product, and the in-repo test double is not the product.**
+  Vulture was handed `src`, `tests` and `tools` in one pass, so a reference from a test counted
+  as a use and a production symbol no production code called read as used; the measured ceiling
+  was zero while the budget module's whole public API had no caller. The product pass now scans
+  `src` alone. The fake gateway is excluded from it and measured in a second pass over the whole
+  tree, because its scenario API exists to be driven from tests and counting three dozen correct
+  methods as dead is how an operator learns to ignore a list. The measurement rose from zero, and
+  the ceiling is a dated birth relaxation from here on down. **Revisit when:** a second in-repo
+  double appears, which is the moment to ask whether the doubles want a package of their own.
+- **The landing routine bumps the floors, so headroom is spent rather than banked.** Measured on
+  a clean tree: the coverage floor, the assertion count and the collected-test count all carried
+  slack, which is exactly the room a weakened test walks through without any ratchet noticing.
+  `make ratchet-bump` now comes before the stamping `make check` in the landing steps, in the
+  working agreement and in the runbook. **Revisit when:** a bump is ever wanted separately from a
+  landing, which is the moment to ask what the intervening commit was for.
+- **A private folder with no term list is red; a per-commit stage is still not taken.** The
+  private-term check's note-and-pass answers one question — does this machine hold the operator's
+  private material? — and a folder present with no list in it answers it yes: the list was moved,
+  renamed or deleted. Of the two tightenings that check's own record named as available, this one
+  is taken and the per-commit stage is not: `make check` runs the check at the pre-push stage and
+  that stays the gate. **Revisit when:** a term reaches a commit again, which is the trigger the
+  record already names for the per-commit stage.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.

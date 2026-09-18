@@ -46,9 +46,10 @@ Recurring human duties are held to three: read the digest, acknowledge alerts in
 2. Commit on a branch (pre-commit: ruff format+lint, `dmypy` whole tree, gitleaks, large-file check, `no-commit-to-branch main`). Never `--no-verify`.
 3. Open the PR with the template: `## Tests changed` (file, reason per changed `tests/**` file), the pasted `make check` block, ratchet table, `## Independent review` for deletion/scrub/migration/`repo.py` changes.
 4. CI required check today: `check` (the workflow also has `py314`, `portability`, `actionlint`). Planned for M1: `ratchets`, `ratchet-loosen-approval` (runs only on a loosening; Wes clicks approve after reading the `GUARDS.md` ledger row), `pr-body`. CI has not executed yet: a GitHub remote exists, but nothing has been pushed to it. Merge when green.
-5. **(M1d+)** `make deploy` on the Mac: `git pull`, `uv sync --frozen`, `threaddigest db upgrade` (backs up first, § 4), restart `serve`; then `threaddigest doctor`.
-6. Post-deploy: the next scheduled run's status on `/runs`; the weekly `audit` issue lists every enforcement-surface change for Wes to read.
-7. Roll back: previous git tag + `db restore` of the pre-migration backup (§ 5). Never auto-downgrade.
+5. Run `make ratchet-bump` before `make check`, so the floors sit at the measured values and headroom is spent, not banked. Measured on a clean tree by the 2026-09-17 code panel (seat C, finding C-9): the coverage floor, the assertion count and the collected-test count all carried slack, which is headroom a weakened test can be walked through without any ratchet noticing. The bump belongs to the landing, not to a later tidy-up; the stamped `make check` that follows is then the one that certifies the floors as well as the tree.
+6. **(M1d+)** `make deploy` on the Mac: `git pull`, `uv sync --frozen`, `threaddigest db upgrade` (backs up first, § 4), restart `serve`; then `threaddigest doctor`.
+7. Post-deploy: the next scheduled run's status on `/runs`; the weekly `audit` issue lists every enforcement-surface change for Wes to read.
+8. Roll back: previous git tag + `db restore` of the pre-migration backup (§ 5). Never auto-downgrade.
 
 ## 4. Migrate (schema change)
 

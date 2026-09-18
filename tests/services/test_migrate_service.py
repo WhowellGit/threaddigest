@@ -874,3 +874,145 @@ def test_a_command_error_inside_the_migration_is_restored_like_a_database_error(
     finally:
         engine.dispose()
     assert [level for level, _message in notifier.sent] == ["error"]
+
+
+# --- KI-039's shape guard: the whole below-head prefix, against every old database ------------
+
+
+def committed_fixture_revisions() -> list[str]:
+    """Every revision with a committed fixture database, oldest first.
+
+    Read from the tree, never typed. The working agreement requires every schema change to ship
+    a prior-revision fixture database in ``tests/fixtures/db/``, so this directory *is* the set
+    of databases ``db upgrade`` can meet on an operator's machine.
+    """
+    return sorted(path.stem for path in FIXTURES_DIR.glob("*.sqlite"))
+
+
+def _run_row(db_path: Path, kind: str) -> dict[str, object]:
+    """The one run row of ``kind``, read at head, with the columns the prefix writes."""
+    engine = engine_for(db_path)
+    try:
+        table = Base.metadata.tables["runs"]
+        with engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    select(
+                        table.c.pk,
+                        table.c.status,
+                        table.c.stage,
+                        table.c.heartbeat_at,
+                        table.c.finished_at,
+                    )
+                    .where(table.c.kind == kind)
+                    .order_by(table.c.pk)
+                )
+                .mappings()
+                .all()
+            )
+    finally:
+        engine.dispose()
+    assert len(rows) == 1, rows
+    return dict(rows[0])
+
+
+@pytest.mark.parametrize("revision", committed_fixture_revisions())
+def test_the_below_head_prefix_of_db_upgrade_works_against_every_committed_fixture(
+    revision: str,
+    db_path: Path,
+    ctx_factory: CtxFactory,
+    settings: Settings,
+    clock: FakeClock,
+    notifier: FakeNotifier,
+) -> None:
+    """KI-039's guard as a shape rather than a list (2026-09-17 code panel, finding C-7).
+
+    ``db upgrade`` writes to the database it is about to migrate: it opens its run row, beats
+    ``upgrade:backup`` onto it, takes and verifies the backup, reads the table counts and
+    records the ``backups`` row -- all before Alembic runs. Every one of those statements is
+    built from the *head* models, so a column a new revision adds and one of them names is
+    ``no such column`` against an older file, and the command dies before the backup that makes
+    it recoverable. That is KI-039, and its first guard was a hand-written list of the two
+    functions that had bitten (``repo.insert_run`` and ``repo.touch_run``) while the prefix
+    issued four; the project's own guard rule says to scan a structural shape and never police a
+    hand-maintained list.
+
+    This is the shape: the real command, run to completion against every committed fixture
+    database, oldest first. A new head-model column named *anywhere* in the prefix is red here,
+    and the parametrisation follows the fixture directory, so the set of old databases grows
+    with the migrations instead of with an edit to this test. The narrower control on the two
+    named functions stays where it was born
+    (``tests/db/test_migrate_revisions.py::test_insert_run_and_touch_run_work_on_a_database_at_0001``):
+    it fails with the offending function in the traceback, which is the better message.
+    """
+    head = db_migrate.head_revision()
+    shutil.copyfile(FIXTURES_DIR / f"{revision}.sqlite", db_path)
+
+    outcome = migrate_service.db_upgrade(
+        ctx_factory, settings=settings, clock=clock, notifier=notifier
+    )
+
+    assert outcome.from_revision == revision
+    assert outcome.to_revision == head
+    assert outcome.migrated is (revision != head)
+    assert outcome.restored is False
+    assert outcome.error is None
+
+    # The prefix left its marks on the old file: the run row, the heartbeat beaten onto it, and
+    # -- where there was anything to migrate -- the verified backup and its table counts.
+    row = _run_row(db_path, "db_upgrade")
+    assert row["status"] == "ok"
+    assert row["heartbeat_at"] is not None
+    assert row["finished_at"] is not None
+    assert row["stage"] == (f"upgrade:{revision}->{head}" if revision != head else "upgrade:backup")
+
+    engine = engine_for(db_path)
+    try:
+        assert db_migrate.is_at_head(engine)
+        with engine.connect() as conn:
+            backups = repo.backups_of_kind(conn, "pre-migrate")
+    finally:
+        engine.dispose()
+    assert len(backups) == (1 if revision != head else 0)
+    if backups:
+        assert outcome.backup_path is not None and outcome.backup_path.is_file()
+
+
+#: A head-model read planted into the below-head prefix: ``runs.warnings_json`` arrived with
+#: revision 0005, so no committed fixture has it. Stands in for the next revision's column and
+#: for whoever names it on one of the prefix's statements.
+_HEAD_ONLY_COLUMN = "warnings_json"
+
+
+def _counts_naming_a_head_only_column(engine: Engine) -> str:
+    table = Base.metadata.tables["runs"]
+    with engine.connect() as conn:
+        conn.execute(select(table.c[_HEAD_ONLY_COLUMN])).all()
+    return "{}"
+
+
+@pytest.mark.gate("G19")
+def test_positive_control_a_head_only_column_in_the_prefix_is_red(
+    db_path: Path,
+    ctx_factory: CtxFactory,
+    settings: Settings,
+    clock: FakeClock,
+    notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shape test above can only be trusted if it really runs the prefix against the old
+    file, so plant exactly the defect it is here to catch: a statement in the prefix that names
+    a column the oldest fixture does not have. ``_table_counts_json`` is the planting site
+    because it is one of the two the original hand-written list missed."""
+    oldest = committed_fixture_revisions()[0]
+    shutil.copyfile(FIXTURES_DIR / f"{oldest}.sqlite", db_path)
+    monkeypatch.setattr(migrate_service, "_table_counts_json", _counts_naming_a_head_only_column)
+
+    with pytest.raises(OperationalError, match=f"no such column.*{_HEAD_ONLY_COLUMN}"):
+        migrate_service.db_upgrade(ctx_factory, settings=settings, clock=clock, notifier=notifier)
+
+    engine = engine_for(db_path)
+    try:
+        assert db_migrate.current_revision(engine) == oldest, "the file must be untouched"
+    finally:
+        engine.dispose()

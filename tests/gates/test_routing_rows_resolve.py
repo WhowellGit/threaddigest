@@ -10,13 +10,24 @@ titles "Migrate", and rule files naming package-relative paths. Wes asked for th
 future-facing, so it checks whatever the tables say at the time rather than a fixed list, and a
 memory topic file that names a repo path is checked the same way through the committed snapshot.
 
-What resolves: a backticked path token exists (relative to the repo root; to ``docs/`` for the
-router; to the package for rule files and memory); a ``§`` reference after it names a heading in
-that document, either by code (``§ 4``, ``§B.6``, ``§1–§2``) or by text (``§ Collector algorithm``
-is a prefix of the heading, or the heading's text is a prefix of the reference); every rule file
-has at least one ``paths:`` glob that matches a tracked file, so a rule written for a module that
-does not exist yet still has a live twin. Outside the check, and therefore review: whether the
-routed document is the right one.
+What resolves: a backticked path token is held by the tree (relative to the repo root; to
+``docs/`` for the router; to the package for rule files and memory); a ``§`` reference after it
+names a heading in that document, either by code (``§ 4``, ``§B.6``, ``§1–§2``) or by text
+(``§ Collector algorithm`` is a prefix of the heading, or the heading's text is a prefix of the
+reference); every rule file has at least one ``paths:`` glob that matches a file in the tree, so
+a rule written for a module that does not exist yet still has a live twin. Outside the check, and
+therefore review: whether the routed document is the right one.
+
+**The tree, never the machine** (widened 2026-09-17, the code panel's findings A1 and C-2, and
+the amendment its record carries: "a gate may ask nothing of the machine it runs on"). Resolution
+used to be :meth:`pathlib.Path.exists`, so this required gate flipped between runs on one commit:
+a memory note names ``.build/``, which is gitignored, so the gate was red in a fresh clone and in
+every worktree, and green once something in the same session had generated the directory. Three
+identical suite runs on an unmodified tree gave green, red, red. A pointer now resolves against
+:class:`Tree` -- what ``git ls-files`` reports, plus the declared :data:`GENERATED_DIRS` -- so
+the verdict is a property of the commit. The memory files are the one source that lives outside
+the repository since D-35, and they get no special resolution: a memory pointer must name a path
+the tree holds or a declared generated directory, the same as a router row's.
 """
 
 from __future__ import annotations
@@ -26,7 +37,7 @@ import re
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from tools.ratchet import is_separator_row, split_row
@@ -49,6 +60,15 @@ RULE_FILES_GLOB = ".claude/rules/*.md"
 #: recorded on G44's row in the guards ledger.
 MEMORY_LABEL = "memory/"
 ROUTER_SOURCES = ("CLAUDE.md", "docs/INDEX.md")
+
+#: Directories a pointer may name that are generated at runtime rather than committed. Declared
+#: here, because the gate's verdict may never turn on whether this machine has generated one yet
+#: (A1/C-2). ``.build/`` is the harness's scratch directory -- the Makefile's ``BUILD_DIR``, where
+#: the ratchet and code-health reports land, which is what the memory note naming it is about.
+#: ``data/`` is the operator's data directory: its only tracked file is ``data/.gitkeep``, so a
+#: pointer to it must not depend on a database having been created. Both are in ``.gitignore``,
+#: which is the property that made them machine-dependent.
+GENERATED_DIRS: tuple[str, ...] = (".build/", "data/")
 
 PATH_TOKEN = re.compile(r"`([^`\s]+)`")
 #: A path-looking token: has a slash or a document suffix, is not a home path or a glob.
@@ -161,17 +181,79 @@ def pointers_in(source: str, line: int, cell: str) -> list[Pointer]:
     return out
 
 
-def resolve_path(root: Path, source: str, token: str) -> Path | None:
-    """Router tokens may be relative to ``docs/``; rule files and memory may name a package path."""
-    bases = [root]
+@dataclass(frozen=True)
+class Tree:
+    """What a pointer may resolve against: the files git reports, and their directories.
+
+    Built once per run from :func:`tree_files`. A frozen set of repository-relative posix paths
+    rather than a filesystem walk, because a walk is a question about the machine and this gate
+    asks only about the commit (A1/C-2).
+    """
+
+    files: frozenset[str]
+    dirs: frozenset[str]
+
+    @classmethod
+    def of(cls, paths: Iterable[str]) -> Tree:
+        files = frozenset(paths)
+        dirs = {parent.as_posix() for path in files for parent in PurePosixPath(path).parents} - {
+            "."
+        }
+        return cls(files, frozenset(dirs))
+
+    def holds(self, relative: str) -> bool:
+        """``docs/PLAN.md`` (a file) and ``docs/runbook`` (a directory of one) both count."""
+        return relative in self.files or relative in self.dirs
+
+
+def tree_files(root: Path) -> list[str]:
+    """The tree as git sees it: committed files plus new files git would not ignore.
+
+    Untracked-but-not-ignored files are in for the reason ``tools/private_terms.py`` records
+    from 2026-09-14: a document and the router row that names it land in the same commit, and
+    the file is invisible to ``git ls-files`` until it is added, so a scan of the index alone
+    would go red on the change that is adding the document. Ignored files -- ``.build/``,
+    ``data/*``, the caches -- are out, which is the point: they are the machine, not the tree,
+    and a pointer that needs one names it through :data:`GENERATED_DIRS`.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout
+    return out.split()
+
+
+def candidates(source: str, token: str) -> list[str]:
+    """The repository-relative paths ``token`` may mean, in the order they are tried.
+
+    Router tokens may be relative to ``docs/``; rule files and memory may name a package path.
+    A trailing slash is dropped, so ``db/`` and ``db`` ask the same question of the tree.
+    """
+    relative = [token]
     if source.startswith("docs/"):
-        bases.append(root / "docs")
+        relative.append(f"docs/{token}")
     if source.startswith((".claude/", MEMORY_LABEL)):
-        bases.append(root / "src" / "threaddigest")
-    for base in bases:
-        candidate = base / token
-        if candidate.exists():
-            return candidate
+        relative.append(f"src/threaddigest/{token}")
+    return [path.rstrip("/") for path in relative if path.rstrip("/")]
+
+
+def is_generated(relative: str) -> bool:
+    """Is ``relative`` a declared generated directory, or something inside one?"""
+    return any(f"{relative}/".startswith(folder) for folder in GENERATED_DIRS)
+
+
+def resolve_path(root: Path, tree: Tree, source: str, token: str) -> Path | None:
+    """The repository path ``token`` names, or ``None`` when nothing in the tree holds it.
+
+    ``root`` only makes the answer an absolute path for the heading check that follows; the
+    decision itself reads ``tree`` and :data:`GENERATED_DIRS` and touches no filesystem.
+    """
+    for relative in candidates(source, token):
+        if is_generated(relative) or tree.holds(relative):
+            return root / relative
     return None
 
 
@@ -200,14 +282,22 @@ def section_resolves(document: Path, ref: str) -> bool:
     return any(heading_matches(h, ref) for h in headings(document.read_text(encoding="utf-8")))
 
 
-def dangling(root: Path, pointers: Iterable[Pointer]) -> list[str]:
+def dangling(root: Path, pointers: Iterable[Pointer], tree: Tree) -> list[str]:
+    """Every pointer that resolves to nothing, or to a document with no such heading.
+
+    A path the tree holds but the working copy does not is its own finding rather than a crash
+    inside :func:`section_resolves`: it is a real inconsistency (a document deleted without its
+    router row), and it is still a fact about the tree and not about the machine.
+    """
     found: list[str] = []
     for p in pointers:
-        target = resolve_path(root, p.source, p.path)
+        target = resolve_path(root, tree, p.source, p.path)
         if target is None:
-            found.append(f"{p}: no such file")
+            found.append(f"{p}: not in the tree")
         elif p.section is not None and target.suffix == ".md":
-            if not section_resolves(target, p.section):
+            if not target.is_file():
+                found.append(f"{p}: in the tree, missing from the working copy")
+            elif not section_resolves(target, p.section):
                 found.append(f"{p}: no heading matches")
     return found
 
@@ -266,13 +356,6 @@ def glob_matches(glob: str, files: Iterable[str]) -> bool:
     return any(fnmatch.fnmatch(f, glob) for f in files)
 
 
-def tracked(root: Path) -> list[str]:
-    out = subprocess.run(
-        ["git", "-C", str(root), "ls-files"], capture_output=True, text=True, check=True, timeout=60
-    ).stdout
-    return out.split()
-
-
 def unmatched_rule_files(root: Path, files: Iterable[str]) -> list[str]:
     files = list(files)
     return [
@@ -293,9 +376,10 @@ def test_the_routing_tables_carry_pointers() -> None:
 
 
 def test_every_routing_pointer_resolves() -> None:
+    tree = Tree.of(tree_files(ROOT))
     pointers = table_pointers(ROOT) + file_pointers(ROOT, RULE_FILES_GLOB)
     pointers += pointers_in_files(memory_files(ROOT), ROOT)
-    found = dangling(ROOT, pointers)
+    found = dangling(ROOT, pointers, tree)
     assert not found, "routing pointers that resolve to nothing:\n" + "\n".join(found)
 
 
@@ -309,8 +393,22 @@ def test_the_memory_files_are_read_when_this_machine_has_them() -> None:
         assert pointers_in_files(files, ROOT), sorted(p.name for p in files)
 
 
+def test_a_memory_pointer_names_a_path_the_tree_holds_or_a_generated_one() -> None:
+    """The memory half of the rule, named rather than left implicit (A1/C-2).
+
+    The memory files are the one source that lives outside the repository, so they are the one
+    source whose pointers could be tempted into resolving against the private home or against
+    whatever this machine happens to hold. They resolve against the same tree every router row
+    does, plus the declared generated directories -- and where this machine has no memory at
+    all there is nothing to check, which this test states by finding nothing rather than by
+    being skipped."""
+    tree = Tree.of(tree_files(ROOT))
+    found = dangling(ROOT, pointers_in_files(memory_files(ROOT), ROOT), tree)
+    assert not found, "memory pointers that resolve to nothing:\n" + "\n".join(found)
+
+
 def test_every_rule_file_matches_a_tracked_file() -> None:
-    found = unmatched_rule_files(ROOT, tracked(ROOT))
+    found = unmatched_rule_files(ROOT, tree_files(ROOT))
     assert not found, "\n".join(found)
 
 
@@ -352,6 +450,13 @@ REAL = """\
 """
 
 
+#: The tmp tree's "tracked" file list. Passed in rather than read from git, the way
+#: :func:`unmatched_rule_files`'s control already passes its own file list: the controls below
+#: are about the resolution rule, and building a real repository to state it would put the
+#: machine back in the middle of the gate that is here to stop asking the machine anything.
+TABLE_TREE = ("CLAUDE.md", "docs/REAL.md")
+
+
 def _tree(tmp_path: Path) -> Path:
     (tmp_path / "docs").mkdir()
     (tmp_path / "CLAUDE.md").write_text(TABLE, encoding="utf-8")
@@ -368,13 +473,111 @@ def test_positive_control_dangling_file_section_and_code_are_red(tmp_path: Path)
         for line, cell in cells_under(text, "## Routing: read before you touch", ("Read first",))
         for p in pointers_in("CLAUDE.md", line, cell)
     ]
-    found = dangling(root, pointers)
+    found = dangling(root, pointers, Tree.of(TABLE_TREE))
     assert sorted(f.split(": ", 2)[2] for f in found) == [
         "no heading matches",  # § No such heading
         "no heading matches",  # § 9
-        "no such file",  # GHOST.md
+        "not in the tree",  # GHOST.md
     ], found
     assert not any("NOT-CHECKED" in str(p) for p in pointers), "a non-routing table was read"
+
+
+GENERATED_TABLE = """\
+# working agreement
+
+## Routing: read before you touch
+
+| If you are about to… | Read first |
+|---|---|
+| Generated | `.build/` and `data/` |
+| Inside one | `.build/hooks/read_before_touch.jsonl` |
+| Ghost | `docs/GHOST.md` |
+"""
+
+
+def _generated_pointers(root: Path) -> list[Pointer]:
+    (root / "CLAUDE.md").write_text(GENERATED_TABLE, encoding="utf-8")
+    text = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    return [
+        p
+        for line, cell in cells_under(text, "## Routing: read before you touch", ("Read first",))
+        for p in pointers_in("CLAUDE.md", line, cell)
+    ]
+
+
+@pytest.mark.gate("G44")
+def test_positive_control_the_verdict_is_the_same_with_the_generated_dirs_absent(
+    tmp_path: Path,
+) -> None:
+    """A1/C-2's control, in the direction that failed: the same commit, twice, once before the
+    gitignored directories exist and once after, must give the *same* verdict -- and the ghost
+    must be red in both, so "the same" is not "green either way because nothing is checked"."""
+    root = tmp_path / "repo"  # not tmp_path: the autouse data-dir fixture puts a `data/` there
+    root.mkdir()
+    pointers = _generated_pointers(root)
+    tree = Tree.of(["CLAUDE.md"])
+
+    absent = dangling(root, pointers, tree)
+    assert not (root / ".build").exists() and not (root / "data").exists()
+
+    (root / ".build" / "hooks").mkdir(parents=True)
+    (root / ".build" / "hooks" / "read_before_touch.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "data").mkdir()
+    present = dangling(root, pointers, tree)
+
+    assert absent == present, (absent, present)
+    assert [f.split(": ", 2)[2] for f in present] == ["not in the tree"], present
+    assert "GHOST" in present[0]
+
+
+@pytest.mark.gate("G44")
+def test_positive_control_a_file_on_disk_the_tree_does_not_hold_is_red(tmp_path: Path) -> None:
+    """The other half of the same rule: existing is not resolving. A document present on this
+    machine but absent from the tree -- the mirror image of ``.build/``, and what a stale
+    worktree or a half-reverted rename leaves behind -- does not satisfy a router row."""
+    root = _tree(tmp_path)
+    (root / "docs" / "GHOST.md").write_text("# Ghost\n\n## Collector algorithm\n", encoding="utf-8")
+    text = (root / "CLAUDE.md").read_text(encoding="utf-8")
+    pointers = [
+        p
+        for line, cell in cells_under(text, "## Routing: read before you touch", ("Read first",))
+        for p in pointers_in("CLAUDE.md", line, cell)
+        if "GHOST" in cell
+    ]
+
+    assert (root / "docs" / "GHOST.md").is_file()
+    assert [f.split(": ", 2)[2] for f in dangling(root, pointers, Tree.of(TABLE_TREE))] == [
+        "not in the tree"
+    ]
+    # ... and green once the tree holds it, so the finding is about the tree and nothing else.
+    assert dangling(root, pointers, Tree.of([*TABLE_TREE, "docs/GHOST.md"])) == []
+
+
+@pytest.mark.gate("G44")
+def test_positive_control_the_verdict_is_the_same_with_and_without_a_memory_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The second half of A1/C-2's flap: the private memory home is a property of the machine
+    (CI and a fresh clone have none), so the gate's verdict over the repository may not depend
+    on it. With neither home present :func:`memory_files` finds nothing; with one present it
+    reads it; the repository's own pointers resolve the same way in both worlds."""
+    absent = tmp_path / "gone"
+    home = tmp_path / "memory-home"
+    home.mkdir()
+    (home / "topic.md").write_text("read `docs/PLAN.md` and `.build/`\n", encoding="utf-8")
+
+    monkeypatch.setattr(memory_snapshot, "default_paths", lambda _tree: (absent, absent))
+    assert memory_files(ROOT) == []
+    without = dangling(ROOT, pointers_in_files(memory_files(ROOT), ROOT), Tree.of(tree_files(ROOT)))
+
+    monkeypatch.setattr(memory_snapshot, "default_paths", lambda _tree: (absent, home))
+    files = memory_files(ROOT)
+    assert [p.name for p in files] == ["topic.md"]
+    pointers = pointers_in_files(files, ROOT)
+    assert {p.path for p in pointers} == {"docs/PLAN.md", ".build/"}
+    with_home = dangling(ROOT, pointers, Tree.of(tree_files(ROOT)))
+
+    assert without == with_home == []
 
 
 @pytest.mark.gate("G44")

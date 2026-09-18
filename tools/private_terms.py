@@ -28,10 +28,17 @@ Two files, both in that folder:
     within its file keeps its acceptance, and a line that is edited is flagged again, which is
     the behaviour an acceptance list needs to stay honest as the document around it changes.
 
-A missing list is not a failure: CI and a fresh clone have no private folder, so ``check``
+A missing *folder* is not a failure: CI and a fresh clone have no private folder, so ``check``
 prints one verbatim note saying nothing was checked and exits 0 -- a visible state rather than
 a silent skip. A list that exists and cannot be read, or that holds a pattern that does not
 compile, is red: a check that cannot run is never quietly green.
+
+A missing list *inside a folder that exists* is red too (tightened 2026-09-17, one of the two
+tightenings this tool's own landing record named as available). The note-and-pass case is an
+answer to one question -- "is this a machine that has the operator's private material?" -- and
+a folder present with no list in it answers it yes. The list was moved, renamed or deleted, and
+the operator's machine would otherwise print the CI note and pass, which is the silent skip in
+the one place it matters.
 
 The file set is defined here rather than in the gate because two readers need it -- this tool
 under ``make check`` and the gate under pytest -- and a tool cannot import a test module. The
@@ -75,8 +82,9 @@ EXCLUDED_PREFIXES = ("docs/reference/earlier-project-retrospectives/",)
 LIST_NAME = "tracked-text-terms.txt"
 ACCEPTED_NAME = "tracked-text-terms-accepted.txt"
 
-#: Printed verbatim when the private folder holds no list (CI, a fresh clone, another machine).
-#: A real state, not a skip: it is visible in the ``make check`` output and the run exits 0.
+#: Printed verbatim when there is no private folder at all (CI, a fresh clone, another machine).
+#: A real state, not a skip: it is visible in the ``make check`` output and the run exits 0. A
+#: folder that exists with no list in it is red instead (2026-09-17): see :func:`load_patterns`.
 NO_LIST = "private terms: no list at {path}; nothing checked"
 
 
@@ -136,9 +144,19 @@ def line_hash(line: str) -> str:
 
 
 def load_patterns(home: Path) -> list[re.Pattern[str]] | None:
-    """The compiled list, or ``None`` when there is no list file. Unreadable is red."""
+    """The compiled list, or ``None`` when there is no private folder at all.
+
+    Unreadable is red, and so is a folder that exists with no list in it: that is a list moved,
+    renamed or deleted on a machine that does hold the operator's private material, and it must
+    not borrow CI's note-and-pass (tightened 2026-09-17).
+    """
     path = list_path(home)
     if not path.is_file():
+        if home.is_dir():
+            fail(
+                f"no list at {path}, but the private folder {home} exists; a folder with no "
+                "list means the list was moved or renamed, not that this is CI"
+            )
         return None
     try:
         text = path.read_text(encoding="utf-8")

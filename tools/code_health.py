@@ -19,9 +19,11 @@ bare number):
                             arguments, nesting), measured here rather than enforced as lint
                             because the existing offenders are held by this ceiling
     dead_code               vulture findings of kind function, method, class or property at
-                            60% confidence or more, scanned over src, tests and tools so that
-                            use from a test counts as use, with decorator-registered names
-                            ignored and the rest matched against tools/vulture_whitelist.py
+                            60% confidence or more, with decorator-registered names ignored and
+                            the rest matched against tools/vulture_whitelist.py. Measured in two
+                            passes (2026-09-17): src on its own, so a source symbol reached only
+                            from a test counts as dead, and then the whole tree, from which only
+                            the tests/ and tools/ findings are taken
     dead_code_whitelisted   entries in that whitelist, so the list itself cannot grow unseen
     duplicate_blocks        pylint duplicate-code findings (eight similar lines or more), each
                             named by every module the block sits in rather than by the module
@@ -66,7 +68,25 @@ DEAD_CODE_IGNORED_DECORATORS = (
     "@pytest.fixture",
 )
 SOURCE = Path("src") / "threaddigest"
-DEAD_CODE_PATHS = ("src", "tests", "tools")
+#: Dead code is measured in two passes rather than one (2026-09-17, code panel finding A10).
+#: Scanning ``src``, ``tests`` and ``tools`` together made a reference from a test count as a
+#: use, so a source symbol no production code calls read as used; the panel's example was the
+#: budget module's public API, every method of it exercised by a property test and called by
+#: nothing. The product pass therefore scans ``src`` alone, where such a symbol is dead -- the
+#: truth the old single pass hid. The harness pass scans everything and keeps only the ``tests/``
+#: and ``tools/`` findings, so dead code in the harness is still counted; without it the
+#: narrowing would have traded one blind spot for another.
+DEAD_CODE_PRODUCT_PATHS = ("src",)
+DEAD_CODE_HARNESS_PATHS = ("tests", "tools")
+#: The in-repo test double. The fake gateway ships inside the package because ``--gateway fake``
+#: is a real command, but its whole scenario API exists to be driven from tests: "reached only
+#: from a test" is what that package is *for*, so counting it in the product pass would bury
+#: A10's finding under three dozen correct methods -- the "train the operator to ignore the
+#: alert" failure the plan's guard rules exist to avoid. It is measured in the harness pass
+#: instead, where a use from a test counts as a use, so a scenario builder no test calls is
+#: still dead. It stays a scan path in the product pass: the fake implements the ports, and a
+#: production symbol the shipped fake calls is reached by a shipped command.
+DEAD_CODE_DOUBLE_PATHS = ((SOURCE / "adapters" / "reddit_fake").as_posix(),)
 WHITELIST = Path("tools") / "vulture_whitelist.py"
 REPORT = Path(".build") / "code_health.json"
 TIMEOUT = 300
@@ -240,8 +260,13 @@ def whitelist_entries(root: Path) -> list[str]:
     return entries
 
 
-def dead_code(tools: Analyzers) -> list[str]:
-    paths = [p for p in DEAD_CODE_PATHS if (tools.root / p).is_dir()]
+def _vulture_hits(tools: Analyzers, scan: tuple[str, ...]) -> list[str]:
+    """One vulture pass over ``scan``, reduced to the kinds this ceiling counts.
+
+    The whitelist file is always appended: it is an ordinary Python module, so the references
+    inside it are what make a whitelisted name count as used.
+    """
+    paths = [p for p in scan if (tools.root / p).is_dir()]
     if (tools.root / WHITELIST).is_file():
         paths.append(WHITELIST.as_posix())
     proc = tools.run(
@@ -261,7 +286,23 @@ def dead_code(tools: Analyzers) -> list[str]:
             hits.append(
                 f"{match.group('where')} unused {match.group('kind')} {match.group('name')}"
             )
-    return sorted(hits)
+    return hits
+
+
+def dead_code(tools: Analyzers) -> list[str]:
+    """The product's dead code and the harness's, in the two passes A10 asked for."""
+    product = [
+        hit
+        for hit in _vulture_hits(tools, DEAD_CODE_PRODUCT_PATHS)
+        if not hit.startswith(DEAD_CODE_DOUBLE_PATHS)
+    ]
+    whole_tree = _vulture_hits(tools, (*DEAD_CODE_PRODUCT_PATHS, *DEAD_CODE_HARNESS_PATHS))
+    harness = [
+        hit
+        for hit in whole_tree
+        if hit.startswith((*DEAD_CODE_HARNESS_PATHS, *DEAD_CODE_DOUBLE_PATHS))
+    ]
+    return sorted(set(product) | set(harness))
 
 
 def module_file(root: Path, source: Path, module: str) -> str:
