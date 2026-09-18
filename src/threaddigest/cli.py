@@ -123,11 +123,12 @@ def default_gateway_factory(spec: GatewaySpec) -> RedditGateway:
         return FakeRedditGateway()
     if spec.kind == "praw":
         # Plain values, never the ``Settings`` object: the adapter takes what PRAW needs and
-        # nothing else, which is also what makes it a one-line construction in a test. The
-        # secret is unwrapped here, at the last possible moment, and nowhere else.
+        # nothing else, which is also what makes it a one-line construction in a test. All
+        # three credentials are unwrapped here, at the last possible moment, and nowhere else
+        # (the account name travels inside the user agent PRAW sends; KI-046).
         return PrawGateway(
             PrawConfig(
-                client_id=spec.settings.reddit_client_id,
+                client_id=spec.settings.reddit_client_id.get_secret_value(),
                 client_secret=spec.settings.reddit_client_secret.get_secret_value(),
                 user_agent=user_agent(spec.settings, __version__),
             )

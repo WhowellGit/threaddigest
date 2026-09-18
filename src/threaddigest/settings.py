@@ -254,16 +254,25 @@ class Settings(BaseSettings):
         # A ``ValidationError`` from this model is echoed to stderr by ``cli`` and quoted in
         # ``doctor``'s ``settings_valid`` row, and pydantic's default error rendering carries
         # the offending *input* -- for a model-level validator, the whole raw input mapping,
-        # secrets included (``ui_password`` and ``reddit_client_secret`` arrive as plain
+        # secrets included (``ui_password`` and the three Reddit credentials arrive as plain
         # strings and are only wrapped in ``SecretStr`` afterwards). "Never log credentials"
         # is unconditional, so the inputs stay out of the message; every error still names
         # its field, which is what the messages are read for.
         hide_input_in_errors=True,
     )
 
-    reddit_client_id: str = ""
+    # All three Reddit credentials are ``SecretStr``, the client id and the account name
+    # included: ``non_secret_settings`` defines "secret" structurally, as "annotated
+    # ``SecretStr``", so a credential declared ``str`` is inside the mapping every run row
+    # stores (``runs.settings_json``, revision 0005) and inside the digest's settings diff,
+    # which prints the old and new value of every key that changed. The OAuth client id
+    # identifies the operator's app and ``reddit_username`` identifies the operator, so both
+    # are credential material under irreversible rule 2 and neither belongs in a run row, a
+    # backup, or a screenshot (KI-046). Unwrapped only where the value is used: the adapter's
+    # construction, ``doctor``'s presence check, and :func:`user_agent`.
+    reddit_client_id: SecretStr = SecretStr("")
     reddit_client_secret: SecretStr = SecretStr("")
-    reddit_username: str = ""
+    reddit_username: SecretStr = SecretStr("")
     data_dir: Path = Field(default_factory=default_data_dir)
     settings_file: Path = Field(default_factory=default_settings_file)
     ui_password: SecretStr | None = None
@@ -412,7 +421,10 @@ def settings_fingerprint(settings: Settings) -> str:
 
 
 def user_agent(settings: Settings, version: str) -> str:
-    """Reddit API user agent: ``python:<app_id>:v<version> (by /u/<username>)``."""
-    return (
-        f"python:{settings.static.user_agent_app_id}:v{version} (by /u/{settings.reddit_username})"
-    )
+    """Reddit API user agent: ``python:<app_id>:v<version> (by /u/<username>)``.
+
+    The account name is unwrapped here because Reddit's API rules require it in the header;
+    this is the string PRAW sends, never a string this project logs or renders (KI-046).
+    """
+    account = settings.reddit_username.get_secret_value()
+    return f"python:{settings.static.user_agent_app_id}:v{version} (by /u/{account})"

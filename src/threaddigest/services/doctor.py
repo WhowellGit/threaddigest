@@ -487,14 +487,18 @@ def check_lock_not_stale(
 
 def check_credentials_present(settings: Settings) -> Check:
     """The three Reddit credentials are non-empty. **Presence only, never validated** --
-    validating them is a network call, and this list makes none."""
+    validating them is a network call, and this list makes none.
+
+    All three are ``SecretStr`` (KI-046), so each is unwrapped here only to be measured: the
+    detail below names the empty *fields* and never a value.
+    """
     name = "credentials_present"
     missing = [
         field
         for field, value in (
-            ("reddit_client_id", settings.reddit_client_id),
+            ("reddit_client_id", settings.reddit_client_id.get_secret_value()),
             ("reddit_client_secret", settings.reddit_client_secret.get_secret_value()),
-            ("reddit_username", settings.reddit_username),
+            ("reddit_username", settings.reddit_username.get_secret_value()),
         )
         if not value.strip()
     ]
