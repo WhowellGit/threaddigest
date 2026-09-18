@@ -12,7 +12,7 @@ Also changed, outside the review-required list: `tests/conftest.py`, `pyproject.
 `2026-09-17-code-panel-since-baseline.md`, dispatched to this round by its disposition:
 seat A's A1 and A10, seat C's C-2, C-3(b), C-3(c), C-7 and C-9, plus the tightening that the
 private-term list's own record (`2026-09-17-private-term-list.md`) named as available. Each
-landed with a known-issues row (KI-045 to KI-049), a widened guards row rather than a new guard
+landed with a known-issues row (KI-051 to KI-055), a widened guards row rather than a new guard
 id (G02, G05, G19, G35, G44, G51), and a positive control. The reasoning is in
 `docs/decisions/DECISIONS.md` § 2026-09-17 (the gates).
 
@@ -20,27 +20,27 @@ id (G02, G05, G19, G35, G44, G51), and a positive control. The reasoning is in
 hypothesis until it has been seen failing, so every one of the six was run against the defect it
 exists to catch, before and after:
 
-1. *The routing gate* (KI-045). The pre-fix rule — resolving a pointer with `Path.exists` — was
+1. *The routing gate* (KI-051). The pre-fix rule — resolving a pointer with `Path.exists` — was
    put back in place and the gate itself plus all four controls went red; restored, all eleven
    tests in the file are green. The gate had already been observed red on the unmodified tree in
    this worktree, which is the birth incident rather than a control.
-2. *The dynamic-import ban* (KI-046). `ruff check` under the repository's own configuration on a
+2. *The dynamic-import ban* (KI-052). `ruff check` under the repository's own configuration on a
    copy of `services/collect.py` with the panel's own planted line appended: one `TID251`
    finding naming `importlib.import_module`, and none on the unmodified copy. The AST scanner's
    control plants the two spellings ruff cannot reach — `__import__`, and an `import_module`
    inside `db/`, where `TID251` is lifted for the engine chokepoint.
-3. *The write guard* (KI-047). A child pytest run with only `tests/conftest.py` loaded as a
+3. *The write guard* (KI-053). A child pytest run with only `tests/conftest.py` loaded as a
    plugin, on a planted test writing one directory outside its temp tree: the run fails naming
    the path, and the file was never created — the guard refuses the write rather than reporting
    it afterwards. The same write inside `tmp_path` passes, so the finding is the location. The
    whole suite is green and silent with the fixture on, which is the other half of the claim: a
    guard that is noisy is a guard that gets removed.
-4. *The below-head prefix* (KI-048). A head-model read of `runs.warnings_json`, a column
+4. *The below-head prefix* (KI-054). A head-model read of `runs.warnings_json`, a column
    revision 0005 added and no committed fixture has, was planted inside `_table_counts_json` —
    one of the two statements KI-039's hand-written list did not name. All four parametrised
    cases went red with `no such column: runs.warnings_json`; restored, all four are green. The
    same plant is kept as a monkeypatched control in the file.
-5. *The dead-code passes* (KI-049). With the product pass removed, the new control's assertion
+5. *The dead-code passes* (KI-055). With the product pass removed, the new control's assertion
    that a source symbol reached only from a test is counted went red, and the two assertions
    about the harness pass stayed green — so the control distinguishes the two passes rather than
    asserting that vulture runs. The measurement moved from 0 to 29.
