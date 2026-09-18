@@ -56,6 +56,7 @@ import os
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, get_args
 
 import yaml
@@ -65,6 +66,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 __all__ = [
     "ALLOW_REAL_DATA_DIR",
+    "FROM_ENVIRONMENT",
     "SANCTIONED_ENVIRONMENT_VARIABLES",
     "BudgetSettings",
     "CommentsSettings",
@@ -124,6 +126,17 @@ def default_data_dir() -> Path:
 def default_settings_file() -> Path:
     """The static settings file used when ``THREADDIGEST_SETTINGS_FILE`` is not set."""
     return _REPO_ROOT / "config" / "settings.yaml"
+
+
+#: The keyword arguments production code passes to ``Settings()``: none. It exists only so
+#: mypy sees a ``**kwargs`` call -- ``Settings.static`` is filled by the
+#: ``config/settings.yaml`` settings source, which pydantic-settings installs at runtime and
+#: mypy cannot see, so a bare ``Settings()`` reads as a missing required argument even though
+#: passing one is exactly what production code must never do. One home, in the module that
+#: owns the class: ``cli`` and ``services.doctor`` each declared their own until 2026-09-17
+#: (the code panel's cut list), and two copies of one workaround is two places to explain it.
+#: Read-only, so a caller cannot quietly make it non-empty.
+FROM_ENVIRONMENT: Final[Mapping[str, Any]] = MappingProxyType({})
 
 
 def _pytest_is_loaded() -> bool:

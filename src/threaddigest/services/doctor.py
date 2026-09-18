@@ -42,7 +42,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 import yaml
 from pydantic import ValidationError
@@ -57,7 +57,12 @@ from threaddigest.db.engine import db_path_for, engine_for
 from threaddigest.db.schema_dump import SCHEMA_SQL, dump_schema, fingerprint
 from threaddigest.ports import AuthFailed, Clock, GatewayError, Limits, RateLimited, RedditGateway
 from threaddigest.services import lock
-from threaddigest.settings import DataDirRefusedError, Settings, settings_fingerprint
+from threaddigest.settings import (
+    FROM_ENVIRONMENT,
+    DataDirRefusedError,
+    Settings,
+    settings_fingerprint,
+)
 
 __all__ = [
     "MIN_FREE_BYTES",
@@ -108,13 +113,6 @@ TCC_RELATIVE_PATHS: Final[tuple[Path, ...]] = (
 #: ``repo.running_runs`` excludes one pk; ``doctor`` is a reader with no run of its own, so
 #: it excludes a pk no row can have. (Autoincrement pks start at 1.)
 _NO_RUN_PK: Final = 0
-
-#: The keyword arguments :func:`check_settings_valid` passes to ``Settings()``: none.
-#: It exists only so mypy sees a ``**kwargs`` call. ``Settings.static`` is filled by the
-#: ``config/settings.yaml`` settings source, which pydantic-settings installs at runtime and
-#: mypy cannot see, so a bare ``Settings()`` reads to mypy as a missing required argument
-#: even though passing one is exactly what production code must never do.
-_FROM_ENVIRONMENT: Final[dict[str, Any]] = {}
 
 _DURATION_RE: Final = re.compile(r"(\d+)([smhd])")
 _DURATION_UNITS: Final[dict[str, int]] = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -194,7 +192,7 @@ def check_settings_valid() -> Check:
     """
     name = "settings_valid"
     try:
-        resolved = Settings(**_FROM_ENVIRONMENT)
+        resolved = Settings(**FROM_ENVIRONMENT)
         digest = settings_fingerprint(resolved)
     except (ValidationError, DataDirRefusedError, yaml.YAMLError, OSError, TypeError) as exc:
         return Check(
@@ -918,7 +916,9 @@ def run_checks(
     max_age_seconds = parse_duration(alert_if_stale)
     now = clock.now()
     db_path = db_path_for(settings.data_dir)
-    lock_path = settings.data_dir / "locks" / "collector.lock"
+    # The collector's own spelling, not a second one: a doctor probing a different path than
+    # the collector takes would report the lock free during a run.
+    lock_path = lock.lock_path_for(settings.data_dir)
     present = check_database_present(db_path)
     checks: list[Check] = [
         check_settings_valid(),

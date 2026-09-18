@@ -2,7 +2,12 @@
 
 Every notifier's ``notify()`` returns None and never raises: alerting is best-effort and a
 broken alert path must not turn a partial run into a crashed one. ``MacNotifier.send()``
-exposes the delivery result as a bool for ``threaddigest notify --test`` and ``doctor``.
+exposes the delivery result as a bool, and ``last_ok`` keeps the last one, so a caller that
+wants to know whether a banner actually reached Notification Center can ask; the bookkeeping
+is read today by ``tests/adapters/test_clock_notify.py`` and is what a future health check
+would read. This sentence used to justify it by a notify sub-command with a test flag, which
+was never built and is named nowhere else (the code panel's cut list, 2026-09-17); the CLI's
+commands are ``run``, ``doctor``, ``serve``, ``db``, ``config`` and ``probe``.
 """
 
 from __future__ import annotations

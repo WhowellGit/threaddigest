@@ -9,6 +9,7 @@ than skipped.
 
 from __future__ import annotations
 
+import ast
 import time
 from pathlib import Path
 
@@ -141,3 +142,69 @@ def test_is_held_with_an_existing_parent_but_no_lock_file_does_not_create_the_fi
     assert lock.is_held(lock_path) is False
 
     assert not lock_path.exists()
+
+
+# --- one lock path, one spelling (the 2026-09-17 code panel's cut list, seat B § 4) -----------
+
+SRC = Path(__file__).resolve().parents[2] / "src" / "threaddigest"
+LOCK_MODULE = SRC / "services" / "lock.py"
+
+
+def _code_strings_naming_the_lock(source: str) -> list[int]:
+    """Line numbers of string literals holding ``collector.lock`` in *code*, not in prose.
+
+    Docstrings are string expressions and are excluded on purpose: prose may name the path
+    (``services/migrate.py``'s own docstring does), while a second *construction* of it is
+    what this scan exists to catch.
+    """
+    tree = ast.parse(source)
+    prose = {
+        id(node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    return sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and "collector.lock" in node.value
+        and id(node) not in prose
+    )
+
+
+def test_only_services_lock_names_the_lock_file_in_code() -> None:
+    """`cli`, `services.migrate` and `services.doctor` each built this path themselves until
+    2026-09-17. The duplication was load-bearing, not cosmetic: a ``doctor`` probing a
+    different path than the collector takes would report the lock free during a run.
+    """
+    offenders = {
+        str(path.relative_to(SRC))
+        for path in sorted(SRC.rglob("*.py"))
+        if _code_strings_naming_the_lock(path.read_text(encoding="utf-8"))
+    }
+
+    assert offenders == {str(LOCK_MODULE.relative_to(SRC))}, offenders
+
+
+def test_positive_control_a_second_spelling_is_found_and_prose_is_not() -> None:
+    """The scan is not vacuous, and it is not a plain ``grep`` either."""
+    planted = 'def f(d):\n    return d / "locks" / "collector.lock"\n'
+    assert _code_strings_naming_the_lock(planted) == [2]
+
+    prose_only = '"""The flock lives at data/locks/collector.lock."""\n'
+    assert _code_strings_naming_the_lock(prose_only) == []
+
+
+def test_every_caller_takes_the_lock_path_from_the_one_definition(tmp_path: Path) -> None:
+    """The three callers and the definition agree, asserted through their own accessors."""
+    from threaddigest.cli import _lock_path as cli_lock_path
+    from threaddigest.services.migrate import _lock_path as migrate_lock_path
+    from threaddigest.settings import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    expected = tmp_path / lock.LOCK_RELATIVE_PATH
+
+    assert lock.lock_path_for(settings.data_dir) == expected
+    assert cli_lock_path(settings) == expected
+    assert migrate_lock_path(settings) == expected

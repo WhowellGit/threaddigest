@@ -142,7 +142,8 @@ class MigrationOutcome:
 
 
 def _lock_path(settings: Settings) -> Path:
-    return settings.data_dir / "locks" / "collector.lock"
+    """The collector lock, from the one definition in :mod:`threaddigest.services.lock`."""
+    return lock.lock_path_for(settings.data_dir)
 
 
 def create_data_tree(data_dir: Path) -> None:

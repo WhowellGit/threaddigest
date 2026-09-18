@@ -31,7 +31,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Final
 
 import typer
 import uvicorn
@@ -57,6 +57,7 @@ from threaddigest.services import invariants, lock, runs
 from threaddigest.services import migrate as migrate_service
 from threaddigest.services import probe as probe_service
 from threaddigest.settings import (
+    FROM_ENVIRONMENT,
     DataDirRefusedError,
     Settings,
     default_data_dir,
@@ -84,9 +85,6 @@ probe_app = typer.Typer(no_args_is_help=True, help="Dump Reddit's wire JSON (the
 app.add_typer(db_app, name="db")
 app.add_typer(config_app, name="config")
 app.add_typer(probe_app, name="probe")
-
-#: The lock every mutating command takes, relative to the data directory (§12.2).
-LOCK_RELATIVE_PATH: Final = Path("locks") / "collector.lock"
 
 _LOCK_HELD_MESSAGE: Final = "another process holds the collector lock; nothing was collected"
 
@@ -192,14 +190,6 @@ def build_notifier() -> Notifier:
 # --- shared plumbing ---------------------------------------------------------------------------
 
 
-#: The keyword arguments :func:`_settings` passes to ``Settings()``: none. It exists only so
-#: mypy sees a ``**kwargs`` call -- ``Settings.static`` is filled by the ``config/settings.yaml``
-#: settings source, which pydantic-settings installs at runtime and mypy cannot see, so a bare
-#: ``Settings()`` reads as a missing required argument even though passing one is exactly what
-#: production code must never do. The same constant exists in ``services/doctor.py``.
-_FROM_ENVIRONMENT: Final[dict[str, Any]] = {}
-
-
 def _settings() -> Settings:
     """Resolve settings, turning every refusal into a 78 (§11.3 step 1).
 
@@ -208,14 +198,15 @@ def _settings() -> Settings:
     on it cannot disagree about what "broken" means.
     """
     try:
-        return Settings(**_FROM_ENVIRONMENT)
+        return Settings(**FROM_ENVIRONMENT)
     except (ValidationError, DataDirRefusedError, yaml.YAMLError, OSError, TypeError) as exc:
         msg = f"settings did not resolve: {exc.__class__.__name__}: {exc}"
         raise ConfigError(msg) from exc
 
 
 def _lock_path(settings: Settings) -> Path:
-    return settings.data_dir / LOCK_RELATIVE_PATH
+    """The collector lock, from the one definition in ``services.lock``."""
+    return lock.lock_path_for(settings.data_dir)
 
 
 def _create_data_tree(data_dir: Path) -> None:

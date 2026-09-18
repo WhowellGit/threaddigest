@@ -38,19 +38,33 @@ from pathlib import Path
 from typing import Final
 
 __all__ = [
+    "LOCK_RELATIVE_PATH",
     "LOCK_RETRY_ATTEMPTS",
     "LOCK_RETRY_DELAY_SECONDS",
     "LockHeldError",
     "LockInfo",
     "acquire",
     "is_held",
+    "lock_path_for",
     "pid_alive",
 ]
+
+#: The collector lock file, relative to the resolved data directory (12.2). One spelling, in
+#: the module that owns the lock: `cli`, `services.migrate` and `services.doctor` each built
+#: this path themselves until 2026-09-17, and the duplication was load-bearing rather than
+#: cosmetic -- a `doctor` probing a different path than the collector takes would report the
+#: lock free during a run (the code panel's cut list, seat B section 4).
+LOCK_RELATIVE_PATH: Final = Path("locks") / "collector.lock"
 
 #: Non-blocking ``flock`` attempts before ``acquire`` declares the lock held.
 LOCK_RETRY_ATTEMPTS: Final = 3
 #: Pause between those attempts; ``(attempts - 1) * delay`` is the worst case (<= 100 ms).
 LOCK_RETRY_DELAY_SECONDS: Final = 0.05
+
+
+def lock_path_for(data_dir: Path) -> Path:
+    """The collector lock inside ``data_dir``: the only way any caller names this file."""
+    return data_dir / LOCK_RELATIVE_PATH
 
 
 @dataclass(frozen=True, slots=True)
