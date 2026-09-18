@@ -751,6 +751,28 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   **Revisit when:** a third instance appears, at which point the pattern is worth a gate that
   flags a test fixture writing into the package under test.
 
+## 2026-09-18 (renumber tool) — a renumber is a mirrors sweep, not a collision guard
+
+- **D-42, the known-issue renumber tool corrects a renumber; it does not prevent a collision
+  (main session, 2026-09-18).** The incident
+  (`docs/reference/reviews/2026-09-17-renumber-sweep-incident.md`): two agents in separate
+  worktrees each claimed the same next-free `KI-` id on 2026-09-17, and the hand renumber that
+  followed moved only the two citations a gate had named, leaving three pointing a reader at the
+  wrong incident. `tools/renumber_known_issue.py` is the remedy the record asks for: a renumber
+  is now a mirrors sweep performed by one tool over every citation the tracked-file set yields,
+  in one pass, never a hand edit that stops where a gate stopped. A reference record under
+  `docs/reference/reviews/` is deliberately excluded from the sweep — it is never rewritten after
+  it lands, so the tool skips that directory and reports how many citations of the old id it left
+  there, so the operator knows what still reads it on purpose. Considered and **not adopted**:
+  the cheaper prevention of assigning the id when the work lands rather than while a brief is
+  written, which would remove the collision at its source rather than correct it after the fact.
+  Declined because it would change every brief written under this working agreement (an id would
+  not be citable until the work landed, which is not how a brief cites the row it is fixing), for
+  a collision judged rare enough that a correct sweep is the cheaper fix. Stated plainly: this
+  tool does not prevent a collision, it only makes the correction complete once one has happened.
+  **Revisit when:** a renumber is needed often enough that the sweep itself becomes the
+  bottleneck, at which point assigning ids at landing time is worth the brief churn.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
