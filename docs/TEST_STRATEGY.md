@@ -121,10 +121,10 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | SS-06 | sub_recovery_clears_error_state_after_complete_sweep | service | M1a | M | shipped | tests/services/test_sweep_status.py::test_complete_sweep_clears_status_failures_last_error_and_gap |
 | TE-01 | transient_page_error_outer_retry_backoff | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_transient_page_error_walks_the_30_120_300_ladder |
 | TE-02 | rate_limited_and_fatal_gateway_errors | service | M1a | H | shipped | tests/services/test_sweep_errors.py::test_rate_limited_waits_then_retries_once, ::test_auth_failed_aborts_the_run_with_78, ::test_html_403_aborts_the_run_not_the_subreddit |
-| TR-01 | tree_skip_when_num_comments_zero | service | M1b | H | planned | |
-| TR-02 | tree_more_accounting_and_per_post_cap | service | M1b | H | planned | cap is per fetch (ingest D-3), ruled 2026-09-17 (D-41) |
+| TR-01 | tree_skip_when_num_comments_zero | service | M1b | H | shipped | tests/services/test_trees.py::test_a_post_with_no_comments_skips_the_fetch_and_still_advances_the_ladder; the ladder advance is the half that bites, and it was watched red against the one-call form of `core.milestones.next_check`, which re-writes the rung just checked |
+| TR-02 | tree_more_accounting_and_per_post_cap | service | M1b | H | shipped | cap is per fetch (ingest D-3), ruled 2026-09-17 (D-41); tests/services/test_trees.py::test_unexpanded_stubs_land_in_comment_more_with_their_reason, ::test_the_per_post_cap_stops_expansion_before_replace_more_limit, ::test_a_budget_stop_mid_tree_commits_what_was_fetched (the third reason `more_skipped_reason` exists to tell apart) |
 | TR-03 | tree_crash_mid_tree_nothing_committed | e2e | M1b | H | planned | |
-| TR-04 | tree_budget_reserve_newest_first | service | M1b | H | planned | |
+| TR-04 | tree_budget_reserve_newest_first | service | M1b | H | shipped | tests/services/test_trees.py::test_the_queue_drains_newest_first_and_stops_at_the_reserve; the reserve half is controlled by ::test_the_hard_cap_is_never_crossed_by_the_tree_stage, both watched red with the affordability guard held out |
 | TR-05 | tree_missing_known_comments_checked_via_info | service | M1c | H | planned | |
 | RV-01 | ladder_pure_never_null | unit+hypothesis | M1a | H | shipped | ladder gains a 365-day stage; `next_check_at` is never a far-future sentinel; tests/unit/test_milestones.py::test_never_none_and_always_after_creation, ::test_default_ladder_matches_plan |
 | RV-02 | ladder_advances_on_complete_refetch_skew_safe | service | M1c | H | planned | clock-skew claim scoped per ingest D-2 |

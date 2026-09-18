@@ -664,6 +664,39 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   as unenforced. **Revisit when:** the scrub service lands (M1c) and needs the same guard on a
   second path, which is the moment to ask whether the ownership table should carry the state
   rather than each row naming it.
+- **D-42, the revisit ladder's two columns, settled by the tree stage (2026-09-17).**
+  `posts.check_stage` counts the checks *performed* and `posts.next_check_at` is the rung that
+  count schedules. It is the invariant the sweep's insert already establishes — discovery writes
+  stage 0 with rung 0 pending, deliberately not stage 1 — and the tree stage keeps it by taking
+  the new timestamp from the *new* stage rather than from the same `core.milestones.next_check`
+  call that yields the stage. Writing both halves of one call, which is how the M1b design memo's
+  § C.2 sentence reads, re-writes the rung just checked and leaves the post due at the moment it
+  was already due, so every post would be fetched twice at its first rung; TR-01 was watched red
+  against exactly that. The self-draining property the plan's step 3 describes is unaffected: a
+  backfilled post whose early rungs are all in the past still advances one rung per check and
+  never skips to the 365-day rung. **Revisit when:** the ladder stops deriving from `created_utc`,
+  or a stage other than the tree stage performs a check (M1c's reconcile is the candidate, and
+  the question then is which stage owns the increment).
+- **D-43, the due queue is one read, and the retry ladder is one function (2026-09-17).** Two
+  shapes the tree stage forced, both recorded because each moved a landed surface. `repo.due_posts`
+  returns a `DuePost` row carrying `created_utc`, `check_stage` and `num_comments` beside the pk:
+  the stage cannot advance the ladder or decide the skip without them, `services/` may not build
+  SQL, and a per-post read of two integers would be one statement per tree for the life of the
+  backfill. The order, the range and DB-08's asserted plan are unchanged. And the 429 rule, the
+  30/120/300 ladder, the auth and HTML aborts and the closing budget sync — `sweep.fetch_page`'s
+  body — moved to `runs.fetch_with_ladder`, which the sweep and the tree stage both call with
+  their own unit of work and heartbeat label: a second copy would have been a second rule, and
+  N-20's two concrete uses arrived the day the tree stage did. **Revisit when:** a third caller
+  needs a different failure policy (reconcile's `info()` batches at M1c are the candidate), which
+  is the moment to ask whether the policy belongs in the argument rather than the function.
+- **A tree's `comments_captured` is what that fetch wrote, not what the store holds
+  (2026-09-17).** The stage can know the first from its own transaction; the second needs a
+  per-post `COUNT(*)` that no repository read offers and that a service may not write. The two
+  agree on every first fetch, which is the whole backfill, and diverge only when a re-fetch
+  returns fewer comments than the store holds — the deleted-leaf case Reddit produces and M1c's
+  `info()` re-check owns (TR-05). **Revisit when:** the `comments_captured` invariant is written
+  (M1b's invariant brief), which must either compare against the rows the fetch wrote or wait for
+  M1c's re-check; and again at M1c, when a stale row can be retired rather than tolerated.
 
 ## 2026-09-17 (panel fix round B) — deployment and data safety, and what a green gate did not cover
 
