@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import ClassVar, Final, Protocol
@@ -30,9 +30,16 @@ from sqlalchemy import Connection, Engine
 
 from threaddigest import __version__
 from threaddigest.core.budget import Budget
-from threaddigest.core.retry import RunStatus
+from threaddigest.core.retry import (
+    ExitCode,
+    Outcome,
+    RetryPolicy,
+    RunStatus,
+    classify,
+    plan_rate_limit_wait,
+)
 from threaddigest.db import migrate, repo
-from threaddigest.ports import Clock, RedditGateway
+from threaddigest.ports import Clock, GatewayError, HtmlBlocked, RateLimited, RedditGateway
 from threaddigest.services import lock
 from threaddigest.settings import Settings, settings_fingerprint, settings_json
 
@@ -49,6 +56,7 @@ __all__ = [
     "SeverityCarrier",
     "StaleSweep",
     "dry_context",
+    "fetch_with_ladder",
     "finish_run_from",
     "heartbeat",
     "resolve_status",
@@ -83,11 +91,24 @@ SEVERITY_WARNING: Final = "warning"
 
 @dataclass(slots=True)
 class Counters:
-    """The closed set of run counters. Serialized verbatim to ``runs.counters_json``."""
+    """The closed set of run counters. Serialized verbatim to ``runs.counters_json``.
+
+    The tree stage's five (``comments_updated``, ``trees_fetched``, ``trees_complete``,
+    ``trees_skipped_empty``, ``more_stubs``) are folded from a committed tree's own result,
+    as ``comments_new`` is: ``comments_new`` is tied to the ``comments`` table's delta by
+    :data:`DELTA_COUNTER_FOR_TABLE`, which is a FAILURE invariant, so a counter raised before
+    its transaction commits would report the collector as broken on what is really lock
+    contention (P0-2).
+    """
 
     posts_new: int = 0
     posts_updated: int = 0
     comments_new: int = 0
+    comments_updated: int = 0
+    trees_fetched: int = 0
+    trees_complete: int = 0
+    trees_skipped_empty: int = 0
+    more_stubs: int = 0
     rejects: int = 0
     unknown_enum_values: int = 0
     scrubs_pending: int = 0
@@ -100,6 +121,11 @@ class Counters:
         "posts_new",
         "posts_updated",
         "comments_new",
+        "comments_updated",
+        "trees_fetched",
+        "trees_complete",
+        "trees_skipped_empty",
+        "more_stubs",
         "rejects",
         "unknown_enum_values",
         "scrubs_pending",
@@ -485,6 +511,73 @@ def heartbeat(ctx: RunContext, *, stage: str | None = None) -> None:
     ctx._last_heartbeat_at = now
     if stage is not None:
         ctx._last_stage = stage
+
+
+def fetch_with_ladder[T](
+    ctx: RunContext,
+    fetch: Callable[[], T],
+    *,
+    gateway: RedditGateway,
+    label: str,
+    policy: RetryPolicy,
+) -> T:
+    """Call ``fetch`` with the transient ladder, the 429 rule and the budget sync around it.
+
+    One unit of work -- a listing page, a comment tree -- retried on ``policy``'s ladder and
+    given up on when the ladder is walked. ``label`` names the unit in the heartbeat stage
+    (``retry:premiere:30s``, ``retry:tree:1abc2d:30s``), so a pause is never mistaken for a
+    hang (D-7).
+
+    Four outcomes leave through :class:`RunTerminalError`, i.e. end the whole run: a second
+    429 on the same unit, a 429 whose window does not fit inside the wall-clock ceiling, an
+    ``AuthFailed`` (exit 78, §9) and an ``HtmlBlocked``; a ``network_down`` that exhausts the
+    ladder is the fifth. Everything else -- a per-source or per-post fatal, and a transient
+    that exhausts the ladder -- is re-raised as itself for the caller to scope (§6.2 note 7).
+
+    The one-retry rule for a 429 is deliberate: a second 429 on the same unit means Reddit is
+    not honouring the window, and the run ends ``rate_limited`` (exit 4) rather than burning
+    the wall-clock ceiling. The abort comes **first**, before the wait, so a decision already
+    made does not cost up to 300 s of the ceiling (§8's error table, panel P2-1).
+
+    It lives here rather than in ``services/sweep.py`` because the sweep and the tree stage
+    are two callers of one rule, and a second copy of the ladder is a second rule: this is
+    the function ``sweep.fetch_page`` was, lifted the moment M1b gave it its second use
+    (N-20's two concrete uses).
+    """
+    attempt = 1
+    rate_limited_once_already = False
+    while True:
+        try:
+            return fetch()
+        except RateLimited as exc:
+            if rate_limited_once_already:
+                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
+            wait = plan_rate_limit_wait(exc.retry_after, ctx.remaining_ceiling_seconds)
+            if not wait.should_wait:
+                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
+            heartbeat(ctx, stage=wait.stage)  # written BEFORE the sleep (§12.4)
+            ctx.clock.sleep(wait.seconds)
+            rate_limited_once_already = True
+        except HtmlBlocked as exc:
+            raise RunTerminalError(RunStatus.FAILED, detail=f"html 403: {exc}") from exc
+        except GatewayError as exc:
+            outcome = classify(exc)
+            if outcome is Outcome.AUTH:
+                raise RunTerminalError(
+                    RunStatus.FAILED, detail=f"auth: {exc}", exit_code=ExitCode.CONFIG
+                ) from exc
+            if outcome not in {Outcome.TRANSIENT, Outcome.NETWORK_DOWN}:
+                raise  # fatal for this unit of work; the caller scopes it
+            delay = policy.next_delay(attempt)
+            if delay is None:
+                if outcome is Outcome.NETWORK_DOWN:
+                    raise RunTerminalError(RunStatus.NETWORK, detail=str(exc)) from exc
+                raise  # transient give-up: this unit of work only
+            heartbeat(ctx, stage=f"retry:{label}:{int(delay)}s")
+            ctx.clock.sleep(delay)
+            attempt += 1
+        finally:
+            sync_budget(ctx, gateway)  # §6.6: a give-up, a 429, a 403 and a crash all pay
 
 
 def sync_budget(ctx: RunContext, gateway: RedditGateway) -> int:

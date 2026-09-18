@@ -51,6 +51,7 @@ __all__ = [
     "AuthorWrite",
     "BackupInsert",
     "CommentWrite",
+    "DuePost",
     "MoreWrite",
     "PostWrite",
     "PriorComment",
@@ -192,6 +193,22 @@ class PostWrite:
     author_state: str
     misses: int
     raw_json: str
+
+
+@dataclass(frozen=True, slots=True)
+class DuePost:
+    """One row of the revisit queue: what the tree stage plans and stamps one post with.
+
+    ``num_comments`` decides the skip and is never a completeness check (it counts deleted
+    items); ``created_utc`` and ``check_stage`` are the ladder's two inputs, so the stage
+    can stamp a post's next check without a second read. See :func:`due_posts`.
+    """
+
+    pk: int
+    reddit_id: str
+    created_utc: int
+    check_stage: int
+    num_comments: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1446,8 +1463,8 @@ def known_posts_in_window(
     ]
 
 
-def due_posts(conn: Connection, *, now: int, limit: int) -> list[tuple[int, str]]:
-    """``(pk, reddit_id)`` for the posts the revisit ladder makes due, newest discussion first.
+def due_posts(conn: Connection, *, now: int, limit: int) -> list[DuePost]:
+    """The posts the revisit ladder makes due, newest discussion first.
 
     ``next_check_at <= now`` is the range, which SQLite serves from
     ``ix_posts_next_check_at``; ``created_utc DESC`` is the order, which it sorts on top of
@@ -1459,15 +1476,41 @@ def due_posts(conn: Connection, *, now: int, limit: int) -> list[tuple[int, str]
     the queue oldest-thread-first -- the reverse of what a backfill is for (plan § Collector
     algorithm step 2; KI-044). At the few thousand posts this store holds the sort costs
     nothing, so it is paid rather than bought off with a second index and a migration.
+
+    The row carries everything the tree stage decides with, so draining the queue is one
+    read: ``num_comments`` for the skip (memo § C.3), and ``created_utc`` with
+    ``check_stage`` for the ladder the attempt leaves behind (§ C.2). They are on the row
+    rather than fetched per post because ``services/`` may not build SQL (see
+    :func:`floor_population`) and a per-post read of two integers would be one statement per
+    tree for the life of the backfill.
     """
     posts = _table("posts")
-    rows = conn.execute(
-        select(posts.c.pk, posts.c.reddit_id)
-        .where(posts.c.next_check_at <= now)
-        .order_by(posts.c.created_utc.desc())
-        .limit(limit)
-    ).all()
-    return [(int(pk), str(reddit_id)) for pk, reddit_id in rows]
+    rows = (
+        conn.execute(
+            select(
+                posts.c.pk,
+                posts.c.reddit_id,
+                posts.c.created_utc,
+                posts.c.check_stage,
+                posts.c.num_comments,
+            )
+            .where(posts.c.next_check_at <= now)
+            .order_by(posts.c.created_utc.desc())
+            .limit(limit)
+        )
+        .mappings()
+        .all()
+    )
+    return [
+        DuePost(
+            pk=int(row["pk"]),
+            reddit_id=str(row["reddit_id"]),
+            created_utc=int(row["created_utc"]),
+            check_stage=int(row["check_stage"]),
+            num_comments=int(row["num_comments"]),
+        )
+        for row in rows
+    ]
 
 
 def table_counts(conn: Connection, tables: Sequence[str]) -> dict[str, int]:

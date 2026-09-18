@@ -325,7 +325,7 @@ def test_due_posts_returns_only_posts_whose_next_check_at_has_passed(
 
     with engine.connect() as conn:
         due = due_posts(conn, now=now, limit=10)
-    assert [reddit_id for _pk, reddit_id in due] == ["duesoon"]
+    assert [row.reddit_id for row in due] == ["duesoon"]
 
 
 def test_recent_sweeping_runs_excludes_runs_that_swept_nothing(

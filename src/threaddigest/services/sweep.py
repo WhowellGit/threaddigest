@@ -58,7 +58,6 @@ from threaddigest.core.retry import (
     RetryPolicy,
     RunStatus,
     classify,
-    plan_rate_limit_wait,
 )
 from threaddigest.db import repo
 from threaddigest.db.ownership import IngestPath
@@ -894,48 +893,21 @@ def fetch_page(
 ) -> Page:
     """One page, with the transient ladder and the 429 rule around it.
 
-    The one-retry rule for 429 is deliberate: a second 429 on the same page means Reddit is
-    not honouring the window, and the run ends ``rate_limited`` (exit 4) rather than burning
-    the wall-clock ceiling. ``HtmlBlocked`` is converted here, so ``_page_loop``'s
-    ``except GatewayError`` can never swallow a run-level abort (§6.2 note 7).
+    The ladder itself is ``runs.fetch_with_ladder``, which the tree stage calls with the same
+    policy: the rule is one rule and lives in one place (it was this function's body until
+    M1b gave it its second caller). What stays here is the *unit of work*: one lazy
+    ``iter_new_pages`` call, re-created per attempt because a failure raised mid-iteration
+    cannot be retried on the same iterator (§6.1). ``HtmlBlocked`` and ``AuthFailed`` are
+    converted to ``RunTerminalError`` in there, so ``_page_loop``'s ``except GatewayError``
+    can never swallow a run-level abort (§6.2 note 7).
     """
-    attempt = 1
-    rate_limited_once_already = False
-    while True:
-        try:
-            return next(iter(gateway.iter_new_pages(name, max_pages=PAGES_PER_CALL, after=after)))
-        except RateLimited as exc:
-            # The abort comes FIRST: the run is over the moment the second 429 arrives, so
-            # waiting out its window before saying so would burn up to 300 s of the ceiling
-            # for a decision already made (§8's error table, panel P2-1).
-            if rate_limited_once_already:
-                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
-            wait = plan_rate_limit_wait(exc.retry_after, ctx.remaining_ceiling_seconds)
-            if not wait.should_wait:
-                raise RunTerminalError(RunStatus.RATE_LIMITED, detail=str(exc)) from exc
-            runs.heartbeat(ctx, stage=wait.stage)  # written BEFORE the sleep (§12.4)
-            ctx.clock.sleep(wait.seconds)
-            rate_limited_once_already = True
-        except HtmlBlocked as exc:
-            raise RunTerminalError(RunStatus.FAILED, detail=f"html 403: {exc}") from exc
-        except GatewayError as exc:
-            outcome = classify(exc)
-            if outcome is Outcome.AUTH:
-                raise RunTerminalError(
-                    RunStatus.FAILED, detail=f"auth: {exc}", exit_code=ExitCode.CONFIG
-                ) from exc
-            if outcome not in {Outcome.TRANSIENT, Outcome.NETWORK_DOWN}:
-                raise  # per-source fatal; `_page_loop` handles it
-            delay = policy.next_delay(attempt)
-            if delay is None:
-                if outcome is Outcome.NETWORK_DOWN:
-                    raise RunTerminalError(RunStatus.NETWORK, detail=str(exc)) from exc
-                raise  # transient give-up: this subreddit only
-            runs.heartbeat(ctx, stage=f"retry:{name}:{int(delay)}s")
-            ctx.clock.sleep(delay)
-            attempt += 1
-        finally:
-            runs.sync_budget(ctx, gateway)  # §6.6: a give-up, a 429, a 403 and a crash all pay
+    return runs.fetch_with_ladder(
+        ctx,
+        lambda: next(iter(gateway.iter_new_pages(name, max_pages=PAGES_PER_CALL, after=after))),
+        gateway=gateway,
+        label=name,
+        policy=policy,
+    )
 
 
 def preflight(ctx: RunContext, *, gateway: RedditGateway, source: repo.SubredditRow) -> None:

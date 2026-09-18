@@ -154,6 +154,10 @@ def test_the_due_queue_is_newest_first_among_due_posts(
     oldest post in the store would be collected first and the newest last. Seeded oldest-due
     first on purpose, so a queue that kept the shipped order would return exactly the reverse
     of what this asserts.
+
+    The row also carries what the tree stage plans and stamps with, so draining the queue is
+    one read: the skip's ``num_comments`` and the ladder's ``created_utc`` and ``check_stage``
+    (``services/trees.py``; memo § C.2, § C.3).
     """
     _seed_post(engine, "oldest", subreddit_pk, now, created=now - 30 * 86_400)
     _seed_post(engine, "middle", subreddit_pk, now, created=now - 10 * 86_400)
@@ -163,7 +167,15 @@ def test_the_due_queue_is_newest_first_among_due_posts(
     with engine.connect() as conn:
         due = due_posts(conn, now=now, limit=10)
 
-    assert [reddit_id for _pk, reddit_id in due] == ["newest", "middle", "oldest"]
+    assert [row.reddit_id for row in due] == ["newest", "middle", "oldest"]
+    assert [row.created_utc for row in due] == [
+        now - 2 * 86_400,
+        now - 10 * 86_400,
+        now - 30 * 86_400,
+    ]
+    assert {row.check_stage for row in due} == {0}  # nothing has been checked yet
+    assert {row.num_comments for row in due} == {POST_KWARGS["num_comments"]}
+    assert all(row.pk > 0 for row in due)
 
 
 # --- the comment upsert ----------------------------------------------------------------------
