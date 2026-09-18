@@ -665,6 +665,59 @@ Note (adversarial E16): SQLAlchemy exposes `ON CONFLICT DO UPDATE` per dialect (
   second path, which is the moment to ask whether the ownership table should carry the state
   rather than each row naming it.
 
+## 2026-09-17 (panel fix round B) — deployment and data safety, and what a green gate did not cover
+
+- **All three Reddit credentials are `SecretStr`, the client id and the account name included
+  (KI-046).** `non_secret_settings` defines "secret" structurally — every field annotated
+  `SecretStr` is excluded from the mapping the fingerprint hashes and a run row stores — and
+  that mechanism was right while two of its inputs were not typed as secrets, so the OAuth
+  client id and the operator's account name went onto every run row and onto the digest page
+  whenever either changed. The fix is the annotation, not a second list of credential names:
+  one definition of "secret" is what keeps the hash, the stored bytes and the rendered diff from
+  disagreeing, and a new credential is covered by being declared, not by being remembered. The
+  three values are unwrapped only where they are used — the adapter's construction, `doctor`'s
+  presence check, and the user agent Reddit's own rules require. **Revisit when:** a credential
+  has to be displayed to the operator (the M2 setup page), which is a rendering decision on top
+  of this one and not a reason to widen what is stored.
+- **A path an operator supplies is checked, not trusted (KI-047, KI-048).** Irreversible rule 1
+  was a sentence in two places where a supplied value decided a path: `probe --save-fixture NAME`
+  joined the name on, and `make fixture` was pointed at `data/demo.json`. Both are now refusals
+  keyed on the path rather than on pytest, so they hold in a plain shell as well as in the
+  suite, and both keep the opt-in the settings refusal already had
+  (`settings.ALLOW_REAL_DATA_DIR`, now one literal instead of two). The rule for tests that came
+  out of it: a guard about the real data directory is asserted against a stand-in directory, so
+  a regression cannot be reported by the test that caused it, and the real path is checked by a
+  predicate that cannot write. **Revisit when:** a third command takes a path from the operator,
+  which is the point at which the two checks should become one helper.
+- **The scheduled logs live under the resolved data directory; launchd's own two files are
+  rendered at install time (KI-049).** The wrapper resolves the directory after parsing `.env`
+  and says which one it resolved. launchd opens `StandardOutPath`/`StandardErrorPath` itself,
+  before the wrapper starts, so those cannot be resolved at run time: they are substituted by
+  `install.sh` from the same function the wrapper uses, and the limitation this leaves — a
+  rendering is stale after a later move of the data directory — is stated in
+  `deploy/launchd/README.md` rather than left to be discovered. **Revisit when:** the log path is
+  written on the run row (the honest fix for the operator's "where did it go", which needs a
+  column and a page to show it).
+- **The response policy states the directives `default-src` does not cover (KI-050).**
+  `frame-ancestors`, `base-uri`, `form-action` and `object-src` are not fetch directives and do
+  not fall back, so they are spelled out, each exactly once, because in CSP the first occurrence
+  of a directive wins and a later one is ignored. Done before the routes that need it, since
+  M2's "Run now" and "Cancel" arrive inside this same header. **Revisit when:** the first POST
+  lands, which is also when the same-origin check and basic auth join it.
+- **What the round is really about: a mechanism can be green over the bug it exists to catch.**
+  Three of the six findings were invisible to a passing check rather than to a missing one. The
+  deployment gate wrote the `__main__` module production lacked onto `PYTHONPATH`, so thirty
+  tests proved the wrapper and nothing about the entry point, and both launchd jobs exited 1 on
+  their first line (KI-045). The header test compared each response against the constant that
+  produced it, which can only ever agree. `non_secret_settings` was sound for what it claimed and
+  the claim was narrower than the rule it was read as keeping. The practice this adds: **a
+  fixture that supplies the thing under test proves the harness, not the subject**, and a test
+  whose expectation is read from the code it tests states no contract. Both are review-only for
+  now — no scan distinguishes a fixture that stands in for production from one that stands
+  beside it — which is why they are written here rather than added to the rules table.
+  **Revisit when:** a third instance appears, at which point the pattern is worth a gate that
+  flags a test fixture writing into the package under test.
+
 ## Retired claims (machine-read)
 
 Read by `tests/gates/test_superseded_claims.py` (G34): any line of a live document (everything under `docs/` except `reference/`, `insights/`, and this file) that mentions one of these phrases must carry, on the same line, a retirement marker: a `D-NN`/`N-NN` id or a word such as cut, retired, superseded, downgraded, dropped, deferred, declined, replaced. Add a row whenever a decision retires a named mechanism. Keep phrases specific enough not to match legitimate live text.
