@@ -1457,7 +1457,7 @@ def due_posts(conn: Connection, *, now: int, limit: int) -> list[tuple[int, str]
     which is why it was shipped, but during the first backfill every post sits at stage 0, so
     ``next_check_at`` is ``created_utc`` plus a day for all of them and ordering by it drains
     the queue oldest-thread-first -- the reverse of what a backfill is for (plan § Collector
-    algorithm step 2; KI-041). At the few thousand posts this store holds the sort costs
+    algorithm step 2; KI-044). At the few thousand posts this store holds the sort costs
     nothing, so it is paid rather than bought off with a second index and a migration.
     """
     posts = _table("posts")

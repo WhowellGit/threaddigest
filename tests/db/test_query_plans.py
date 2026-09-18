@@ -128,7 +128,7 @@ def test_due_posts_uses_next_check_at_index(
     is asserted rather than tolerated: a plan that stopped using the index *or* one that
     silently grew a second sort is a change this test must show. Before 2026-09-17 the read
     ordered by ``next_check_at``, which needed no sort and drained the queue oldest first
-    (KI-041).
+    (KI-044).
     """
     with engine.begin() as conn:
         upsert_posts(conn, [_write("due1", subreddit_pk, now)], path=IngestPath.SUBREDDIT_NEW)
