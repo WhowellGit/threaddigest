@@ -183,10 +183,10 @@ Testing is layered, and the layer decides the approach: `core/` is strict TDD (e
 | ID | Name | Layer | Phase | Pri | Status | Reason if cut/changed |
 |---|---|---|---|---|---|---|
 | G01 | Exception-policy lint | gate | M0 | P1 | planned | |
-| G02 | Banned APIs (`TID251`) | gate | M0 | P1 | changed | widened 2026-09-17 (KI-046) to `importlib.import_module`, with one line-level exception in `tools/doc_policy.py`; `__import__` and the per-file lifts are covered by the AST scan `tests/gates/test_layering.py::test_no_module_in_the_package_imports_by_string` |
+| G02 | Banned APIs (`TID251`) | gate | M0 | P1 | changed | widened 2026-09-17 (KI-052) to `importlib.import_module`, with one line-level exception in `tools/doc_policy.py`; `__import__` and the per-file lifts are covered by the AST scan `tests/gates/test_layering.py::test_no_module_in_the_package_imports_by_string` |
 | G03 | mypy strict, `dmypy` whole tree in pre-commit | gate | M0 | P1 | planned | |
 | G04 | Layering (import-linter) | gate | M0 | P1 | planned | |
-| G05 | External-package chokepoints | gate | M0 | P1 | changed | a dynamic import walked past the whole chokepoint (KI-046): both contracts and both scanners read import statements, and a module named by a string is not one; `tests/gates/test_layering.py::test_ruff_bans_a_dynamic_import_planted_in_a_copy_of_a_services_module` is the lint half's control |
+| G05 | External-package chokepoints | gate | M0 | P1 | changed | a dynamic import walked past the whole chokepoint (KI-052): both contracts and both scanners read import statements, and a module named by a string is not one; `tests/gates/test_layering.py::test_ruff_bans_a_dynamic_import_planted_in_a_copy_of_a_services_module` is the lint half's control |
 | G06 | Network block | gate | M0 | P1 | changed | extended across the subprocess seam (B4); a `Popen` child is not blocked by the plugin |
 | G07 | Warnings are errors | gate | M0 | P1 | planned | |
 | G08 | Static skip/xfail ratchet | gate | M0 | P1 | planned | |
